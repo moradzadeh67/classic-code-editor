@@ -1,0 +1,71 @@
+# ============================================================
+# .aiexclude - RetroDart IDE
+# Flutter macOS Desktop Project
+# ============================================================
+
+# ============================================================
+# 1. Sensitive Configuration & Secrets
+# ============================================================
+.env
+.env.*
+!.env.example
+*.jks
+*.keystore
+*.p12
+*.pem
+*.key
+*.crt
+key.properties
+secrets.*
+credentials.*
+
+# ============================================================
+# 2. Flutter / Dart Generated & Build Files
+# ============================================================
+build/
+.dart_tool/
+.packages
+.flutter-plugins
+.flutter-plugins-dependencies
+*.arb.json
+
+# ============================================================
+# 3. Generated Dart Code
+# ============================================================
+*.g.dart
+*.freezed.dart
+*.gr.dart
+
+# ============================================================
+# 4. IDE & Operating System Files
+# ============================================================
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# ============================================================
+# 5. Project-Specific Generated / Temporary Files
+# ============================================================
+.artifacts/
+*.tmp
+*.temp
+*.log
+*.bak
+*.swp
+*.swo
+
+# ============================================================
+# 6. macOS Build Output (NOT needed for agent)
+# ============================================================
+macos/Flutter/ephemeral/
+macos/Pods/
+macos/Runner.xcodeproj/project.xcworkspace/xcshareddata/
+macos/Runner.xcodeproj/xcuserdata/
+macos/Runner.xcworkspace/xcshareddata/
+
+# ============================================================
+# 7. Test / Coverage Generated Files
+# ============================================================
+coverage/
+*.lcov
