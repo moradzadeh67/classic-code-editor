@@ -58,16 +58,8 @@ class _ConsolePanelState extends State<ConsolePanel> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            mainAxisAlignment: MainAxisAlignment.end,
             children: [
-              Text(
-                'Console',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  color: ThemeService.instance.uiColors['text'],
-                ),
-              ),
-              const Spacer(),
               RetroButton(
                 onPressed: () {
                   setState(() {
@@ -101,7 +93,7 @@ class _ConsolePanelState extends State<ConsolePanel> {
                       fontFamily: 'Courier New',
                       color: isError
                           ? ThemeService.instance.uiColors['error']
-                          : const Color(0xFF000000),
+                          : const Color(0xFF1F7D00),
                     ),
                   );
                 },
@@ -109,26 +101,6 @@ class _ConsolePanelState extends State<ConsolePanel> {
             ),
           ),
           const SizedBox(height: 6),
-          ListenableBuilder(
-            listenable: widget.dartRunnerService,
-            builder: (context, _) {
-              final isRunning = widget.dartRunnerService.isRunning;
-              final exitCode = widget.dartRunnerService.exitCode;
-              String statusText = 'Ready';
-              if (isRunning) {
-                statusText = 'Running...';
-              } else if (exitCode != null) {
-                statusText = 'Finished (exit code: $exitCode)';
-              }
-              return Text(
-                statusText,
-                style: TextStyle(
-                  fontSize: 11,
-                  color: ThemeService.instance.uiColors['text'],
-                ),
-              );
-            },
-          ),
         ],
       ),
     );

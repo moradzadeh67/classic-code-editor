@@ -17,10 +17,10 @@
 | 08 | Tabs & Projects | ✅ DONE |
 | 09 | Dart Analyzer | ✅ DONE |
 | 10 | Dart LSP | ✅ DONE |
-| 11 | IDE Intelligence | ⬜ TODO |
-| 12 | Terminal | ⬜ TODO |
-| 13 | Debugger | ⬜ TODO |
-| 14 | Final Polish | ⬜ TODO |
+| 11 | IDE Intelligence | ✅ DONE |
+| 12 | Terminal | ✅ DONE |
+| 13 | Debugger | ✅ DONE |
+| 14 | Final Polish | ✅ DONE |
 
 ## Rule
 - Phases are sequential

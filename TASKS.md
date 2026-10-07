@@ -70,7 +70,7 @@
 ### TASK-007: File Management
 **Phase:** 07
 **Status:** ✅ DONE
-**Completed:** Created `FileService` (`lib/services/file_service.dart`) utilizing `file_picker` and `path_provider`, integrated with the code editor (showing modified indicator `*` and file name), toolbar ("Open", "Save"), and menu bar ("Save As").
+**Completed:** Created `FileService` (`lib/services/file_service.dart`) using `file_picker` and `path_provider`, integrated with the code editor (showing modified indicator `*` and file name), toolbar ("Open", "Save"), and menu bar ("Save As").
 
 ### TASK-008: Tabs & Projects
 **Phase:** 08
@@ -115,14 +115,36 @@
   and a protocol probe confirmed `initialize` -> `didOpen` -> diagnostics ->
   `didChange` -> updated diagnostics.
 
+### TASK-011: IDE Intelligence
+**Phase:** 11
+**Status:** ✅ DONE
+**Completed:**
+- Implemented client-side completion filtering and ranking in `CompletionFilter`.
+- Added LSP `filterText` and `displayLabel` support so signature labels (`print(...)`) display cleanly as `print`.
+- Fixed popup visibility gating: minimum 3-character prefix required before triggering autocomplete, debounced, with stale response discarding and out-of-focus dismissal.
+- Fixed hover tooltip interference (suppressed during typing and when autocomplete is visible).
+- Added auto-indentation on Enter, between-braces expansion, and closing bracket dedent.
+- Added automatic format on save (`dart format` via process stdin/stdout).
+- Verified clean `flutter analyze` (0 issues) and 26/26 unit checks passing.
+
+### TASK-012: Terminal
+**Phase:** 12
+**Status:** ✅ DONE
+**Completed:**
+- Created `TerminalService` (`lib/services/terminal_service.dart`) managing subprocess execution (`bash`/`cmd`), working directory tracking (`cd`), command output streaming, and command history (Up/Down arrow navigation).
+- Created `TerminalPanel` (`lib/ui/terminal/terminal_panel.dart`) featuring a retro 3D sunken terminal output area (black background with green monospace text), interactive command input, and clear action.
+- Added "Terminal" tab to bottom panel in `PanelLayout` alongside Console and Diagnostics.
+- Wired `TerminalService` in `IDEShell` with proper lifecycle management (`dispose`).
+- Verified clean `flutter analyze` (0 issues) and macOS debug build.
+
 ---
 
 ## Current Active Task
 
-### TASK-011: IDE Intelligence
-**Phase:** 11
+### TASK-013: Debugger
+**Phase:** 13
 **Status:** ⬜ TODO
 **Priority:** HIGH
 
 **Description:**
-Autocomplete, hover docs, and real-time diagnostics in the editor.
+Debugging support for running scripts with breakpoints/inspection.

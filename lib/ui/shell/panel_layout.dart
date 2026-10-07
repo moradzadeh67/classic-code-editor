@@ -1,15 +1,20 @@
 import 'package:flutter/material.dart';
 
 import '../../models/diagnostic.dart';
+import '../../models/debugger_models.dart';
 import '../../services/dart_runner_service.dart';
 import '../../services/analyzer_service.dart';
 import '../../services/lsp_service.dart';
 import '../../services/file_service.dart';
 import '../../services/theme_service.dart';
+import '../../services/base_debugger.dart';
 import '../editor/code_editor_panel.dart';
 import '../editor/tab_bar.dart';
 import '../console/console_panel.dart';
 import '../analyzer/diagnostics_panel.dart';
+import '../terminal/terminal_panel.dart';
+import '../debugger/debugger_sidebar.dart';
+import '../../services/terminal_service.dart';
 import '../retro/retro_border.dart';
 import 'vertical_splitter.dart';
 import 'horizontal_splitter.dart';
@@ -22,6 +27,8 @@ class PanelLayout extends StatefulWidget {
   final AnalyzerService analyzerService;
   final LspService lspService;
   final FileService fileService;
+  final TerminalService terminalService;
+  final BaseDebugger? debugger;
 
   const PanelLayout({
     super.key,
@@ -32,6 +39,8 @@ class PanelLayout extends StatefulWidget {
     required this.analyzerService,
     required this.lspService,
     required this.fileService,
+    required this.terminalService,
+    this.debugger,
   });
 
   @override
@@ -41,7 +50,7 @@ class PanelLayout extends StatefulWidget {
 class _PanelLayoutState extends State<PanelLayout> {
   double _explorerWidth = 200;
   double _consoleHeight = 150;
-  int _activeBottomTab = 0; // 0 for Console, 1 for Diagnostics
+  int _activeBottomTab = 0; // 0 for Console, 1 for Diagnostics, 2 for Terminal
 
   void _onExplorerResize(double delta) {
     setState(() {
@@ -55,8 +64,6 @@ class _PanelLayoutState extends State<PanelLayout> {
     });
   }
 
-  /// Real-time language-server diagnostics take precedence once connected;
-  /// otherwise we fall back to the one-shot `dart analyze` results.
   List<Diagnostic> get _mergedDiagnostics {
     if (widget.lspService.isConnected) {
       return widget.lspService.diagnostics;
@@ -77,10 +84,13 @@ class _PanelLayoutState extends State<PanelLayout> {
   @override
   Widget build(BuildContext context) {
     final showBottom = widget.showConsole || widget.showDiagnostics;
+    final showDebugger =
+        widget.debugger != null &&
+        (widget.debugger!.state != DebugState.inactive ||
+            widget.debugger!.breakpoints.isNotEmpty);
 
     return Container(
       color: ThemeService.instance.uiColors['background'],
-      // 4px right padding ensures the editor and console right borders are fully visible.
       padding: const EdgeInsets.fromLTRB(2, 2, 4, 2),
       child: Column(
         children: [
@@ -124,6 +134,12 @@ class _PanelLayoutState extends State<PanelLayout> {
                   VerticalSplitter(onDragUpdate: _onExplorerResize),
                   const SizedBox(width: 2),
                 ],
+                if (showDebugger) ...[
+                  DebuggerSidebar(debugger: widget.debugger!),
+                  const SizedBox(width: 2),
+                  VerticalSplitter(onDragUpdate: (delta) {}),
+                  const SizedBox(width: 2),
+                ],
                 // Editor area with TabBar above CodeEditorPanel
                 Expanded(
                   child: Column(
@@ -135,6 +151,7 @@ class _PanelLayoutState extends State<PanelLayout> {
                         child: CodeEditorPanel(
                           fileService: widget.fileService,
                           lspService: widget.lspService,
+                          debugger: widget.debugger,
                         ),
                       ),
                     ],
@@ -147,8 +164,6 @@ class _PanelLayoutState extends State<PanelLayout> {
             const SizedBox(height: 2),
             HorizontalSplitter(onDragUpdate: _onConsoleResize),
             const SizedBox(height: 2),
-            // Fixed-height bottom panel (NOT Expanded) so it always sits above
-            // the status bar and never overflows the bottom of the window.
             SizedBox(
               height: _consoleHeight,
               child: ListenableBuilder(
@@ -167,57 +182,53 @@ class _PanelLayoutState extends State<PanelLayout> {
   }
 
   Widget _buildBottomPanel() {
-    if (widget.showConsole && widget.showDiagnostics) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Container(
-            height: 22,
-            color: ThemeService.instance.uiColors['panel'],
-            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-            child: Row(
-              children: [
-                _buildTabButton('Console', _activeBottomTab == 0, () {
-                  setState(() => _activeBottomTab = 0);
-                }),
-                const SizedBox(width: 4),
-                _buildTabButton('Diagnostics', _activeBottomTab == 1, () {
-                  setState(() => _activeBottomTab = 1);
-                }),
-              ],
-            ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Container(
+          height: 22,
+          color: ThemeService.instance.uiColors['panel'],
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+          child: Row(
+            children: [
+              _buildTabButton('Console', _activeBottomTab == 0, () {
+                setState(() => _activeBottomTab = 0);
+              }),
+              const SizedBox(width: 4),
+              _buildTabButton('Diagnostics', _activeBottomTab == 1, () {
+                setState(() => _activeBottomTab = 1);
+              }),
+              const SizedBox(width: 4),
+              _buildTabButton('Terminal', _activeBottomTab == 2, () {
+                setState(() => _activeBottomTab = 2);
+              }),
+            ],
           ),
-          const SizedBox(height: 2),
-          Expanded(
-            child: _activeBottomTab == 0
-                ? ConsolePanel(dartRunnerService: widget.dartRunnerService)
-                : DiagnosticsPanel(
-                    diagnostics: _mergedDiagnostics,
-                    isAnalyzing: _isAnalyzing,
-                    sourceLabel: _diagnosticsSourceLabel,
-                  ),
-          ),
-        ],
-      );
-    } else if (widget.showDiagnostics) {
-      return DiagnosticsPanel(
-        diagnostics: _mergedDiagnostics,
-        isAnalyzing: _isAnalyzing,
-        sourceLabel: _diagnosticsSourceLabel,
-      );
-    } else {
-      return ConsolePanel(dartRunnerService: widget.dartRunnerService);
-    }
+        ),
+        const SizedBox(height: 2),
+        Expanded(
+          child: _activeBottomTab == 0
+              ? ConsolePanel(dartRunnerService: widget.dartRunnerService)
+              : _activeBottomTab == 1
+              ? DiagnosticsPanel(
+                  diagnostics: _mergedDiagnostics,
+                  isAnalyzing: _isAnalyzing,
+                  sourceLabel: _diagnosticsSourceLabel,
+                )
+              : TerminalPanel(terminalService: widget.terminalService),
+        ),
+      ],
+    );
   }
 
   Widget _buildTabButton(String label, bool isActive, VoidCallback onPressed) {
-    return GestureDetector(
+    return InkWell(
       onTap: onPressed,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
         decoration: isActive
             ? RetroBorder.sunken(
-                backgroundColor: ThemeService.instance.uiColors['highlight'],
+                backgroundColor: ThemeService.instance.uiColors['panel'],
               )
             : RetroBorder.raised(
                 backgroundColor: ThemeService.instance.uiColors['panel'],
@@ -227,7 +238,6 @@ class _PanelLayoutState extends State<PanelLayout> {
           style: TextStyle(
             fontSize: 11,
             fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
-            fontFamily: 'Arial',
             color: ThemeService.instance.uiColors['text'],
           ),
         ),

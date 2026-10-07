@@ -13,6 +13,9 @@ analyzer:
   exclude:
     - build/**
     - macos/**
+    # `tool/` holds developer-only scratch scripts that report results to the
+    # console on purpose, so `avoid_print` does not apply there.
+    - tool/**
 
 linter:
   # The lint rules applied to this project can be customized in the

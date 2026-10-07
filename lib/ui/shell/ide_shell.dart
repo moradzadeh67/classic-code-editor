@@ -7,6 +7,8 @@ import '../../services/dart_runner_service.dart';
 import '../../services/file_service.dart';
 import '../../services/analyzer_service.dart';
 import '../../services/lsp_service.dart';
+import '../../services/terminal_service.dart';
+import '../../services/dart_debugger.dart';
 import 'retro_menu_bar.dart';
 import 'retro_toolbar.dart';
 import 'retro_status_bar.dart';
@@ -27,6 +29,8 @@ class _IDEShellState extends State<IDEShell> {
   final FileService _fileService = FileService();
   final AnalyzerService _analyzerService = AnalyzerService();
   final LspService _lspService = LspService();
+  final TerminalService _terminalService = TerminalService();
+  final DartDebugger _debugger = DartDebugger();
   String? _lastAnalyzedPath;
 
   /// Path currently registered with the language server, plus the last content
@@ -48,6 +52,8 @@ class _IDEShellState extends State<IDEShell> {
     _fileService.removeListener(_onFileServiceChanged);
     _lspService.dispose();
     _dartRunnerService.dispose();
+    _terminalService.dispose();
+    _debugger.dispose();
     _fileService.dispose();
     _analyzerService.dispose();
     super.dispose();
@@ -122,12 +128,12 @@ class _IDEShellState extends State<IDEShell> {
                   dartRunnerService: _dartRunnerService,
                 ),
                 // NOTE: deliberately NOT `const` so their build() re-runs when
-                // the theme changes (a canonicalized const widget is the same
-                // instance and Flutter would skip rebuilding it).
+                // the theme changes.
                 RetroToolbar(
                   fileService: _fileService,
                   analyzerService: _analyzerService,
                   dartRunnerService: _dartRunnerService,
+                  debugger: _debugger,
                 ),
                 Expanded(
                   child: PanelLayout(
@@ -138,11 +144,17 @@ class _IDEShellState extends State<IDEShell> {
                     analyzerService: _analyzerService,
                     lspService: _lspService,
                     fileService: _fileService,
+                    terminalService: _terminalService,
+                    debugger: _debugger,
                   ),
                 ),
                 RetroStatusBar(
                   analyzerService: _analyzerService,
                   lspService: _lspService,
+                ),
+                Container(
+                  height: 2,
+                  color: ThemeService.instance.uiColors['panel'],
                 ),
               ],
             ),

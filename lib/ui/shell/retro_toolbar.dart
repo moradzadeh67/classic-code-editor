@@ -4,6 +4,8 @@ import '../../services/dart_runner_service.dart';
 import '../../services/file_service.dart';
 import '../../services/analyzer_service.dart';
 import '../../services/theme_service.dart';
+import '../../services/base_debugger.dart';
+import '../../models/debugger_models.dart';
 import '../retro/retro_border.dart';
 import '../retro/retro_button.dart';
 
@@ -14,6 +16,7 @@ class RetroToolbar extends StatelessWidget {
   final VoidCallback? onAnalyze;
   final VoidCallback? onRun;
   final VoidCallback? onStop;
+  final BaseDebugger? debugger;
   final FileService? fileService;
   final AnalyzerService? analyzerService;
   final DartRunnerService? dartRunnerService;
@@ -26,6 +29,7 @@ class RetroToolbar extends StatelessWidget {
     this.onAnalyze,
     this.onRun,
     this.onStop,
+    this.debugger,
     this.fileService,
     this.analyzerService,
     this.dartRunnerService,
@@ -61,47 +65,98 @@ class RetroToolbar extends StatelessWidget {
         () {
           debugPrint('Stop button clicked');
           dartRunnerService?.stopExecution();
+          debugger?.stopDebugging();
         };
 
     // 28px tall ≈ Delphi 6 toolbar (22px buttons + borders/padding). No
     // vertical padding; the 2px border leaves a 24px content region.
-    return Container(
-      height: 28,
-      decoration: RetroBorder.raised(
-        backgroundColor: ThemeService.instance.colors.panel,
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 6),
-      child: Row(
-        children: [
-          _toolbarButton(label: 'New', onPressed: onNew),
-          const SizedBox(width: 3),
-          _toolbarButton(label: 'Open', onPressed: openCallback),
-          const SizedBox(width: 3),
-          _toolbarButton(label: 'Save', onPressed: saveCallback),
-          const SizedBox(width: 3),
-          _toolbarButton(label: 'Analyze', onPressed: analyzeCallback),
-          const SizedBox(width: 5),
-          _buildSeparator(),
-          const SizedBox(width: 5),
-          _toolbarButton(label: 'Run', onPressed: runCallback),
-          const SizedBox(width: 3),
-          _toolbarButton(label: 'Stop', onPressed: stopCallback),
-          const SizedBox(width: 8),
-          // Theme selector lives in the remaining space and SCROLLS
-          // horizontally when it does not fit, instead of overflowing (which
-          // produced the yellow/black "OVERFLOWED" hazard stripes).
-          const Expanded(
-            child: Align(
-              alignment: Alignment.centerRight,
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                reverse: true,
-                child: _ThemeSelector(),
-              ),
-            ),
+    return ListenableBuilder(
+      listenable: Listenable.merge([?debugger, ThemeService.instance]),
+      builder: (context, _) {
+        final isDebugging = debugger?.state != DebugState.inactive;
+
+        return Container(
+          height: 28,
+          decoration: RetroBorder.raised(
+            backgroundColor: ThemeService.instance.colors.panel,
           ),
-        ],
-      ),
+          padding: const EdgeInsets.symmetric(horizontal: 6),
+          child: Row(
+            children: [
+              _toolbarButton(label: 'New', onPressed: onNew),
+              const SizedBox(width: 3),
+              _toolbarButton(label: 'Open', onPressed: openCallback),
+              const SizedBox(width: 3),
+              _toolbarButton(label: 'Save', onPressed: saveCallback),
+              const SizedBox(width: 3),
+              _toolbarButton(label: 'Analyze', onPressed: analyzeCallback),
+              const SizedBox(width: 5),
+              _buildSeparator(),
+              const SizedBox(width: 5),
+              _toolbarButton(label: 'Run', onPressed: runCallback),
+              const SizedBox(width: 3),
+              _toolbarButton(label: 'Stop', onPressed: stopCallback),
+              const SizedBox(width: 5),
+              _buildSeparator(),
+              const SizedBox(width: 5),
+              // Debug buttons
+              if (debugger != null) ...[
+                if (!isDebugging)
+                  _toolbarButton(
+                    label: 'Debug',
+                    onPressed: () {
+                      final path = fileService?.currentFilePath;
+                      if (path != null) {
+                        debugger?.startDebugging(path);
+                      } else {
+                        debugPrint('No file selected for debugging');
+                      }
+                    },
+                  )
+                else ...[
+                  _toolbarButton(
+                    label: 'StopDbg',
+                    onPressed: () => debugger?.stopDebugging(),
+                  ),
+                  const SizedBox(width: 3),
+                  _toolbarButton(
+                    label: 'Over',
+                    onPressed: () => debugger?.stepOver(),
+                  ),
+                  const SizedBox(width: 3),
+                  _toolbarButton(
+                    label: 'Into',
+                    onPressed: () => debugger?.stepInto(),
+                  ),
+                  const SizedBox(width: 3),
+                  _toolbarButton(
+                    label: 'Out',
+                    onPressed: () => debugger?.stepOut(),
+                  ),
+                  const SizedBox(width: 3),
+                  _toolbarButton(
+                    label: 'Cont',
+                    onPressed: () => debugger?.continueExecution(),
+                  ),
+                ],
+              ],
+              const SizedBox(width: 8),
+              // Theme selector lives in the remaining space and SCROLLS
+              // horizontally when it does not fit, instead of overflowing.
+              const Expanded(
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    reverse: true,
+                    child: _ThemeSelector(),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -132,11 +187,6 @@ class RetroToolbar extends StatelessWidget {
 }
 
 /// Theme selector buttons.
-///
-/// Labels are deliberately SHORT (`VC++ 6.0` / `Delphi` / `VB6`) so the whole
-/// toolbar fits. Wrapped in a [ListenableBuilder] on [ThemeService.instance] so
-/// the pressed (sunken) state of each button refreshes immediately whenever the
-/// active theme changes.
 class _ThemeSelector extends StatelessWidget {
   const _ThemeSelector();
 

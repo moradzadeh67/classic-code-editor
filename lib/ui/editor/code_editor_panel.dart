@@ -2,32 +2,31 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_code_editor/flutter_code_editor.dart';
+import 'package:highlight/languages/dart.dart';
 
 import '../../models/lsp_models.dart';
 import '../../services/file_service.dart';
 import '../../services/lsp_service.dart';
 import '../../services/theme_service.dart';
+import '../../services/base_debugger.dart';
+import '../../utils/completion_filter.dart';
+import '../../utils/dart_highlighter.dart';
 import '../retro/retro_border.dart';
 import 'autocomplete_popup.dart';
 import 'hover_tooltip.dart';
 
 /// The main code-editor area.
-///
-/// This widget intentionally has **no fixed height**. It expands to fill all
-/// of the space given to it by its parent (it is placed inside an [Expanded]),
-/// so the editor always stretches from the top of the middle area down to the
-/// top of the console — with no leftover gap or vertical cutoff.
-///
-/// Integrates with [LspService] to provide autocomplete suggestions and hover
-/// documentation tooltips in the retro 1990s style.
 class CodeEditorPanel extends StatefulWidget {
   final FileService fileService;
   final LspService lspService;
+  final BaseDebugger? debugger;
 
   const CodeEditorPanel({
     super.key,
     required this.fileService,
     required this.lspService,
+    this.debugger,
   });
 
   @override
@@ -35,39 +34,35 @@ class CodeEditorPanel extends StatefulWidget {
 }
 
 class _CodeEditorPanelState extends State<CodeEditorPanel> {
-  late final TextEditingController _controller;
+  late final CodeController _controller;
   final FocusNode _focusNode = FocusNode();
   final GlobalKey _editorKey = GlobalKey();
 
-  /// Current offset of the cursor in screen coordinates, for popup/hover.
   Offset _cursorScreenOffset = Offset.zero;
-
-  /// Completion items from the LSP server.
   List<CompletionItem> _completionItems = [];
   int _selectedCompletionIndex = 0;
-
-  /// Hover info from the LSP server.
   HoverInfo? _hoverInfo;
 
-  /// Timers for debouncing.
   Timer? _completionDebounce;
   Timer? _hoverDebounce;
+  Timer? _typingTimer;
+  bool _isTyping = false;
+  int _completionRequestId = 0;
+  String? _programmaticText;
 
-  /// Whether autocomplete popup is currently visible.
   bool get _showAutocomplete => _completionItems.isNotEmpty;
-
-  /// Whether hover tooltip is currently visible.
   bool get _showHover => _hoverInfo != null;
-
-  /// The current file path for LSP requests.
-  String? get _filePath => widget.fileService.currentFilePath;
-
+  String get _filePath =>
+      widget.fileService.currentFilePath ?? widget.fileService.fileName;
   int? _lastActiveTabIndex;
 
   @override
   void initState() {
     super.initState();
-    _controller = TextEditingController(text: widget.fileService.fileContent);
+    _controller = CodeController(
+      text: widget.fileService.fileContent,
+      language: dart,
+    );
     _controller.addListener(_onTextChanged);
     widget.fileService.addListener(_onFileServiceChanged);
     _lastActiveTabIndex = widget.fileService.activeTabIndex;
@@ -88,6 +83,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   void dispose() {
     _completionDebounce?.cancel();
     _hoverDebounce?.cancel();
+    _typingTimer?.cancel();
     _controller.removeListener(_onTextChanged);
     widget.fileService.removeListener(_onFileServiceChanged);
     _controller.dispose();
@@ -96,82 +92,118 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   }
 
   void _onTextChanged() {
-    if (_controller.text != widget.fileService.fileContent) {
-      widget.fileService.updateContent(_controller.text);
+    if (_programmaticText != null && _controller.text == _programmaticText) {
+      _programmaticText = null;
+      return;
     }
 
-    // Trigger autocomplete on text change (debounced)
+    widget.fileService.updateContent(_controller.text);
+
+    setState(() {
+      _isTyping = true;
+    });
+
+    _typingTimer?.cancel();
+    _typingTimer = Timer(const Duration(milliseconds: 300), () {
+      if (mounted) {
+        setState(() {
+          _isTyping = false;
+        });
+      }
+    });
+
     _completionDebounce?.cancel();
-    _completionDebounce = Timer(const Duration(milliseconds: 300), () {
+    _completionDebounce = Timer(const Duration(milliseconds: 150), () {
       _requestCompletion();
     });
+
+    _dismissHover();
   }
 
   void _onFileServiceChanged() {
-    final newIndex = widget.fileService.activeTabIndex;
-    if (_lastActiveTabIndex != newIndex ||
-        _controller.text != widget.fileService.fileContent) {
-      _lastActiveTabIndex = newIndex;
+    if (widget.fileService.activeTabIndex != _lastActiveTabIndex) {
+      _lastActiveTabIndex = widget.fileService.activeTabIndex;
       _updateControllerText();
+    }
+  }
+
+  void _updateControllerText() {
+    final newContent = widget.fileService.fileContent;
+    if (_controller.text != newContent) {
+      _programmaticText = newContent;
+      _controller.text = newContent;
+      _controller.selection = TextSelection.collapsed(
+        offset: newContent.length,
+      );
     }
     setState(() {});
   }
 
-  void _updateControllerText() {
-    final newText = widget.fileService.fileContent;
-    if (_controller.text != newText) {
-      final selection = _controller.selection;
-      _controller.text = newText;
-      if (selection.isValid && selection.end <= newText.length) {
-        _controller.selection = selection;
-      }
-    }
-    _dismissCompletion();
-    _dismissHover();
+  bool _hasBreakpoint(int line) {
+    final path = _filePath;
+    if (widget.debugger == null) return false;
+    return widget.debugger!.breakpoints.any(
+      (bp) =>
+          (bp.filePath == path ||
+              bp.filePath == widget.fileService.currentFilePath ||
+              bp.filePath == widget.fileService.fileName) &&
+          bp.line == line,
+    );
   }
 
-  /// Computes the current cursor position in screen coordinates.
-  Offset _computeCursorScreenPosition() {
-    final editorContext = _editorKey.currentContext;
-    if (editorContext == null) return Offset.zero;
-
-    final RenderBox? renderBox = editorContext.findRenderObject() as RenderBox?;
-    if (renderBox == null) return Offset.zero;
-
-    final selection = _controller.selection;
-    if (!selection.isValid || !selection.isCollapsed) return Offset.zero;
-
-    // Get global position of the editor
-    final Offset editorGlobalPosition = renderBox.localToGlobal(Offset.zero);
-
-    // Count lines before cursor to estimate Y position
-    final text = _controller.text;
-    final offset = selection.start;
-
-    const double lineHeight = 16.0; // Approximate line height for 13px font
-    int lineNumber = 0;
-
-    for (int i = 0; i < offset && i < text.length; i++) {
-      if (text[i] == '\n') {
-        lineNumber++;
+  void _toggleBreakpoint(int line) {
+    final path = _filePath;
+    if (widget.debugger == null) return;
+    if (_hasBreakpoint(line)) {
+      widget.debugger!.removeBreakpoint(path, line);
+      if (widget.fileService.currentFilePath != null) {
+        widget.debugger!.removeBreakpoint(
+          widget.fileService.currentFilePath!,
+          line,
+        );
       }
+    } else {
+      widget.debugger!.setBreakpoint(path, line);
     }
+    setState(() {});
+  }
 
-    // Calculate position relative to editor content area (accounting for padding)
+  Offset _computeCursorScreenPosition() {
+    final RenderBox? box =
+        _editorKey.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null) return const Offset(100, 100);
+
+    final editorGlobalPosition = box.localToGlobal(Offset.zero);
+    final text = _controller.text;
+    final selection = _controller.selection;
+    final offset = selection.isValid ? selection.start : 0;
+    final (lineNumber, _) = _offsetToLineColumn(text, offset);
+
+    const double lineHeight = 18.0;
     final Offset cursorPosition =
         editorGlobalPosition + Offset(8, 8 + lineNumber * lineHeight);
 
-    return cursorPosition + const Offset(0, 24); // Position below cursor
+    return cursorPosition + const Offset(0, 24);
   }
 
   void _requestCompletion() async {
-    final filePath = _filePath;
+    final filePath = widget.fileService.currentFilePath;
     if (filePath == null || !widget.lspService.isConnected) return;
 
     final selection = _controller.selection;
-    if (!selection.isValid || !selection.isCollapsed) return;
+    if (!selection.isValid || !selection.isCollapsed) {
+      _dismissCompletion();
+      return;
+    }
 
     final offset = selection.start;
+    final currentWord = CompletionFilter.currentWord(_controller.text, offset);
+    if (!CompletionFilter.isTriggering(currentWord)) {
+      _dismissCompletion();
+      return;
+    }
+
+    final requestId = ++_completionRequestId;
     final (line, column) = _offsetToLineColumn(_controller.text, offset);
 
     final items = await widget.lspService.requestCompletion(
@@ -180,16 +212,30 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
       column + 1,
     );
 
-    if (items.isNotEmpty && mounted) {
-      setState(() {
-        _completionItems = items;
-        _selectedCompletionIndex = 0;
-        _cursorScreenOffset = _computeCursorScreenPosition();
-      });
+    if (!mounted || requestId != _completionRequestId) return;
+    if (items.isEmpty) {
+      _dismissCompletion();
+      return;
     }
+
+    final filtered = CompletionFilter.filter(items, currentWord);
+    if (filtered.isEmpty) {
+      _dismissCompletion();
+      return;
+    }
+
+    setState(() {
+      _completionItems = filtered;
+      _selectedCompletionIndex = 0;
+      _cursorScreenOffset = _computeCursorScreenPosition();
+    });
   }
 
-  /// Converts a character offset into (line, column) — 0-based.
+  String _currentWordAtCursor() => CompletionFilter.currentWord(
+    _controller.text,
+    _controller.selection.start,
+  );
+
   (int, int) _offsetToLineColumn(String text, int offset) {
     int line = 0;
     int lastNewline = -1;
@@ -226,7 +272,6 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     final text = _controller.text;
     final offset = selection.start;
 
-    // Find the word boundary before the cursor so we replace it
     int wordStart = offset;
     while (wordStart > 0) {
       final char = text[wordStart - 1];
@@ -240,6 +285,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     final newText = text.replaceRange(wordStart, offset, insertText);
     final newOffset = wordStart + insertText.length;
 
+    _programmaticText = newText;
     _controller.text = newText;
     _controller.selection = TextSelection.collapsed(offset: newOffset);
 
@@ -247,6 +293,9 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   }
 
   void _dismissCompletion() {
+    _completionRequestId++;
+    _completionDebounce?.cancel();
+    if (_completionItems.isEmpty && _selectedCompletionIndex == 0) return;
     setState(() {
       _completionItems = [];
       _selectedCompletionIndex = 0;
@@ -260,14 +309,22 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     });
   }
 
-  /// Request hover info from the LSP server.
   void _requestHover() {
-    final filePath = _filePath;
+    final filePath = widget.fileService.currentFilePath;
     if (filePath == null || !widget.lspService.isConnected) return;
 
-    // Debounce: wait 500ms before requesting hover
+    if (_isTyping || _showAutocomplete) {
+      _hoverDebounce?.cancel();
+      _dismissHover();
+      return;
+    }
+
     _hoverDebounce?.cancel();
     _hoverDebounce = Timer(const Duration(milliseconds: 500), () async {
+      if (_isTyping || _showAutocomplete) {
+        _dismissHover();
+        return;
+      }
       if (_controller.selection.isValid && _controller.selection.isCollapsed) {
         final offset = _controller.selection.start;
         final (line, column) = _offsetToLineColumn(_controller.text, offset);
@@ -278,7 +335,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
           column + 1,
         );
 
-        if (hoverInfo != null && mounted) {
+        if (hoverInfo != null && mounted && !_isTyping && !_showAutocomplete) {
           setState(() {
             _hoverInfo = hoverInfo;
             _cursorScreenOffset = _computeCursorScreenPosition();
@@ -288,21 +345,118 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     });
   }
 
-  /// Handles keyboard navigation for autocomplete.
-  void _handleKeyEvent(KeyEvent event) {
-    if (!_showAutocomplete) return;
+  void _handleEnterPressed() {
+    final selection = _controller.selection;
+    if (!selection.isValid) return;
 
+    final text = _controller.text;
+    final start = selection.start;
+    final end = selection.end;
+
+    int lineStart = text.lastIndexOf('\n', start - 1);
+    lineStart = (lineStart == -1) ? 0 : lineStart + 1;
+
+    final currentLine = text.substring(lineStart, start);
+    final match = RegExp(r'^(\s*)').firstMatch(currentLine);
+    final currentIndent = match?.group(1) ?? '';
+
+    final trimmed = currentLine.trimRight();
+    final shouldIncrease =
+        trimmed.endsWith('{') || trimmed.endsWith('(') || trimmed.endsWith('[');
+
+    String newIndent = currentIndent;
+    if (shouldIncrease) {
+      newIndent += '  ';
+    }
+
+    final restOfText = text.substring(end);
+    final trimmedRest = restOfText.trimLeft();
+    final isBeforeClosingBracket =
+        shouldIncrease &&
+        (trimmedRest.startsWith('}') ||
+            trimmedRest.startsWith(')') ||
+            trimmedRest.startsWith(']'));
+
+    String insertContent;
+    int newCursorOffset;
+
+    if (isBeforeClosingBracket) {
+      insertContent = '\n$newIndent\n$currentIndent';
+      newCursorOffset = start + 1 + newIndent.length;
+    } else {
+      insertContent = '\n$newIndent';
+      newCursorOffset = start + insertContent.length;
+    }
+
+    final newText = text.replaceRange(start, end, insertContent);
+    _programmaticText = newText;
+    _controller.text = newText;
+    _controller.selection = TextSelection.collapsed(offset: newCursorOffset);
+
+    _dismissCompletion();
+    _dismissHover();
+  }
+
+  bool _tryHandleClosingBracket(String bracket) {
+    final selection = _controller.selection;
+    if (!selection.isValid || !selection.isCollapsed) return false;
+
+    final text = _controller.text;
+    final offset = selection.start;
+
+    int lineStart = text.lastIndexOf('\n', offset - 1);
+    lineStart = (lineStart == -1) ? 0 : lineStart + 1;
+
+    final lineBeforeCursor = text.substring(lineStart, offset);
+
+    if (RegExp(r'^\s+$').hasMatch(lineBeforeCursor) &&
+        lineBeforeCursor.length >= 2) {
+      final dedentedLine = lineBeforeCursor.substring(2) + bracket;
+      final newText = text.replaceRange(lineStart, offset, dedentedLine);
+      final newOffset = lineStart + dedentedLine.length;
+
+      _programmaticText = newText;
+      _controller.text = newText;
+      _controller.selection = TextSelection.collapsed(offset: newOffset);
+
+      _dismissCompletion();
+      _dismissHover();
+      return true;
+    }
+    return false;
+  }
+
+  KeyEventResult _handleKeyEvent(KeyEvent event) {
     if (event is KeyDownEvent) {
-      if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+      if (event.logicalKey == LogicalKeyboardKey.arrowDown &&
+          _showAutocomplete) {
         _moveSelection(1);
-      } else if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+        return KeyEventResult.handled;
+      } else if (event.logicalKey == LogicalKeyboardKey.arrowUp &&
+          _showAutocomplete) {
         _moveSelection(-1);
+        return KeyEventResult.handled;
       } else if (event.logicalKey == LogicalKeyboardKey.enter) {
-        _acceptSelected();
-      } else if (event.logicalKey == LogicalKeyboardKey.escape) {
+        if (_showAutocomplete) {
+          _acceptSelected();
+        } else {
+          _handleEnterPressed();
+        }
+        return KeyEventResult.handled;
+      } else if (event.logicalKey == LogicalKeyboardKey.escape &&
+          _showAutocomplete) {
         _dismissCompletion();
+        return KeyEventResult.handled;
+      } else {
+        final char = event.character;
+        if (char != null && (char == '}' || char == ')' || char == ']')) {
+          if (_tryHandleClosingBracket(char)) {
+            return KeyEventResult.handled;
+          }
+        }
       }
     }
+    return KeyEventResult.ignored;
   }
 
   @override
@@ -328,103 +482,183 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
       );
     }
 
-    return Stack(
-      children: [
-        Container(
-          decoration: RetroBorder.sunken(
-            backgroundColor: ThemeService.instance.colors.editorBackground,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            mainAxisSize: MainAxisSize.max,
-            children: [
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.all(8.0),
-                  child: Focus(
-                    focusNode: _focusNode,
-                    child: KeyboardListener(
-                      focusNode: _focusNode,
-                      onKeyEvent: _handleKeyEvent,
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.translucent,
-                        onTapUp: (details) {
-                          // Request focus so we can capture key events
-                          _focusNode.requestFocus();
+    final lineCount = (_controller.text.split('\n').length).clamp(1, 9999);
 
-                          // Reset hover timer since we're interacting with the editor
-                          _hoverDebounce?.cancel();
-                        },
-                        onSecondaryTapDown: (details) {
-                          // Trigger hover request on hold/press
-                          _requestHover();
-                        },
-                        child: MouseRegion(
-                          onHover: (event) {
-                            _cursorScreenOffset =
-                                event.position + const Offset(0, 24);
-                            _requestHover();
-                          },
-                          onExit: (event) {
-                            _hoverDebounce?.cancel();
-                            Timer(const Duration(milliseconds: 100), () {
-                              if (mounted) {
-                                setState(() {
-                                  _hoverInfo = null;
-                                });
-                              }
-                            });
-                          },
-                          child: TextField(
-                            key: _editorKey,
-                            controller: _controller,
-                            focusNode: _focusNode,
-                            maxLines: null,
-                            expands: true,
-                            style: TextStyle(
-                              fontFamily: 'Menlo',
-                              fontSize: 13,
-                              color: ThemeService.instance.colors.editorText,
-                            ),
-                            decoration: const InputDecoration.collapsed(
-                              hintText: '// Type code here...',
+    return CodeTheme(
+      data: CodeThemeData(styles: DartHighlighter.themeStyles),
+      child: Stack(
+        children: [
+          Container(
+            decoration: RetroBorder.sunken(
+              backgroundColor: ThemeService.instance.colors.editorBackground,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisSize: MainAxisSize.max,
+              children: [
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.all(8.0),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        // Gutter for breakpoints & line numbers
+                        Container(
+                          width: 45,
+                          color:
+                              ThemeService.instance.colors.editorLineNumberBg,
+                          child: ListView.builder(
+                            itemCount: lineCount,
+                            itemBuilder: (context, index) {
+                              final lineNumber = index + 1;
+                              final hasBp = _hasBreakpoint(lineNumber);
+                              return GestureDetector(
+                                onTap: () => _toggleBreakpoint(lineNumber),
+                                behavior: HitTestBehavior.opaque,
+                                child: Container(
+                                  height: 18,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 2,
+                                  ),
+                                  alignment: Alignment.centerRight,
+                                  child: Row(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      SizedBox(
+                                        width: 14,
+                                        child: Center(
+                                          child: hasBp
+                                              ? const Text(
+                                                  '●',
+                                                  style: TextStyle(
+                                                    color: Color(0xFFCC0000),
+                                                    fontSize: 12,
+                                                  ),
+                                                )
+                                              : null,
+                                        ),
+                                      ),
+                                      Text(
+                                        '$lineNumber',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          fontFamily: 'Menlo',
+                                          color: ThemeService
+                                              .instance
+                                              .colors
+                                              .editorLineNumberText,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        // Text Editor Area
+                        Expanded(
+                          child: Focus(
+                            onKeyEvent: (node, event) => _handleKeyEvent(event),
+                            child: GestureDetector(
+                              behavior: HitTestBehavior.translucent,
+                              onTapUp: (details) {
+                                _focusNode.requestFocus();
+                                _hoverDebounce?.cancel();
+                              },
+                              onSecondaryTapDown: (details) {
+                                _requestHover();
+                              },
+                              child: Stack(
+                                fit: StackFit.expand,
+                                children: [
+                                  MouseRegion(
+                                    onHover: (event) {
+                                      _cursorScreenOffset =
+                                          event.position + const Offset(0, 24);
+                                      _requestHover();
+                                    },
+                                    onExit: (event) {
+                                      _hoverDebounce?.cancel();
+                                      Timer(
+                                        const Duration(milliseconds: 100),
+                                        () {
+                                          if (mounted) {
+                                            setState(() {
+                                              _hoverInfo = null;
+                                            });
+                                          }
+                                        },
+                                      );
+                                    },
+                                    child: TextField(
+                                      key: _editorKey,
+                                      controller: _controller,
+                                      focusNode: _focusNode,
+                                      maxLines: null,
+                                      expands: true,
+                                      style: TextStyle(
+                                        fontFamily: 'Menlo',
+                                        fontSize: 13,
+                                        color: ThemeService
+                                            .instance
+                                            .colors
+                                            .editorText,
+                                      ),
+                                      decoration:
+                                          const InputDecoration.collapsed(
+                                            hintText: '// Type code here...',
+                                          ),
+                                    ),
+                                  ),
+                                  if (_showAutocomplete)
+                                    Positioned.fill(
+                                      child: TapRegion(
+                                        onTapOutside: (_) =>
+                                            _dismissCompletion(),
+                                        child: const SizedBox.expand(),
+                                      ),
+                                    ),
+                                ],
+                              ),
                             ),
                           ),
                         ),
-                      ),
+                      ],
                     ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-        // Autocomplete popup overlay
-        if (_showAutocomplete)
-          AutocompletePopup(
-            items: _completionItems,
-            position: _cursorScreenOffset,
-            selectedIndex: _selectedCompletionIndex,
-            maxWidth: 300,
-            onSelect: (index) {
-              if (index == _selectedCompletionIndex) {
-                _acceptSelected();
-              } else {
-                setState(() {
-                  _selectedCompletionIndex = index;
-                });
-              }
-            },
-            onDismiss: _dismissCompletion,
-          ),
-        // Hover tooltip overlay
-        if (_showHover && _hoverInfo != null)
-          HoverTooltip(
-            hoverInfo: _hoverInfo!,
-            position: _cursorScreenOffset,
-            maxWidth: 300,
-          ),
-      ],
+          if (_showAutocomplete)
+            AutocompletePopup(
+              items: _completionItems,
+              position: _cursorScreenOffset,
+              selectedIndex: _selectedCompletionIndex,
+              maxWidth: 300,
+              currentWord: _currentWordAtCursor(),
+              onSelect: (index) {
+                if (index == _selectedCompletionIndex) {
+                  _acceptSelected();
+                } else {
+                  setState(() {
+                    _selectedCompletionIndex = index;
+                  });
+                }
+              },
+              onDismiss: _dismissCompletion,
+            ),
+          if (_showHover && _hoverInfo != null)
+            HoverTooltip(
+              hoverInfo: _hoverInfo!,
+              position: _cursorScreenOffset,
+              maxWidth: 300,
+            ),
+        ],
+      ),
     );
   }
 }

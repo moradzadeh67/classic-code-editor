@@ -303,13 +303,14 @@ class LspService extends ChangeNotifier {
     final result = <CompletionItem>[];
     for (final item in items) {
       if (item is! Map<String, dynamic>) continue;
-      final label = item['label'] as String? ?? '';
-      if (label.isEmpty) continue;
+      final rawLabel = item['label'] as String? ?? '';
+      if (rawLabel.isEmpty) continue;
 
       final kindInt = item['kind'] as int? ?? 1;
       final kind = _completionKindToString(kindInt);
       final detail = item['detail'] as String?;
       final insertText = item['insertText'] as String?;
+      final filterText = item['filterText'] as String?;
 
       String? textEditNewText;
       final textEdit = item['textEdit'];
@@ -319,11 +320,12 @@ class LspService extends ChangeNotifier {
 
       result.add(
         CompletionItem(
-          label: label,
+          label: rawLabel,
           kind: kind,
           detail: detail,
           insertText: insertText,
           textEditNewText: textEditNewText,
+          filterText: filterText,
         ),
       );
     }
