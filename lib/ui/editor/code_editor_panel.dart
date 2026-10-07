@@ -3,15 +3,15 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_code_editor/flutter_code_editor.dart';
-import 'package:highlight/languages/dart.dart';
 
+import '../../models/language_config.dart';
 import '../../models/lsp_models.dart';
 import '../../services/file_service.dart';
 import '../../services/lsp_service.dart';
 import '../../services/theme_service.dart';
 import '../../services/base_debugger.dart';
 import '../../utils/completion_filter.dart';
-import '../../utils/dart_highlighter.dart';
+import '../../utils/multi_language_highlighter.dart';
 import '../retro/retro_border.dart';
 import 'autocomplete_popup.dart';
 import 'hover_tooltip.dart';
@@ -21,12 +21,14 @@ class CodeEditorPanel extends StatefulWidget {
   final FileService fileService;
   final LspService lspService;
   final BaseDebugger? debugger;
+  final CodeController? controller;
 
   const CodeEditorPanel({
     super.key,
     required this.fileService,
     required this.lspService,
     this.debugger,
+    this.controller,
   });
 
   @override
@@ -59,10 +61,13 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   @override
   void initState() {
     super.initState();
-    _controller = CodeController(
-      text: widget.fileService.fileContent,
-      language: dart,
-    );
+    registerHighlightLanguages();
+    _controller =
+        widget.controller ??
+        MultiLanguageHighlighter.createController(
+          text: widget.fileService.fileContent,
+          filePath: _filePath,
+        );
     _controller.addListener(_onTextChanged);
     widget.fileService.addListener(_onFileServiceChanged);
     _lastActiveTabIndex = widget.fileService.activeTabIndex;
@@ -129,6 +134,10 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
 
   void _updateControllerText() {
     final newContent = widget.fileService.fileContent;
+    final config = LanguageConfig.fromExtension(_filePath);
+    _controller.language = MultiLanguageHighlighter.getModeForLanguage(
+      config.highlightLanguage,
+    );
     if (_controller.text != newContent) {
       _programmaticText = newContent;
       _controller.text = newContent;
@@ -179,7 +188,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     final offset = selection.isValid ? selection.start : 0;
     final (lineNumber, _) = _offsetToLineColumn(text, offset);
 
-    const double lineHeight = 18.0;
+    const double lineHeight = 19.0;
     final Offset cursorPosition =
         editorGlobalPosition + Offset(8, 8 + lineNumber * lineHeight);
 
@@ -485,7 +494,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     final lineCount = (_controller.text.split('\n').length).clamp(1, 9999);
 
     return CodeTheme(
-      data: CodeThemeData(styles: DartHighlighter.themeStyles),
+      data: CodeThemeData(styles: MultiLanguageHighlighter.getThemeStyles()),
       child: Stack(
         children: [
           Container(
@@ -516,7 +525,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
                                 onTap: () => _toggleBreakpoint(lineNumber),
                                 behavior: HitTestBehavior.opaque,
                                 child: Container(
-                                  height: 18,
+                                  height: 19.0,
                                   padding: const EdgeInsets.symmetric(
                                     horizontal: 2,
                                   ),
@@ -526,14 +535,14 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
                                         MainAxisAlignment.spaceBetween,
                                     children: [
                                       SizedBox(
-                                        width: 14,
+                                        width: 16,
                                         child: Center(
                                           child: hasBp
                                               ? const Text(
                                                   '●',
                                                   style: TextStyle(
                                                     color: Color(0xFFCC0000),
-                                                    fontSize: 12,
+                                                    fontSize: 16,
                                                   ),
                                                 )
                                               : null,
@@ -602,6 +611,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
                                       style: TextStyle(
                                         fontFamily: 'Menlo',
                                         fontSize: 13,
+                                        height: 1.45,
                                         color: ThemeService
                                             .instance
                                             .colors

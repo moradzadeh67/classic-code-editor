@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_code_editor/flutter_code_editor.dart';
 
 import '../../services/theme_service.dart';
 import '../../services/dart_runner_service.dart';
@@ -31,6 +33,8 @@ class _IDEShellState extends State<IDEShell> {
   final LspService _lspService = LspService();
   final TerminalService _terminalService = TerminalService();
   final DartDebugger _debugger = DartDebugger();
+  final CodeController _codeController = CodeController();
+  final FocusNode _shellFocusNode = FocusNode();
   String? _lastAnalyzedPath;
 
   /// Path currently registered with the language server, plus the last content
@@ -49,6 +53,8 @@ class _IDEShellState extends State<IDEShell> {
 
   @override
   void dispose() {
+    _shellFocusNode.dispose();
+    _codeController.dispose();
     _fileService.removeListener(_onFileServiceChanged);
     _lspService.dispose();
     _dartRunnerService.dispose();
@@ -106,61 +112,120 @@ class _IDEShellState extends State<IDEShell> {
     });
   }
 
+  void _handleSave() {
+    _fileService.saveCurrentFile();
+  }
+
+  void _handleNewFile() {
+    _fileService.createNewFile();
+  }
+
+  void _handleRun() {
+    _dartRunnerService.runActiveFile(_fileService);
+  }
+
+  void _handleUndo() {
+    // Undo handled natively by platform/focused editor
+  }
+
+  void _handleRedo() {
+    // Redo handled natively by platform/focused editor
+  }
+
   @override
   Widget build(BuildContext context) {
-    // Rebuild the whole shell whenever the theme changes. This is wrapped here
-    // (and not only in app.dart) because `home:` widgets inside a Navigator
-    // route are not rebuilt automatically when the parent app rebuilds.
-    return ListenableBuilder(
-      listenable: ThemeService.instance,
-      builder: (context, _) {
-        return Scaffold(
-          backgroundColor: ThemeService.instance.colors.background,
-          body: SafeArea(
-            child: Column(
-              children: [
-                RetroMenuBar(
-                  onToggleFileExplorer: _toggleFileExplorer,
-                  onToggleConsole: _toggleConsole,
-                  onToggleDiagnostics: _toggleDiagnostics,
-                  fileService: _fileService,
-                  analyzerService: _analyzerService,
-                  dartRunnerService: _dartRunnerService,
-                ),
-                // NOTE: deliberately NOT `const` so their build() re-runs when
-                // the theme changes.
-                RetroToolbar(
-                  fileService: _fileService,
-                  analyzerService: _analyzerService,
-                  dartRunnerService: _dartRunnerService,
-                  debugger: _debugger,
-                ),
-                Expanded(
-                  child: PanelLayout(
-                    showFileExplorer: _showFileExplorer,
-                    showConsole: _showConsole,
-                    showDiagnostics: _showDiagnostics,
-                    dartRunnerService: _dartRunnerService,
-                    analyzerService: _analyzerService,
-                    lspService: _lspService,
+    return KeyboardListener(
+      focusNode: _shellFocusNode,
+      autofocus: true,
+      onKeyEvent: (KeyEvent event) {
+        if (event is KeyDownEvent) {
+          final isControlOrMeta =
+              HardwareKeyboard.instance.isControlPressed ||
+              HardwareKeyboard.instance.isMetaPressed;
+
+          // 1. Save (Ctrl+S / Cmd+S)
+          if (event.logicalKey == LogicalKeyboardKey.keyS && isControlOrMeta) {
+            print('[Shortcut] Save triggered');
+            _handleSave();
+          }
+          // 2. New File (Ctrl+N / Cmd+N)
+          else if (event.logicalKey == LogicalKeyboardKey.keyN &&
+              isControlOrMeta) {
+            print('[Shortcut] New File triggered');
+            _handleNewFile();
+          }
+          // 3. Run (F5)
+          else if (event.logicalKey == LogicalKeyboardKey.f5) {
+            print('[Shortcut] Run triggered');
+            _handleRun();
+          }
+          // 4. Undo (Ctrl+Z / Cmd+Z)
+          else if (event.logicalKey == LogicalKeyboardKey.keyZ &&
+              isControlOrMeta) {
+            print('[Shortcut] Undo triggered');
+            _handleUndo();
+          }
+          // 5. Redo (Ctrl+Y / Cmd+Y)
+          else if (event.logicalKey == LogicalKeyboardKey.keyY &&
+              isControlOrMeta) {
+            print('[Shortcut] Redo triggered');
+            _handleRedo();
+          }
+        }
+      },
+      child: ListenableBuilder(
+        listenable: ThemeService.instance,
+        builder: (context, _) {
+          return Scaffold(
+            backgroundColor: ThemeService.instance.colors.background,
+            body: SafeArea(
+              child: Column(
+                children: [
+                  RetroMenuBar(
+                    onToggleFileExplorer: _toggleFileExplorer,
+                    onToggleConsole: _toggleConsole,
+                    onToggleDiagnostics: _toggleDiagnostics,
                     fileService: _fileService,
-                    terminalService: _terminalService,
+                    analyzerService: _analyzerService,
+                    dartRunnerService: _dartRunnerService,
+                    codeEditorController: _codeController,
+                  ),
+                  // NOTE: deliberately NOT `const` so their build() re-runs when
+                  // the theme changes.
+                  RetroToolbar(
+                    fileService: _fileService,
+                    analyzerService: _analyzerService,
+                    dartRunnerService: _dartRunnerService,
                     debugger: _debugger,
                   ),
-                ),
-                RetroStatusBar(
-                  analyzerService: _analyzerService,
-                  lspService: _lspService,
-                ),
-                Container(
-                  height: 2,
-                  color: ThemeService.instance.uiColors['panel'],
-                ),
-              ],
+                  Expanded(
+                    child: PanelLayout(
+                      showFileExplorer: _showFileExplorer,
+                      showConsole: _showConsole,
+                      showDiagnostics: _showDiagnostics,
+                      dartRunnerService: _dartRunnerService,
+                      analyzerService: _analyzerService,
+                      lspService: _lspService,
+                      fileService: _fileService,
+                      terminalService: _terminalService,
+                      debugger: _debugger,
+                      codeEditorController: _codeController,
+                    ),
+                  ),
+                  RetroStatusBar(
+                    analyzerService: _analyzerService,
+                    lspService: _lspService,
+                  ),
+                  Container(
+                    height: 2,
+                    color: ThemeService.instance.uiColors['panel'],
+                  ),
+                ],
+              ),
             ),
-          ),
-        );
-      },
+          );
+        },
+      ),
     );
   }
 }

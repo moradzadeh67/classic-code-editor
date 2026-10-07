@@ -62,12 +62,27 @@ class _TerminalPanelState extends State<TerminalPanel> {
                     controller: _scrollController,
                     itemCount: _outputLines.length,
                     itemBuilder: (context, index) {
+                      final line = _outputLines[index];
+                      Color textColor;
+
+                      if (line.startsWith('\$') || line.contains('>')) {
+                        // This is a command prompt
+                        textColor = Colors.white;
+                      } else if (line.contains('Error') ||
+                          line.contains('error')) {
+                        // This is an error
+                        textColor = Colors.red;
+                      } else {
+                        // Normal output
+                        textColor = const Color(0xFF1F7D00);
+                      }
+
                       return Text(
-                        _outputLines[index],
-                        style: const TextStyle(
+                        line,
+                        style: TextStyle(
                           fontSize: 12,
                           fontFamily: 'Courier New',
-                          color: Color(0xFF1F7D00),
+                          color: textColor,
                         ),
                       );
                     },

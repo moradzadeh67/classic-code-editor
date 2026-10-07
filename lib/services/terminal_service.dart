@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 
@@ -22,6 +23,16 @@ class TerminalService extends ChangeNotifier {
   Future<void> executeCommand(String command) async {
     if (_isRunning) return;
     if (command.trim().isEmpty) return;
+
+    if (!Directory(_currentDirectory).existsSync()) {
+      final current = Directory.current;
+      if (current.existsSync()) {
+        _currentDirectory = current.path;
+      } else {
+        _currentDirectory =
+            Platform.environment['HOME'] ?? Directory.systemTemp.path;
+      }
+    }
 
     _commandHistory.add(command);
     _historyIndex = _commandHistory.length;
@@ -67,13 +78,17 @@ class TerminalService extends ChangeNotifier {
         workingDirectory: _currentDirectory,
       );
 
-      _process!.stdout.listen((data) {
-        _outputController.add(String.fromCharCodes(data));
-      });
+      _process!.stdout
+          .transform(const Utf8Decoder(allowMalformed: true))
+          .listen((output) {
+            _outputController.add(output);
+          });
 
-      _process!.stderr.listen((data) {
-        _outputController.add(String.fromCharCodes(data));
-      });
+      _process!.stderr
+          .transform(const Utf8Decoder(allowMalformed: true))
+          .listen((output) {
+            _outputController.add(output);
+          });
 
       await _process!.exitCode;
     } catch (e) {

@@ -143,8 +143,20 @@
 
 ### TASK-013: Debugger
 **Phase:** 13
-**Status:** ⬜ TODO
-**Priority:** HIGH
+**Status:** ✅ DONE
+**Completed:** Implemented debugging sidebar, variable panels, call stack panels, breakpoints panels, and Dart debugger service.
 
-**Description:**
-Debugging support for running scripts with breakpoints/inspection.
+---
+
+## Current Active Task
+
+### TASK-014: Multi-Language Support
+**Phase:** 14
+**Status:** ✅ DONE
+**Completed:**
+- Created `LanguageConfig` model (`lib/models/language_config.dart`) defining language rules per file extension for Dart, C, C++, and Python.
+- Created `LanguageRunnerService` (`lib/services/language_runner_service.dart`) supporting execution and compilation for Dart (`dart run`), Python (`python3`), C (`clang`), and C++ (`clang++`) with live console streaming.
+- Updated `FileService` (`lib/services/file_service.dart`) to support formatting on save for Dart (`dart format`), C/C++ (`clang-format`), and Python (`black`).
+- Created `MultiLanguageHighlighter` (`lib/utils/multi_language_highlighter.dart`) using the `highlight` package with registered languages for Dart, C, C++, and Python.
+- Wired multi-language configuration, syntax highlighting, formatting, and running into `CodeEditorPanel`, `RetroToolbar`, `RetroMenuBar`, and `IDEShell`.
+- Verified clean `flutter analyze` with 0 issues.

@@ -7,7 +7,6 @@ import '../../services/theme_service.dart';
 import '../../services/base_debugger.dart';
 import '../../models/debugger_models.dart';
 import '../retro/retro_border.dart';
-import '../retro/retro_button.dart';
 
 class RetroToolbar extends StatelessWidget {
   final VoidCallback? onNew;
@@ -37,6 +36,12 @@ class RetroToolbar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final newCallback =
+        onNew ??
+        () {
+          debugPrint('New button clicked');
+          fileService?.createNewFile();
+        };
     final openCallback = onOpen ?? () => fileService?.openFile();
     final saveCallback =
         onSave ?? () => fileService?.saveFile(fileService?.fileContent ?? '');
@@ -51,6 +56,7 @@ class RetroToolbar extends StatelessWidget {
     final runCallback =
         onRun ??
         () {
+          final path = fileService?.currentFilePath;
           final content =
               fileService?.activeTab?.content ?? fileService?.fileContent ?? '';
           if (content.isEmpty) {
@@ -58,7 +64,7 @@ class RetroToolbar extends StatelessWidget {
             return;
           }
           debugPrint('Run button clicked, executing code...');
-          dartRunnerService?.runCode(content);
+          dartRunnerService?.runCode(path, content);
         };
     final stopCallback =
         onStop ??
@@ -76,26 +82,51 @@ class RetroToolbar extends StatelessWidget {
         final isDebugging = debugger?.state != DebugState.inactive;
 
         return Container(
-          height: 28,
-          decoration: RetroBorder.raised(
-            backgroundColor: ThemeService.instance.colors.panel,
-          ),
-          padding: const EdgeInsets.symmetric(horizontal: 6),
+          height: 34,
+          color: ThemeService.instance.uiColors['panel'],
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 0),
           child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              _toolbarButton(label: 'New', onPressed: onNew),
+              _toolbarButton(
+                icon: Icons.note_add_outlined,
+                tooltip: 'New File',
+                onPressed: newCallback,
+              ),
               const SizedBox(width: 3),
-              _toolbarButton(label: 'Open', onPressed: openCallback),
+              _toolbarButton(
+                icon: Icons.folder_open_outlined,
+                tooltip: 'Open File',
+                onPressed: openCallback,
+              ),
               const SizedBox(width: 3),
-              _toolbarButton(label: 'Save', onPressed: saveCallback),
+              _toolbarButton(
+                icon: Icons.save_outlined,
+                tooltip: 'Save File',
+                onPressed: saveCallback,
+              ),
               const SizedBox(width: 3),
-              _toolbarButton(label: 'Analyze', onPressed: analyzeCallback),
+              _toolbarButton(
+                icon: Icons.fact_check_outlined,
+                tooltip: 'Analyze Code',
+                onPressed: analyzeCallback,
+              ),
               const SizedBox(width: 5),
               _buildSeparator(),
               const SizedBox(width: 5),
-              _toolbarButton(label: 'Run', onPressed: runCallback),
+              _toolbarButton(
+                icon: Icons.play_arrow,
+                tooltip: 'Run Code',
+                iconColor: const Color(0xFF008000),
+                onPressed: runCallback,
+              ),
               const SizedBox(width: 3),
-              _toolbarButton(label: 'Stop', onPressed: stopCallback),
+              _toolbarButton(
+                icon: Icons.stop,
+                tooltip: 'Stop Execution',
+                iconColor: const Color(0xFFCC0000),
+                onPressed: stopCallback,
+              ),
               const SizedBox(width: 5),
               _buildSeparator(),
               const SizedBox(width: 5),
@@ -103,7 +134,8 @@ class RetroToolbar extends StatelessWidget {
               if (debugger != null) ...[
                 if (!isDebugging)
                   _toolbarButton(
-                    label: 'Debug',
+                    icon: Icons.bug_report_outlined,
+                    tooltip: 'Start Debugging',
                     onPressed: () {
                       final path = fileService?.currentFilePath;
                       if (path != null) {
@@ -115,27 +147,33 @@ class RetroToolbar extends StatelessWidget {
                   )
                 else ...[
                   _toolbarButton(
-                    label: 'StopDbg',
+                    icon: Icons.cancel_outlined,
+                    tooltip: 'Stop Debugging',
+                    iconColor: const Color(0xFFCC0000),
                     onPressed: () => debugger?.stopDebugging(),
                   ),
                   const SizedBox(width: 3),
                   _toolbarButton(
-                    label: 'Over',
+                    icon: Icons.redo,
+                    tooltip: 'Step Over',
                     onPressed: () => debugger?.stepOver(),
                   ),
                   const SizedBox(width: 3),
                   _toolbarButton(
-                    label: 'Into',
+                    icon: Icons.south_east,
+                    tooltip: 'Step Into',
                     onPressed: () => debugger?.stepInto(),
                   ),
                   const SizedBox(width: 3),
                   _toolbarButton(
-                    label: 'Out',
+                    icon: Icons.north_east,
+                    tooltip: 'Step Out',
                     onPressed: () => debugger?.stepOut(),
                   ),
                   const SizedBox(width: 3),
                   _toolbarButton(
-                    label: 'Cont',
+                    icon: Icons.fast_forward,
+                    tooltip: 'Continue',
                     onPressed: () => debugger?.continueExecution(),
                   ),
                 ],
@@ -149,7 +187,7 @@ class RetroToolbar extends StatelessWidget {
                   child: SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     reverse: true,
-                    child: _ThemeSelector(),
+                    child: RetroThemeDropdown(),
                   ),
                 ),
               ),
@@ -160,10 +198,33 @@ class RetroToolbar extends StatelessWidget {
     );
   }
 
-  /// Content-sized toolbar button (no fixed width; min height handled by
-  /// [RetroButton]). No style here: RetroButton forces Arial 12 / w500.
-  Widget _toolbarButton({required String label, VoidCallback? onPressed}) {
-    return RetroButton(onPressed: onPressed ?? () {}, child: Text(label));
+  /// Toolbar icon button formatted with 3D raised border and Tooltip.
+  Widget _toolbarButton({
+    required IconData icon,
+    required String tooltip,
+    VoidCallback? onPressed,
+    Color? iconColor,
+  }) {
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        onTap: onPressed,
+        child: Container(
+          margin: const EdgeInsets.only(top: 1, bottom: 1),
+          constraints: const BoxConstraints(minHeight: 30, minWidth: 32),
+          alignment: Alignment.center,
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+          decoration: RetroBorder.raised(
+            backgroundColor: ThemeService.instance.uiColors['panel'],
+          ),
+          child: Icon(
+            icon,
+            size: 18,
+            color: iconColor ?? ThemeService.instance.uiColors['text'],
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _buildSeparator() {
@@ -186,54 +247,152 @@ class RetroToolbar extends StatelessWidget {
   }
 }
 
-/// Theme selector buttons.
-class _ThemeSelector extends StatelessWidget {
-  const _ThemeSelector();
+/// Returns a representative background swatch for a [ThemeType].
+Color _themeSwatch(ThemeType type) => switch (type) {
+  ThemeType.vc6 => const Color(0xFF1C1C1C),
+  ThemeType.delphi => const Color(0xFF242834),
+  ThemeType.vb6 => const Color(0xFF000080),
+};
+
+/// Custom theme selector dropdown utilizing [PopupMenuButton] and root [Overlay].
+class RetroThemeDropdown extends StatelessWidget {
+  const RetroThemeDropdown({super.key});
 
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
       listenable: ThemeService.instance,
       builder: (context, _) {
+        final currentThemeName = ThemeService.instance.currentThemeName;
         final currentTheme = ThemeService.instance.currentTheme;
-        return Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              'Theme:',
-              style: TextStyle(
-                fontSize: 12.0,
-                fontWeight: FontWeight.w500,
-                fontFamily: 'Arial',
-                height: 1.2,
-                color: ThemeService.instance.colors.text,
+        final uiColors = ThemeService.instance.uiColors;
+
+        return Theme(
+          data: Theme.of(context).copyWith(
+            popupMenuTheme: PopupMenuThemeData(
+              color: uiColors['panel'],
+              elevation: 4,
+              shape: Border(
+                top: BorderSide(
+                  color: ThemeService.instance.colors.borderLight,
+                  width: 2,
+                ),
+                left: BorderSide(
+                  color: ThemeService.instance.colors.borderLight,
+                  width: 2,
+                ),
+                right: BorderSide(
+                  color: ThemeService.instance.colors.borderDark,
+                  width: 2,
+                ),
+                bottom: BorderSide(
+                  color: ThemeService.instance.colors.borderDark,
+                  width: 2,
+                ),
               ),
             ),
-            const SizedBox(width: 5),
-            RetroButton(
-              isPressed: currentTheme == ThemeType.vc6,
-              onPressed: () => ThemeService.instance.switchTheme(ThemeType.vc6),
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
-              child: const Text('VC++ 6.0'),
+          ),
+          child: PopupMenuButton<ThemeType>(
+            tooltip: 'Select Theme',
+            offset: const Offset(0, 26),
+            onSelected: (ThemeType type) {
+              ThemeService.instance.switchTheme(type);
+            },
+            itemBuilder: (context) {
+              return ThemeType.values.map((entry) {
+                final themeName = switch (entry) {
+                  ThemeType.vc6 => 'VC++ 6.0',
+                  ThemeType.delphi => 'Delphi',
+                  ThemeType.vb6 => 'VB6',
+                };
+                final isSelected = entry == currentTheme;
+                return PopupMenuItem<ThemeType>(
+                  value: entry,
+                  height: 30,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 2,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _Swatch(color: _themeSwatch(entry), size: 10),
+                      const SizedBox(width: 6),
+                      Text(
+                        themeName,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontFamily: 'Arial',
+                          color: isSelected
+                              ? ThemeService.instance.uiColors['selection']
+                              : ThemeService.instance.uiColors['text'],
+                          fontWeight: isSelected
+                              ? FontWeight.bold
+                              : FontWeight.normal,
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }).toList();
+            },
+            child: Container(
+              margin: const EdgeInsets.only(top: 1, bottom: 1),
+              constraints: const BoxConstraints(minHeight: 30),
+              alignment: Alignment.center,
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+              decoration: RetroBorder.raised(
+                backgroundColor: uiColors['panel'],
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _Swatch(color: _themeSwatch(currentTheme)),
+                  const SizedBox(width: 4),
+                  Text(
+                    currentThemeName,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'Arial',
+                      color: uiColors['text'],
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Icon(
+                    Icons.arrow_drop_down,
+                    size: 14,
+                    color: uiColors['text'],
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(width: 3),
-            RetroButton(
-              isPressed: currentTheme == ThemeType.delphi,
-              onPressed: () =>
-                  ThemeService.instance.switchTheme(ThemeType.delphi),
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
-              child: const Text('Delphi'),
-            ),
-            const SizedBox(width: 3),
-            RetroButton(
-              isPressed: currentTheme == ThemeType.vb6,
-              onPressed: () => ThemeService.instance.switchTheme(ThemeType.vb6),
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
-              child: const Text('VB6'),
-            ),
-          ],
+          ),
         );
       },
+    );
+  }
+}
+
+/// Tiny colored square used as a theme preview swatch.
+class _Swatch extends StatelessWidget {
+  final Color color;
+  final double size;
+
+  const _Swatch({required this.color, this.size = 12});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: color,
+        border: Border.all(
+          color: ThemeService.instance.colors.borderDark,
+          width: 1,
+        ),
+      ),
     );
   }
 }

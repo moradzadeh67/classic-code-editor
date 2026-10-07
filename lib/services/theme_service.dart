@@ -84,6 +84,17 @@ class ThemeService extends ChangeNotifier {
 
   ThemeType get currentTheme => _currentTheme;
 
+  String get currentThemeName {
+    switch (_currentTheme) {
+      case ThemeType.delphi:
+        return 'Delphi';
+      case ThemeType.vb6:
+        return 'VB6';
+      case ThemeType.vc6:
+        return 'VC++ 6.0';
+    }
+  }
+
   ThemeColorsData get colors => _colorsForTheme(_currentTheme);
 
   Map<String, Color> get uiColors => colors.toMap();
@@ -97,6 +108,16 @@ class ThemeService extends ChangeNotifier {
       _currentTheme = type;
       _saveTheme();
       notifyListeners();
+    }
+  }
+
+  void setTheme(String themeName) {
+    if (themeName == 'Delphi') {
+      switchTheme(ThemeType.delphi);
+    } else if (themeName == 'VB6') {
+      switchTheme(ThemeType.vb6);
+    } else {
+      switchTheme(ThemeType.vc6);
     }
   }
 

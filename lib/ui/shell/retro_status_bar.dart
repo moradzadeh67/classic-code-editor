@@ -58,11 +58,11 @@ class RetroStatusBar extends StatelessWidget {
 
         // Compact, matching the classic Windows 9x status bar (~22-24px).
         return Container(
-          height: 24,
+          height: 28,
           decoration: RetroBorder.raised(
             backgroundColor: ThemeService.instance.uiColors['panel'],
           ),
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           child: Row(
             children: [
               Expanded(
@@ -71,7 +71,7 @@ class RetroStatusBar extends StatelessWidget {
                   child: Text(
                     statusText,
                     style: TextStyle(
-                      fontSize: 11.0,
+                      fontSize: 12.0,
                       fontWeight: FontWeight.w400,
                       fontFamily: 'Arial',
                       height: 1.2,
@@ -87,7 +87,7 @@ class RetroStatusBar extends StatelessWidget {
                   child: Text(
                     analysisText,
                     style: TextStyle(
-                      fontSize: 11.0,
+                      fontSize: 12.0,
                       fontWeight: FontWeight.w400,
                       fontFamily: 'Arial',
                       height: 1.2,
@@ -145,7 +145,7 @@ class RetroStatusBar extends StatelessWidget {
                   positionText,
                   textAlign: TextAlign.right,
                   style: TextStyle(
-                    fontSize: 11.0,
+                    fontSize: 12.0,
                     fontWeight: FontWeight.w400,
                     fontFamily: 'Arial',
                     height: 1.2,

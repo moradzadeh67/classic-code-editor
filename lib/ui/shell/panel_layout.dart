@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_code_editor/flutter_code_editor.dart';
 
 import '../../models/diagnostic.dart';
 import '../../models/debugger_models.dart';
@@ -29,6 +30,7 @@ class PanelLayout extends StatefulWidget {
   final FileService fileService;
   final TerminalService terminalService;
   final BaseDebugger? debugger;
+  final CodeController? codeEditorController;
 
   const PanelLayout({
     super.key,
@@ -41,6 +43,7 @@ class PanelLayout extends StatefulWidget {
     required this.fileService,
     required this.terminalService,
     this.debugger,
+    this.codeEditorController,
   });
 
   @override
@@ -152,6 +155,7 @@ class _PanelLayoutState extends State<PanelLayout> {
                           fileService: widget.fileService,
                           lspService: widget.lspService,
                           debugger: widget.debugger,
+                          controller: widget.codeEditorController,
                         ),
                       ),
                     ],
@@ -186,10 +190,11 @@ class _PanelLayoutState extends State<PanelLayout> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Container(
-          height: 22,
+          height: 34,
           color: ThemeService.instance.uiColors['panel'],
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 0),
           child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               _buildTabButton('Console', _activeBottomTab == 0, () {
                 setState(() => _activeBottomTab = 0);
@@ -225,7 +230,10 @@ class _PanelLayoutState extends State<PanelLayout> {
     return InkWell(
       onTap: onPressed,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+        margin: const EdgeInsets.only(top: 1, bottom: 1),
+        constraints: const BoxConstraints(minHeight: 30),
+        alignment: Alignment.center,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
         decoration: isActive
             ? RetroBorder.sunken(
                 backgroundColor: ThemeService.instance.uiColors['panel'],
@@ -236,10 +244,11 @@ class _PanelLayoutState extends State<PanelLayout> {
         child: Text(
           label,
           style: TextStyle(
-            fontSize: 11,
+            fontSize: 13,
             fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
             color: ThemeService.instance.uiColors['text'],
           ),
+          overflow: TextOverflow.visible,
         ),
       ),
     );

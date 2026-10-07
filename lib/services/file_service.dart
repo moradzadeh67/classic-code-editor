@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 
+import '../models/language_config.dart';
 import '../models/tab_file.dart';
 
 class FileService extends ChangeNotifier {
@@ -26,11 +27,18 @@ class FileService extends ChangeNotifier {
 
   bool get isModified => activeTab?.isModified ?? false;
 
+  /// Creates a new untitled tab for editing, making it the active tab.
+  void createNewFile() {
+    _openTabs.add(TabFile(fileName: 'Untitled', content: ''));
+    _activeTabIndex = _openTabs.length - 1;
+    notifyListeners();
+  }
+
   Future<void> openFile() async {
     try {
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
-        allowedExtensions: ['dart'],
+        allowedExtensions: ['dart', 'c', 'cpp', 'py'],
       );
 
       if (result != null && result.files.single.path != null) {
@@ -91,25 +99,58 @@ class FileService extends ChangeNotifier {
     }
   }
 
-  Future<String> _formatDartCode(String content) async {
+  Future<String> _formatCode(String content, String? filePath) async {
+    final config = LanguageConfig.fromExtension(filePath);
+    if (config.formatCommand == null) return content;
+
     try {
-      final process = await Process.start(Platform.resolvedExecutable, [
-        'format',
-        '--output=show',
-      ]);
-      process.stdin.write(content);
-      await process.stdin.close();
+      if (config.extension == '.dart') {
+        final process = await Process.start(Platform.resolvedExecutable, [
+          'format',
+          '--output=show',
+        ]);
+        process.stdin.write(content);
+        await process.stdin.close();
 
-      final result = await process.stdout.transform(utf8.decoder).join();
-      final exitCode = await process.exitCode;
+        final result = await process.stdout.transform(utf8.decoder).join();
+        final exitCode = await process.exitCode;
 
-      if (exitCode == 0 && result.isNotEmpty) {
-        return result;
+        if (exitCode == 0 && result.isNotEmpty) {
+          return result;
+        }
+      } else if (config.extension == '.c' || config.extension == '.cpp') {
+        final process = await Process.start('clang-format', []);
+        process.stdin.write(content);
+        await process.stdin.close();
+
+        final result = await process.stdout.transform(utf8.decoder).join();
+        final exitCode = await process.exitCode;
+
+        if (exitCode == 0 && result.isNotEmpty) {
+          return result;
+        }
+      } else if (config.extension == '.py') {
+        final process = await Process.start('black', ['-q', '-']);
+        process.stdin.write(content);
+        await process.stdin.close();
+
+        final result = await process.stdout.transform(utf8.decoder).join();
+        final exitCode = await process.exitCode;
+
+        if (exitCode == 0 && result.isNotEmpty) {
+          return result;
+        }
       }
     } catch (e) {
-      debugPrint('Error formatting code on save: $e');
+      debugPrint(
+        'Warning: Format command "${config.formatCommand}" failed or not installed: $e',
+      );
     }
     return content;
+  }
+
+  Future<void> saveCurrentFile() async {
+    await saveFile(fileContent);
   }
 
   Future<void> saveFile(String content) async {
@@ -120,7 +161,7 @@ class FileService extends ChangeNotifier {
     }
 
     try {
-      final formattedContent = await _formatDartCode(content);
+      final formattedContent = await _formatCode(content, tab.filePath);
       final file = File(tab.filePath!);
       await file.writeAsString(formattedContent);
 
@@ -138,37 +179,37 @@ class FileService extends ChangeNotifier {
 
   Future<void> saveFileAs(String content) async {
     try {
-      final formattedContent = await _formatDartCode(content);
+      // Show the native save dialog FIRST, before spawning any subprocess
+      // (e.g. the formatter), so there is no black overlay on macOS.
       String? path = await FilePicker.platform.saveFile(
         dialogTitle: 'Save File As',
         fileName: activeTab?.fileName ?? 'main.dart',
-        allowedExtensions: ['dart'],
+        allowedExtensions: ['dart', 'c', 'cpp', 'py'],
         type: FileType.custom,
       );
-
-      if (path != null) {
-        final fileName = path.split('/').last;
-        final file = File(path);
-        await file.writeAsString(formattedContent);
-
-        // If active tab exists, update it or add new
-        if (_activeTabIndex >= 0 && _activeTabIndex < _openTabs.length) {
-          _openTabs[_activeTabIndex] = TabFile(
-            filePath: path,
-            fileName: fileName,
-            content: formattedContent,
-          );
-        } else {
-          final newTab = TabFile(
-            filePath: path,
-            fileName: fileName,
-            content: formattedContent,
-          );
-          _openTabs.add(newTab);
-          _activeTabIndex = _openTabs.length - 1;
-        }
-        notifyListeners();
+      if (path == null) return;
+      // Only format/write once the user has chosen a destination.
+      final formattedContent = await _formatCode(content, path);
+      final fileName = path.split('/').last;
+      final file = File(path);
+      await file.writeAsString(formattedContent);
+      // If active tab exists, update it or add new
+      if (_activeTabIndex >= 0 && _activeTabIndex < _openTabs.length) {
+        _openTabs[_activeTabIndex] = TabFile(
+          filePath: path,
+          fileName: fileName,
+          content: formattedContent,
+        );
+      } else {
+        final newTab = TabFile(
+          filePath: path,
+          fileName: fileName,
+          content: formattedContent,
+        );
+        _openTabs.add(newTab);
+        _activeTabIndex = _openTabs.length - 1;
       }
+      notifyListeners();
     } catch (e) {
       debugPrint('Error saving file as: $e');
     }

@@ -1,4 +1,6 @@
+import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_code_editor/flutter_code_editor.dart';
 
 import '../../services/dart_runner_service.dart';
 import '../../services/file_service.dart';
@@ -16,6 +18,7 @@ class RetroMenuBar extends StatelessWidget {
   final FileService? fileService;
   final AnalyzerService? analyzerService;
   final DartRunnerService? dartRunnerService;
+  final CodeController? codeEditorController;
 
   const RetroMenuBar({
     super.key,
@@ -27,12 +30,13 @@ class RetroMenuBar extends StatelessWidget {
     this.fileService,
     this.analyzerService,
     this.dartRunnerService,
+    this.codeEditorController,
   });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 24,
+      height: 32,
       decoration: RetroBorder.raised(backgroundColor: RetroColors.panel),
       padding: const EdgeInsets.symmetric(horizontal: 4),
       child: Row(
@@ -46,7 +50,7 @@ class RetroMenuBar extends StatelessWidget {
                 child: Text(
                   'New File',
                   style: TextStyle(
-                    fontSize: 12,
+                    fontSize: 13,
                     fontWeight: FontWeight.w500,
                     fontFamily: 'Arial',
                     height: 1.2,
@@ -114,6 +118,8 @@ class RetroMenuBar extends StatelessWidget {
                 if (fileService != null) {
                   fileService!.saveFileAs(fileService!.fileContent);
                 }
+              } else if (value == 'new') {
+                fileService?.createNewFile();
               }
             },
           ),
@@ -183,7 +189,19 @@ class RetroMenuBar extends StatelessWidget {
                 ),
               ),
             ],
-            onSelected: (_) {},
+            onSelected: (value) {
+              if (value == 'undo') {
+                _undoText();
+              } else if (value == 'redo') {
+                _redoText();
+              } else if (value == 'cut') {
+                _cutSelectedText();
+              } else if (value == 'copy') {
+                _copySelectedText();
+              } else if (value == 'paste') {
+                _pasteText();
+              }
+            },
           ),
           _buildMenuHeader(
             context: context,
@@ -313,12 +331,13 @@ class RetroMenuBar extends StatelessWidget {
                 if (onRun != null) {
                   onRun!();
                 } else if (dartRunnerService != null && fileService != null) {
+                  final path = fileService!.currentFilePath;
                   final content =
                       fileService!.activeTab?.content ??
                       fileService!.fileContent;
                   if (content.isNotEmpty) {
                     debugPrint('Run menu clicked, executing code...');
-                    dartRunnerService!.runCode(content);
+                    dartRunnerService!.runCode(path, content);
                   }
                 }
               } else if (value == 'stop') {
@@ -378,6 +397,66 @@ class RetroMenuBar extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  void _undoText() {
+    // CodeController in this version of flutter_code_editor does not expose
+    // undo/redo programmatically. The editor still supports Cmd/Ctrl+Z via
+    // the native text input on platform views.
+  }
+
+  void _redoText() {
+    // See comment in _undoText.
+  }
+
+  void _copySelectedText() async {
+    final controller = codeEditorController;
+    if (controller == null) return;
+    final selectedText = controller.selection.textInside(controller.text);
+    if (selectedText.isNotEmpty) {
+      await Clipboard.setData(ClipboardData(text: selectedText));
+    }
+  }
+
+  void _cutSelectedText() async {
+    final controller = codeEditorController;
+    if (controller == null || !controller.selection.isValid) return;
+    final selectedText = controller.selection.textInside(controller.text);
+    if (selectedText.isNotEmpty) {
+      await Clipboard.setData(ClipboardData(text: selectedText));
+      final buffer = controller.text;
+      final start = controller.selection.start;
+      final end = controller.selection.end;
+      if (start >= 0 && end >= start && end <= buffer.length) {
+        final newText = buffer.substring(0, start) + buffer.substring(end);
+        controller.value = TextEditingValue(
+          text: newText,
+          selection: TextSelection.collapsed(offset: start),
+        );
+      }
+    }
+  }
+
+  void _pasteText() async {
+    final controller = codeEditorController;
+    if (controller == null) return;
+    final data = await Clipboard.getData('text/plain');
+    if (data?.text != null) {
+      final buffer = controller.text;
+      final start = controller.selection.start;
+      final end = controller.selection.end;
+      if (start < 0 || end < start) return;
+      final newText =
+          buffer.substring(0, start) +
+          data!.text! +
+          buffer.substring(end.clamp(0, buffer.length));
+      controller.value = TextEditingValue(
+        text: newText,
+        selection: TextSelection.collapsed(
+          offset: (start + data.text!.length).clamp(0, newText.length),
+        ),
+      );
+    }
   }
 
   Widget _buildMenuHeader({

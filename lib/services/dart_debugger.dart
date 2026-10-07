@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 
@@ -26,22 +27,25 @@ class DartDebugger extends BaseDebugger {
       notifyListeners();
 
       // Listen for VM service URI in stdout
-      _process!.stdout.listen((data) {
-        final output = String.fromCharCodes(data);
-        debugPrint('[DartDebugger] $output');
+      _process!.stdout
+          .transform(const Utf8Decoder(allowMalformed: true))
+          .listen((output) {
+            debugPrint('[DartDebugger] $output');
 
-        // Look for VM service URI pattern
-        final uriMatch = RegExp(r'Observatory listening on (http://\S+)')
-            .firstMatch(output);
-        if (uriMatch != null) {
-          _vmServiceUri = uriMatch.group(1);
-          debugPrint('[DartDebugger] VM Service: $_vmServiceUri');
-        }
-      });
+            // Look for VM service URI pattern
+            final uriMatch = RegExp(r'Observatory listening on (http://\S+)')
+                .firstMatch(output);
+            if (uriMatch != null) {
+              _vmServiceUri = uriMatch.group(1);
+              debugPrint('[DartDebugger] VM Service: $_vmServiceUri');
+            }
+          });
 
-      _process!.stderr.listen((data) {
-        debugPrint('[DartDebugger Error] ${String.fromCharCodes(data)}');
-      });
+      _process!.stderr
+          .transform(const Utf8Decoder(allowMalformed: true))
+          .listen((output) {
+            debugPrint('[DartDebugger Error] $output');
+          });
 
       _process!.exitCode.then((code) {
         state = DebugState.stopped;
