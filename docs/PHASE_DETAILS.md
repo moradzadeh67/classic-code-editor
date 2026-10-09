@@ -66,8 +66,25 @@ Main window layout:
 - Step over/into/out
 - Variable inspection
 
-## Phase 14: Final Polish
-- Consistent retro styling
-- Keyboard shortcuts
-- Window state persistence
-- About dialog
+## Phase 14: Multi-Language Support
+- LanguageConfig model (Dart, C, C++, Python)
+- LanguageRunnerService: run/compile per language
+- MultiLanguageHighlighter (highlight package)
+- Format on save (dart format, clang-format, black)
+
+## Phase 15: Multi-Language Debugging
+- BaseDebugger contract (output stream, currentPausedLine)
+- DartDebugger over the real Dart VM Service (VmServiceClient)
+- PythonDebugger via sys.settrace
+- CDebugger via clang -g -O0 + lldb
+- DebuggerFactory language dispatch + DebuggerManager tab sync
+- Console output bridge
+
+## Phase 16: Debugger Hardening & Test Coverage
+- Gutter paused arrow for all four languages
+- Shared editor/gutter line height (no row drift)
+- Breakpoint auto-cleanup
+- Language-sniffing fix (untitled C vs C++)
+- Dart/Python/C debugger fixes
+- Opt-in real-VM integration test
+- About dialog & Help menu

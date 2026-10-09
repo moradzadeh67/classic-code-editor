@@ -28,6 +28,9 @@ class ThemeColorsData {
   final Color editorLineNumberText;
   final Color editorCursor;
 
+  /// Background tint painted on the line execution is currently paused on.
+  final Color pausedLine;
+
   const ThemeColorsData({
     required this.background,
     required this.panel,
@@ -47,6 +50,7 @@ class ThemeColorsData {
     required this.editorLineNumberBg,
     required this.editorLineNumberText,
     required this.editorCursor,
+    required this.pausedLine,
   });
 
   Map<String, Color> toMap() => {
@@ -68,6 +72,7 @@ class ThemeColorsData {
     'editorLineNumberBg': editorLineNumberBg,
     'editorLineNumberText': editorLineNumberText,
     'editorCursor': editorCursor,
+    'pausedLine': pausedLine,
   };
 }
 
@@ -124,67 +129,75 @@ class ThemeService extends ChangeNotifier {
   static ThemeColorsData _colorsForTheme(ThemeType type) {
     switch (type) {
       case ThemeType.vc6:
+        // ۱. تم VC++ 6.0 با استایل Windows XP (Luna Blue)
         return const ThemeColorsData(
-          background: Color(0xFFC0C0C0),
-          panel: Color(0xFFD4D0C8),
-          borderDark: Color(0xFF404040),
+          background: Color(0xFF0055EA), // آبی کلاسیک ویندوز اکس‌پی
+          panel: Color(0xFFECE9D8), // رنگ بدنه و پنجره‌های Windows XP
+          borderDark: Color(0xFF716F64),
           borderLight: Color(0xFFFFFFFF),
-          highlight: Color(0xFFDFDFDF),
-          shadow: Color(0xFF808080),
-          selection: Color(0xFF000080),
+          highlight: Color(0xFFF4F2E8),
+          shadow: Color(0xFFACA899),
+          selection: Color(0xFF316AC5), // آبی انتخاب اکتیو در ویندوز اکس‌پی
           text: Color(0xFF000000),
           error: Color(0xFFCC0000),
-          menuActive: Color(0xFF0A246A),
+          menuActive: Color(0xFF316AC5),
           menuActiveText: Color(0xFFFFFFFF),
           editorBackground: Color(0xFFE8F1FF),
           editorText: Color(0xFF000000),
           editorSelection: Color(0xFF000080),
           editorSelectionText: Color(0xFFFFFFFF),
-          editorLineNumberBg: Color(0xFFD4D0C8),
+          editorLineNumberBg: Color(0xFFECE9D8),
           editorLineNumberText: Color(0xFF000000),
           editorCursor: Color(0xFF000000),
+          pausedLine: Color(0xFFFFF0A0),
         );
+
       case ThemeType.delphi:
+        // تم Delphi / MPLAB IDE (تن زرد-بژ/خردلی گرم کلاسیک)
         return const ThemeColorsData(
-          background: Color(0xFFD4D0C8),
-          panel: Color(0xFFE8E0D0),
-          borderDark: Color(0xFF808080),
-          borderLight: Color(0xFFFFFFFF),
-          highlight: Color(0xFFF0E8D8),
-          shadow: Color(0xFFA09888),
-          selection: Color(0xFF000080),
+          background: Color(0xFFD2BA7E), // بژ/خردلی گرم زمینه اصلی
+          panel: Color(0xFFDFCD9B), // بژ ملایم بدنه پنجره‌ها و پنل‌ها
+          borderDark: Color(0xFF7A683E), // سایه‌های تیره خردلی/قهوه‌ای
+          borderLight: Color(0xFFFAF0C5), // هایلایت‌های روشن بالای پنجره‌ها
+          highlight: Color(0xFFEAD8AA), // پنل‌های هایلایت‌شده
+          shadow: Color(0xFFA08B53), // سایه‌های متوسط
+          selection: Color(0xFFA08035), // رنگ انتخاب فعال (خردلی تیره/قهوه‌ای)
           text: Color(0xFF000000),
           error: Color(0xFFCC0000),
-          menuActive: Color(0xFF000080),
+          menuActive: Color(0xFFA08035),
           menuActiveText: Color(0xFFFFFFFF),
           editorBackground: Color(0xFFE8F1FF),
           editorText: Color(0xFF000000),
           editorSelection: Color(0xFF000080),
           editorSelectionText: Color(0xFFFFFFFF),
-          editorLineNumberBg: Color(0xFFE8E0D0),
+          editorLineNumberBg: Color(0xFFDFCD9B),
           editorLineNumberText: Color(0xFF000000),
           editorCursor: Color(0xFF000000),
+          pausedLine: Color(0xFFE9D9A5),
         );
+
       case ThemeType.vb6:
+        // ۳. تم Borland Kylix / Retro Linux Desktop (پس‌زمینه آبی‌سرمه‌ای عمیق)
         return const ThemeColorsData(
-          background: Color(0xFFC0C0C0),
-          panel: Color(0xFFE0E0E0),
-          borderDark: Color(0xFF808080),
-          borderLight: Color(0xFFFFFFFF),
-          highlight: Color(0xFFF0F0F0),
-          shadow: Color(0xFFA0A0A0),
-          selection: Color(0xFF000080),
+          background: Color(0xFF2C4A8E),
+          panel: Color(0xFFC0C0C0),
+          borderDark: Color(0xFF303030),
+          borderLight: Color(0xFFE0E0E0),
+          highlight: Color(0xFFD8D8D8),
+          shadow: Color(0xFF707070),
+          selection: Color(0xFF1B3260),
           text: Color(0xFF000000),
           error: Color(0xFFCC0000),
-          menuActive: Color(0xFF000080),
+          menuActive: Color(0xFF1B3260),
           menuActiveText: Color(0xFFFFFFFF),
           editorBackground: Color(0xFFE8F1FF),
           editorText: Color(0xFF000000),
           editorSelection: Color(0xFF000080),
           editorSelectionText: Color(0xFFFFFFFF),
-          editorLineNumberBg: Color(0xFFE0E0E0),
+          editorLineNumberBg: Color(0xFFC0C0C0),
           editorLineNumberText: Color(0xFF000000),
           editorCursor: Color(0xFF000000),
+          pausedLine: Color(0xFFDCDCA8),
         );
     }
   }

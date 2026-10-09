@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 
 import '../../services/dart_runner_service.dart';
@@ -9,8 +10,13 @@ import '../retro/retro_button.dart';
 
 class ConsolePanel extends StatefulWidget {
   final DartRunnerService dartRunnerService;
+  final String? currentLanguage; // NEW: language badge info
 
-  const ConsolePanel({super.key, required this.dartRunnerService});
+  const ConsolePanel({
+    super.key,
+    required this.dartRunnerService,
+    this.currentLanguage,
+  });
 
   @override
   State<ConsolePanel> createState() => _ConsolePanelState();
@@ -22,7 +28,6 @@ class _ConsolePanelState extends State<ConsolePanel> {
   final TextEditingController _inputController = TextEditingController();
   final FocusNode _inputFocusNode = FocusNode();
   StreamSubscription<String>? _subscription;
-  String _selectedLanguage = 'Auto';
 
   @override
   void initState() {
@@ -78,13 +83,49 @@ class _ConsolePanelState extends State<ConsolePanel> {
     return const Color(0xFF006600);
   }
 
+  void _copyAll() {
+    final text = _outputLines.join('\n');
+    Clipboard.setData(ClipboardData(text: text));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Copied to clipboard',
+          style: TextStyle(fontFamily: 'Tahoma', fontSize: 11),
+        ),
+      ),
+    );
+  }
+
+  void _copyErrors() {
+    final errors = _outputLines
+        .where((line) {
+          final trimmed = line.trim().toLowerCase();
+          return trimmed.contains('error') ||
+              trimmed.contains('fatal') ||
+              trimmed.contains('exception') ||
+              _getLineColor(line) == Colors.red;
+        })
+        .join('\n');
+    Clipboard.setData(
+      ClipboardData(text: errors.isNotEmpty ? errors : 'No errors found'),
+    );
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Errors copied',
+          style: TextStyle(fontFamily: 'Tahoma', fontSize: 11),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
       decoration: RetroBorder.sunken(
         backgroundColor: ThemeService.instance.uiColors['panel'],
       ),
-      padding: const EdgeInsets.all(8),
+      padding: const EdgeInsets.all(4),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -99,42 +140,20 @@ class _ConsolePanelState extends State<ConsolePanel> {
                 ),
               ),
               const Spacer(),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: DropdownButton<String>(
-                  value: _selectedLanguage,
-                  items: ['Auto', 'Dart', 'Python', 'C', 'C++'].map((
-                    String lang,
-                  ) {
-                    return DropdownMenuItem<String>(
-                      value: lang,
-                      child: Text(
-                        lang,
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: ThemeService.instance.uiColors['text'],
-                        ),
-                      ),
-                    );
-                  }).toList(),
-                  onChanged: (String? newValue) {
-                    setState(() {
-                      _selectedLanguage = newValue ?? 'Auto';
-                    });
-                    widget.dartRunnerService.setPreferredLanguage(
-                      _selectedLanguage,
-                    );
-                  },
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: ThemeService.instance.uiColors['text'],
-                  ),
-                  dropdownColor: ThemeService.instance.uiColors['panel'],
-                  underline: const SizedBox(),
-                ),
+              RetroButton(
+                height: 22,
+                onPressed: _copyAll,
+                child: const Text('Copy All'),
+              ),
+              const SizedBox(width: 4),
+              RetroButton(
+                height: 22,
+                onPressed: _copyErrors,
+                child: const Text('Copy Errors'),
               ),
               const SizedBox(width: 8),
               RetroButton(
+                height: 22,
                 onPressed: () {
                   setState(() {
                     _outputLines.clear();
@@ -163,10 +182,10 @@ class _ConsolePanelState extends State<ConsolePanel> {
                       horizontal: 8,
                       vertical: 2,
                     ),
-                    child: Text(
+                    child: SelectableText(
                       line,
                       style: TextStyle(
-                        fontSize: 12,
+                        fontSize: 13,
                         fontFamily: 'Courier New',
                         color: textColor,
                         fontWeight: line.trim().startsWith('> ')

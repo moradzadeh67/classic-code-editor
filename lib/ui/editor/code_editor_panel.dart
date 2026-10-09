@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_code_editor/flutter_code_editor.dart';
 
+import '../../models/debugger_models.dart';
 import '../../models/language_config.dart';
 import '../../models/lsp_models.dart';
 import '../../services/file_service.dart';
@@ -12,9 +13,23 @@ import '../../services/theme_service.dart';
 import '../../services/base_debugger.dart';
 import '../../utils/completion_filter.dart';
 import '../../utils/multi_language_highlighter.dart';
-import '../retro/retro_border.dart';
 import 'autocomplete_popup.dart';
 import 'hover_tooltip.dart';
+
+/// Font size of the code editor's text.
+///
+/// Shared with the gutter so its rows line up exactly with the code. The gutter
+/// used to hardcode a row height of `19.0` while the editor renders
+/// `13 * 1.45 = 18.85` per line, which drifts about 0.15px per line (roughly
+/// 45px over a 300-line file) and makes the breakpoint bullets and the
+/// paused-line marker land on the wrong row.
+const double editorFontSize = 13.0;
+
+/// Line-height multiplier applied to [editorFontSize].
+const double editorLineHeightFactor = 1.45;
+
+/// Height of a single line of code, in logical pixels.
+const double editorLineHeight = editorFontSize * editorLineHeightFactor;
 
 /// The main code-editor area.
 class CodeEditorPanel extends StatefulWidget {
@@ -70,12 +85,19 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
         );
     _controller.addListener(_onTextChanged);
     widget.fileService.addListener(_onFileServiceChanged);
+    widget.debugger?.addListener(_onDebuggerChanged);
     _lastActiveTabIndex = widget.fileService.activeTabIndex;
   }
 
   @override
   void didUpdateWidget(covariant CodeEditorPanel oldWidget) {
     super.didUpdateWidget(oldWidget);
+    // The shell swaps the active debugger when the language changes; keep our
+    // listener attached to the current one so the gutter keeps repainting.
+    if (oldWidget.debugger != widget.debugger) {
+      oldWidget.debugger?.removeListener(_onDebuggerChanged);
+      widget.debugger?.addListener(_onDebuggerChanged);
+    }
     if (oldWidget.fileService != widget.fileService ||
         oldWidget.lspService != widget.lspService) {
       oldWidget.fileService.removeListener(_onFileServiceChanged);
@@ -91,6 +113,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     _typingTimer?.cancel();
     _controller.removeListener(_onTextChanged);
     widget.fileService.removeListener(_onFileServiceChanged);
+    widget.debugger?.removeListener(_onDebuggerChanged);
     _controller.dispose();
     _focusNode.dispose();
     super.dispose();
@@ -102,7 +125,24 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
       return;
     }
 
-    widget.fileService.updateContent(_controller.text);
+    final newText = _controller.text;
+    widget.fileService.updateContent(newText);
+
+    // Auto-clean breakpoints when text is cleared or lines are deleted
+    if (widget.debugger != null) {
+      if (newText.trim().isEmpty) {
+        widget.debugger!.clearBreakpointsForFile(_filePath);
+      } else {
+        final lineCount = newText.split('\n').length;
+        widget.debugger!.breakpoints.removeWhere(
+          (bp) =>
+              (bp.filePath == _filePath ||
+                  bp.filePath == widget.fileService.currentFilePath ||
+                  bp.filePath == widget.fileService.fileName) &&
+              bp.line > lineCount,
+        );
+      }
+    }
 
     setState(() {
       _isTyping = true;
@@ -125,6 +165,10 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     _dismissHover();
   }
 
+  void _onDebuggerChanged() {
+    if (mounted) setState(() {});
+  }
+
   void _onFileServiceChanged() {
     if (widget.fileService.activeTabIndex != _lastActiveTabIndex) {
       _lastActiveTabIndex = widget.fileService.activeTabIndex;
@@ -144,6 +188,20 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
       _controller.selection = TextSelection.collapsed(
         offset: newContent.length,
       );
+    }
+    if (widget.debugger != null) {
+      if (newContent.trim().isEmpty) {
+        widget.debugger!.clearBreakpointsForFile(_filePath);
+      } else {
+        final lineCount = newContent.split('\n').length;
+        widget.debugger!.breakpoints.removeWhere(
+          (bp) =>
+              (bp.filePath == _filePath ||
+                  bp.filePath == widget.fileService.currentFilePath ||
+                  bp.filePath == widget.fileService.fileName) &&
+              bp.line > lineCount,
+        );
+      }
     }
     setState(() {});
   }
@@ -178,36 +236,43 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   }
 
   Offset _computeCursorScreenPosition() {
-    final RenderBox? box =
-        _editorKey.currentContext?.findRenderObject() as RenderBox?;
-    if (box == null) return const Offset(100, 100);
+    try {
+      final RenderBox? box =
+          _editorKey.currentContext?.findRenderObject() as RenderBox?;
+      if (box == null || !box.hasSize) return const Offset(100, 100);
 
-    final editorGlobalPosition = box.localToGlobal(Offset.zero);
-    final text = _controller.text;
-    final selection = _controller.selection;
-    final offset = selection.isValid ? selection.start : 0;
-    final (lineNumber, _) = _offsetToLineColumn(text, offset);
+      final editorGlobalPosition = box.localToGlobal(Offset.zero);
+      final text = _controller.text;
+      final selection = _controller.selection;
+      final offset = selection.isValid && selection.start >= 0
+          ? selection.start
+          : 0;
+      final (lineNumber, _) = _offsetToLineColumn(text, offset);
 
-    const double lineHeight = 19.0;
-    final Offset cursorPosition =
-        editorGlobalPosition + Offset(8, 8 + lineNumber * lineHeight);
+      final Offset cursorPosition =
+          editorGlobalPosition + Offset(8, 8 + lineNumber * editorLineHeight);
 
-    return cursorPosition + const Offset(0, 24);
+      return cursorPosition + const Offset(0, 24);
+    } catch (_) {
+      return const Offset(100, 100);
+    }
   }
 
   void _requestCompletion() async {
-    final filePath = widget.fileService.currentFilePath;
-    if (filePath == null || !widget.lspService.isConnected) return;
+    final filePath = _filePath;
+    final config = LanguageConfig.fromExtension(filePath);
+    final language = config.highlightLanguage;
 
     final selection = _controller.selection;
-    if (!selection.isValid || !selection.isCollapsed) {
-      _dismissCompletion();
-      return;
-    }
+    final offset =
+        (selection.isValid && selection.isCollapsed && selection.start >= 0)
+        ? selection.start
+        : _controller.text.length;
 
-    final offset = selection.start;
     final currentWord = CompletionFilter.currentWord(_controller.text, offset);
-    if (!CompletionFilter.isTriggering(currentWord)) {
+    final prevChar = CompletionFilter.previousChar(_controller.text, offset);
+
+    if (!CompletionFilter.isTriggering(currentWord, previousChar: prevChar)) {
       _dismissCompletion();
       return;
     }
@@ -215,19 +280,27 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     final requestId = ++_completionRequestId;
     final (line, column) = _offsetToLineColumn(_controller.text, offset);
 
-    final items = await widget.lspService.requestCompletion(
-      filePath,
-      line + 1,
-      column + 1,
-    );
-
-    if (!mounted || requestId != _completionRequestId) return;
-    if (items.isEmpty) {
-      _dismissCompletion();
-      return;
+    List<CompletionItem> items = [];
+    if (widget.lspService.isConnected) {
+      items = await widget.lspService.requestCompletion(
+        filePath,
+        line + 1,
+        column + 1,
+      );
     }
 
-    final filtered = CompletionFilter.filter(items, currentWord);
+    if (!mounted || requestId != _completionRequestId) return;
+
+    List<CompletionItem> filtered = CompletionFilter.filter(items, currentWord);
+
+    if (filtered.isEmpty && items.isEmpty) {
+      filtered = CompletionFilter.generateFallbackCompletions(
+        _controller.text,
+        currentWord,
+        language,
+      );
+    }
+
     if (filtered.isEmpty) {
       _dismissCompletion();
       return;
@@ -474,9 +547,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
 
     if (activeTab == null) {
       return Container(
-        decoration: RetroBorder.sunken(
-          backgroundColor: ThemeService.instance.colors.editorBackground,
-        ),
+        color: ThemeService.instance.colors.editorBackground,
         alignment: Alignment.center,
         child: Text(
           'No file open. Click Open or select a file.',
@@ -498,9 +569,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
       child: Stack(
         children: [
           Container(
-            decoration: RetroBorder.sunken(
-              backgroundColor: ThemeService.instance.colors.editorBackground,
-            ),
+            color: ThemeService.instance.colors.editorBackground,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               mainAxisSize: MainAxisSize.max,
@@ -513,7 +582,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
                       children: [
                         // Gutter for breakpoints & line numbers
                         Container(
-                          width: 45,
+                          width: 52,
                           color:
                               ThemeService.instance.colors.editorLineNumberBg,
                           child: ListView.builder(
@@ -521,11 +590,22 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
                             itemBuilder: (context, index) {
                               final lineNumber = index + 1;
                               final hasBp = _hasBreakpoint(lineNumber);
+                              final debugger = widget.debugger;
+                              // Keep the marker while the debugger owns a
+                              // paused line and has not been torn down, so it
+                              // also survives a plain `running` step.
+                              final isPausedLine =
+                                  debugger != null &&
+                                  debugger.currentPausedLine == lineNumber &&
+                                  debugger.state != DebugState.inactive;
                               return GestureDetector(
                                 onTap: () => _toggleBreakpoint(lineNumber),
                                 behavior: HitTestBehavior.opaque,
                                 child: Container(
-                                  height: 19.0,
+                                  height: editorLineHeight,
+                                  color: isPausedLine
+                                      ? ThemeService.instance.colors.pausedLine
+                                      : null,
                                   padding: const EdgeInsets.symmetric(
                                     horizontal: 2,
                                   ),
@@ -535,17 +615,48 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
                                         MainAxisAlignment.spaceBetween,
                                     children: [
                                       SizedBox(
-                                        width: 16,
+                                        width: 22,
                                         child: Center(
-                                          child: hasBp
-                                              ? const Text(
-                                                  '●',
-                                                  style: TextStyle(
-                                                    color: Color(0xFFCC0000),
-                                                    fontSize: 16,
+                                          child: !isPausedLine && !hasBp
+                                              ? null
+                                              : FittedBox(
+                                                  fit: BoxFit.scaleDown,
+                                                  child: Row(
+                                                    mainAxisSize:
+                                                        MainAxisSize.min,
+                                                    children: [
+                                                      // The paused-line arrow
+                                                      // and the breakpoint
+                                                      // bullet are drawn
+                                                      // together, so pausing on
+                                                      // a breakpoint never
+                                                      // hides the fact that it
+                                                      // is a breakpoint.
+                                                      if (isPausedLine)
+                                                        Text(
+                                                          '▶',
+                                                          style: TextStyle(
+                                                            color: ThemeService
+                                                                .instance
+                                                                .colors
+                                                                .selection,
+                                                            fontSize: 12,
+                                                          ),
+                                                        ),
+                                                      if (hasBp)
+                                                        Text(
+                                                          '●',
+                                                          style: TextStyle(
+                                                            color: ThemeService
+                                                                .instance
+                                                                .colors
+                                                                .error,
+                                                            fontSize: 12,
+                                                          ),
+                                                        ),
+                                                    ],
                                                   ),
-                                                )
-                                              : null,
+                                                ),
                                         ),
                                       ),
                                       Text(
@@ -610,8 +721,8 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
                                       expands: true,
                                       style: TextStyle(
                                         fontFamily: 'Menlo',
-                                        fontSize: 13,
-                                        height: 1.45,
+                                        fontSize: editorFontSize,
+                                        height: editorLineHeightFactor,
                                         color: ThemeService
                                             .instance
                                             .colors

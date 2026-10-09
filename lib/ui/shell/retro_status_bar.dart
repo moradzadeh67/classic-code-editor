@@ -58,12 +58,13 @@ class RetroStatusBar extends StatelessWidget {
 
         // Compact, matching the classic Windows 9x status bar (~22-24px).
         return Container(
-          height: 28,
+          height: 26,
           decoration: RetroBorder.raised(
             backgroundColor: ThemeService.instance.uiColors['panel'],
           ),
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
           child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Expanded(
                 flex: 2,
@@ -74,7 +75,7 @@ class RetroStatusBar extends StatelessWidget {
                       fontSize: 12.0,
                       fontWeight: FontWeight.w400,
                       fontFamily: 'Arial',
-                      height: 1.2,
+                      height: 1.0,
                       color: textColor,
                     ),
                   ),
@@ -90,7 +91,7 @@ class RetroStatusBar extends StatelessWidget {
                       fontSize: 12.0,
                       fontWeight: FontWeight.w400,
                       fontFamily: 'Arial',
-                      height: 1.2,
+                      height: 1.0,
                       color: errors > 0 ? const Color(0xFFCC0000) : textColor,
                     ),
                   ),
@@ -129,7 +130,7 @@ class RetroStatusBar extends StatelessWidget {
                           fontSize: 11.0,
                           fontWeight: FontWeight.w400,
                           fontFamily: 'Arial',
-                          height: 1.2,
+                          height: 1.0,
                           color: textColor,
                         ),
                       ),
@@ -148,7 +149,7 @@ class RetroStatusBar extends StatelessWidget {
                     fontSize: 12.0,
                     fontWeight: FontWeight.w400,
                     fontFamily: 'Arial',
-                    height: 1.2,
+                    height: 1.0,
                     color: textColor,
                   ),
                 ),

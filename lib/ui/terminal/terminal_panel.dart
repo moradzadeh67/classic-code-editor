@@ -80,7 +80,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
                       return Text(
                         line,
                         style: TextStyle(
-                          fontSize: 12,
+                          fontSize: 14,
                           fontFamily: 'Courier New',
                           color: textColor,
                         ),
@@ -101,7 +101,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
                     Text(
                       '${widget.terminalService.currentDirectory.split('/').last}> ',
                       style: const TextStyle(
-                        fontSize: 12,
+                        fontSize: 14,
                         fontFamily: 'Courier New',
                         color: Color(0xFF1F7D00),
                         fontWeight: FontWeight.bold,
@@ -132,7 +132,7 @@ class _TerminalPanelState extends State<TerminalPanel> {
                         child: TextField(
                           controller: _inputController,
                           style: const TextStyle(
-                            fontSize: 12,
+                            fontSize: 14,
                             fontFamily: 'Courier New',
                             color: Color(0xFF000000),
                           ),

@@ -10,7 +10,7 @@ import '../../services/file_service.dart';
 import '../../services/analyzer_service.dart';
 import '../../services/lsp_service.dart';
 import '../../services/terminal_service.dart';
-import '../../services/dart_debugger.dart';
+import '../../services/debugger_manager.dart';
 import 'retro_menu_bar.dart';
 import 'retro_toolbar.dart';
 import 'retro_status_bar.dart';
@@ -32,8 +32,16 @@ class _IDEShellState extends State<IDEShell> {
   final AnalyzerService _analyzerService = AnalyzerService();
   final LspService _lspService = LspService();
   final TerminalService _terminalService = TerminalService();
-  final DartDebugger _debugger = DartDebugger();
   final CodeController _codeController = CodeController();
+
+  /// Owns one debugger per language and swaps the active one as tabs change.
+  late final DebuggerManager _debuggerManager = DebuggerManager(
+    _fileService,
+    preferredLanguage: () => _dartRunnerService.preferredLanguage,
+  );
+
+  /// Forwards every language debugger's output into the shared Console stream.
+  final List<StreamSubscription<String>> _debuggerOutputSubscriptions = [];
   final FocusNode _shellFocusNode = FocusNode();
   String? _lastAnalyzedPath;
 
@@ -46,6 +54,13 @@ class _IDEShellState extends State<IDEShell> {
   void initState() {
     super.initState();
     _fileService.addListener(_onFileServiceChanged);
+    // Mirror every language debugger's output into the Console stream so a
+    // debug session is never silent.
+    for (final debugger in _debuggerManager.factory.all) {
+      _debuggerOutputSubscriptions.add(
+        debugger.output.listen(_dartRunnerService.emitOutput),
+      );
+    }
     // Start the language server in the background so it is warming up while the
     // user is still opening their first file.
     unawaited(_lspService.startServer());
@@ -54,28 +69,22 @@ class _IDEShellState extends State<IDEShell> {
   @override
   void dispose() {
     _shellFocusNode.dispose();
-    _codeController.dispose();
     _fileService.removeListener(_onFileServiceChanged);
     _lspService.dispose();
+    for (final subscription in _debuggerOutputSubscriptions) {
+      unawaited(subscription.cancel());
+    }
+    _debuggerManager.dispose();
     _dartRunnerService.dispose();
     _terminalService.dispose();
-    _debugger.dispose();
     _fileService.dispose();
     _analyzerService.dispose();
     super.dispose();
   }
 
   void _onFileServiceChanged() {
-    final path = _fileService.currentFilePath;
+    final path = _fileService.currentFilePath ?? _fileService.fileName;
     final content = _fileService.fileContent;
-
-    if (path == null) {
-      _lastAnalyzedPath = null;
-      _lspOpenPath = null;
-      _lspLastContent = null;
-      _analyzerService.clearDiagnostics();
-      return;
-    }
 
     // Push the active document to the language server (open once, then change).
     if (path != _lspOpenPath) {
@@ -145,36 +154,32 @@ class _IDEShellState extends State<IDEShell> {
 
           // 1. Save (Ctrl+S / Cmd+S)
           if (event.logicalKey == LogicalKeyboardKey.keyS && isControlOrMeta) {
-            print('[Shortcut] Save triggered');
             _handleSave();
           }
           // 2. New File (Ctrl+N / Cmd+N)
           else if (event.logicalKey == LogicalKeyboardKey.keyN &&
               isControlOrMeta) {
-            print('[Shortcut] New File triggered');
             _handleNewFile();
           }
           // 3. Run (F5)
           else if (event.logicalKey == LogicalKeyboardKey.f5) {
-            print('[Shortcut] Run triggered');
             _handleRun();
           }
           // 4. Undo (Ctrl+Z / Cmd+Z)
           else if (event.logicalKey == LogicalKeyboardKey.keyZ &&
               isControlOrMeta) {
-            print('[Shortcut] Undo triggered');
             _handleUndo();
           }
           // 5. Redo (Ctrl+Y / Cmd+Y)
           else if (event.logicalKey == LogicalKeyboardKey.keyY &&
               isControlOrMeta) {
-            print('[Shortcut] Redo triggered');
             _handleRedo();
           }
         }
       },
       child: ListenableBuilder(
-        listenable: ThemeService.instance,
+        // Rebuild on theme changes AND when the active debugger swaps language.
+        listenable: Listenable.merge([ThemeService.instance, _debuggerManager]),
         builder: (context, _) {
           return Scaffold(
             backgroundColor: ThemeService.instance.colors.background,
@@ -196,7 +201,7 @@ class _IDEShellState extends State<IDEShell> {
                     fileService: _fileService,
                     analyzerService: _analyzerService,
                     dartRunnerService: _dartRunnerService,
-                    debugger: _debugger,
+                    debugger: _debuggerManager.activeDebugger,
                   ),
                   Expanded(
                     child: PanelLayout(
@@ -208,7 +213,7 @@ class _IDEShellState extends State<IDEShell> {
                       lspService: _lspService,
                       fileService: _fileService,
                       terminalService: _terminalService,
-                      debugger: _debugger,
+                      debugger: _debuggerManager.activeDebugger,
                       codeEditorController: _codeController,
                     ),
                   ),

@@ -66,6 +66,12 @@ secrets.*
 credentials.*
 
 # ==========================================
+# Project-Specific Runtime Files
+# ==========================================
+# Active theme persisted by ThemeService
+.retro_theme_config.json
+
+# ==========================================
 # macOS Specific (Since your app is macOS only)
 # ==========================================
 macos/Flutter/ephemeral/

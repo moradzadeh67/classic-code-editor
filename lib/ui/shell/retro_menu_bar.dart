@@ -8,6 +8,7 @@ import '../../services/analyzer_service.dart';
 import '../../services/theme_service.dart';
 import '../retro/retro_colors.dart';
 import '../retro/retro_border.dart';
+import '../retro/retro_about_dialog.dart';
 
 class RetroMenuBar extends StatelessWidget {
   final VoidCallback? onToggleFileExplorer;
@@ -382,7 +383,31 @@ class RetroMenuBar extends StatelessWidget {
               const PopupMenuItem(
                 value: 'about',
                 child: Text(
-                  'About',
+                  'About Classic Code Editor',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    fontFamily: 'Arial',
+                    height: 1.2,
+                  ),
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'shortcuts',
+                child: Text(
+                  'Keyboard Shortcuts',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    fontFamily: 'Arial',
+                    height: 1.2,
+                  ),
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'system',
+                child: Text(
+                  'System & Tech Info',
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w500,
@@ -392,7 +417,15 @@ class RetroMenuBar extends StatelessWidget {
                 ),
               ),
             ],
-            onSelected: (_) {},
+            onSelected: (value) {
+              if (value == 'about') {
+                showRetroAboutDialog(context, initialTab: 0);
+              } else if (value == 'shortcuts') {
+                showRetroAboutDialog(context, initialTab: 1);
+              } else if (value == 'system') {
+                showRetroAboutDialog(context, initialTab: 2);
+              }
+            },
           ),
         ],
       ),

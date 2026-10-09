@@ -160,3 +160,66 @@
 - Created `MultiLanguageHighlighter` (`lib/utils/multi_language_highlighter.dart`) using the `highlight` package with registered languages for Dart, C, C++, and Python.
 - Wired multi-language configuration, syntax highlighting, formatting, and running into `CodeEditorPanel`, `RetroToolbar`, `RetroMenuBar`, and `IDEShell`.
 - Verified clean `flutter analyze` with 0 issues.
+
+---
+
+## Current Active Task
+
+### TASK-015: Multi-Language Debugging
+**Phase:** 15
+**Status:** ✅ DONE
+**Completed:**
+- Extended `BaseDebugger` with `currentPausedLine`, a broadcast `output`
+  stream, the `@protected emitOutput` helper, and `clearBreakpointsForFile`.
+- Created `DartDebugger` on the real **Dart VM Service**: spawns
+  `dart --enable-vm-service=0 --disable-service-auth-codes
+  --pause-isolates-on-start --enable-asserts <script>`, awaits the isolate
+  `rootLib`, installs an entry breakpoint in the user's `main`
+  (`getIsolate` → `scripts` → `getObject` → `source` → `findMainLine`), mirrors
+  gutter breakpoints with `addBreakpointWithScriptUri`, and fills
+  `variables`/`callStack` from `getStack`.
+- Created `VmServiceClient` (`lib/utils/vm_service_client.dart`): hand-rolled
+  JSON-RPC 2.0 over a `dart:io` `WebSocket` (no new package).
+- Created `PythonDebugger` (generated `sys.settrace` tracer driver) and
+  `CDebugger` (`clang -g -O0` + `lldb` with an injected `borland_lldb.py`
+  stop-hook).
+- Created `DebuggerFactory` (language → debugger), `DebuggerManager` (active
+  debugger follows the active tab), `DebugSnapshot` (shared stop decoder) and
+  `DebuggerEnvironment` (test seam).
+- Bridged debug output: `IDEShell` pipes every debugger's `output` stream into
+  `LanguageRunnerService.emitOutput`, the stream `ConsolePanel` listens to.
+- `RetroToolbar`'s Debug now passes the live buffer content, so unsaved and
+  untitled files can be debugged.
+- Added the `pausedLine` design token to all three themes.
+- Verified clean `flutter analyze` (0 issues) and `flutter test` (suite green).
+
+---
+
+## Current Active Task
+
+### TASK-016: Debugger Hardening & Test Coverage
+**Phase:** 16
+**Status:** ✅ DONE
+**Completed:**
+- Fixed silent debug sessions (public `emitOutput` bridge).
+- Fixed Debug being dead for unsaved buffers (live content + temp file).
+- Fixed C/C++ never pausing (reject lldb's `LLDB_INVALID_LINE_NUMBER`
+  `0xFFFFFFFF` and empty files, filter unusable frames, add
+  `breakpoint set --name main`).
+- Fixed the Dart arrow pointing into `dart:isolate-patch` internals (publish a
+  pause only when the top frame is real user code).
+- Fixed the Dart startup race (`_awaitIsolateReady` polls until `rootLib`
+  exists).
+- Fixed untitled C files compiling as C++ (reordered content sniffing).
+- Fixed gutter rows drifting from the editor (shared `editorLineHeight`
+  `18.85` instead of a hardcoded `19.0`) and the paused arrow hiding the
+  breakpoint bullet.
+- Added tests: `dart_debugger_test`, `python_debugger_test`, `c_debugger_test`,
+  `debugger_factory_test`, `vm_service_client_test`, `console_panel_test`,
+  `debugger_gutter_test`, `debugger_language_switch_test`,
+  `debugger_arrow_all_languages_test`.
+- Added an opt-in end-to-end test (`test/integration/dart_vm_pause_test.dart`)
+  that really spawns a Dart VM and attaches over a real WebSocket; skipped by
+  default so the suite stays offline.
+- Verified `flutter analyze` clean (0 issues) and `flutter test` green
+  (106 tests, 1 opt-in integration test skipped).

@@ -40,7 +40,7 @@ class TabBarWidget extends StatelessWidget {
     return GestureDetector(
       onTap: () => fileService.switchTab(index),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
         margin: const EdgeInsets.only(right: 2, top: 2),
         decoration: BoxDecoration(
           color: isActive
@@ -87,9 +87,19 @@ class TabBarWidget extends StatelessWidget {
             const SizedBox(width: 8),
             GestureDetector(
               onTap: () => fileService.closeTab(index),
-              child: const Text(
-                '×',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+              child: const SizedBox(
+                height: 12,
+                width: 12,
+                child: Center(
+                  child: Text(
+                    '×',
+                    style: TextStyle(
+                      fontSize: 11,
+                      height: 1.0,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
               ),
             ),
           ],

@@ -5,6 +5,7 @@ import '../../services/file_service.dart';
 import '../../services/analyzer_service.dart';
 import '../../services/theme_service.dart';
 import '../../services/base_debugger.dart';
+import '../../services/debug_service.dart';
 import '../../models/debugger_models.dart';
 import '../retro/retro_border.dart';
 
@@ -64,6 +65,7 @@ class RetroToolbar extends StatelessWidget {
             return;
           }
           debugPrint('Run button clicked, executing code...');
+          DebugService.instance.parseAndExtractVariables(content);
           dartRunnerService?.runCode(path, content);
         };
     final stopCallback =
@@ -84,30 +86,31 @@ class RetroToolbar extends StatelessWidget {
         return Container(
           height: 34,
           color: ThemeService.instance.uiColors['panel'],
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 0),
+          // Exactly 2px of breathing room above and below every element.
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
           child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               _toolbarButton(
-                icon: Icons.note_add_outlined,
+                iconType: 'new',
                 tooltip: 'New File',
                 onPressed: newCallback,
               ),
               const SizedBox(width: 3),
               _toolbarButton(
-                icon: Icons.folder_open_outlined,
+                iconType: 'open',
                 tooltip: 'Open File',
                 onPressed: openCallback,
               ),
               const SizedBox(width: 3),
               _toolbarButton(
-                icon: Icons.save_outlined,
+                iconType: 'save',
                 tooltip: 'Save File',
                 onPressed: saveCallback,
               ),
               const SizedBox(width: 3),
               _toolbarButton(
-                icon: Icons.fact_check_outlined,
+                iconType: 'compile',
                 tooltip: 'Analyze Code',
                 onPressed: analyzeCallback,
               ),
@@ -115,16 +118,14 @@ class RetroToolbar extends StatelessWidget {
               _buildSeparator(),
               const SizedBox(width: 5),
               _toolbarButton(
-                icon: Icons.play_arrow,
+                iconType: 'run',
                 tooltip: 'Run Code',
-                iconColor: const Color(0xFF008000),
                 onPressed: runCallback,
               ),
               const SizedBox(width: 3),
               _toolbarButton(
-                icon: Icons.stop,
+                iconType: 'stop',
                 tooltip: 'Stop Execution',
-                iconColor: const Color(0xFFCC0000),
                 onPressed: stopCallback,
               ),
               const SizedBox(width: 5),
@@ -134,45 +135,51 @@ class RetroToolbar extends StatelessWidget {
               if (debugger != null) ...[
                 if (!isDebugging)
                   _toolbarButton(
-                    icon: Icons.bug_report_outlined,
+                    iconType: 'debug',
                     tooltip: 'Start Debugging',
                     onPressed: () {
-                      final path = fileService?.currentFilePath;
-                      if (path != null) {
-                        debugger?.startDebugging(path);
-                      } else {
-                        debugPrint('No file selected for debugging');
+                      // Untitled/unsaved buffers have no path; fall back to the
+                      // displayed file name so they are debuggable too.
+                      final String? path =
+                          fileService?.currentFilePath ?? fileService?.fileName;
+                      final content =
+                          fileService?.activeTab?.content ??
+                          fileService?.fileContent ??
+                          '';
+                      if (path == null || content.trim().isEmpty) {
+                        debugPrint('Nothing to debug: no file or empty buffer');
+                        return;
                       }
+                      debugger?.startDebugging(path, content: content);
                     },
                   )
                 else ...[
                   _toolbarButton(
-                    icon: Icons.cancel_outlined,
+                    iconType: 'stop',
                     tooltip: 'Stop Debugging',
-                    iconColor: const Color(0xFFCC0000),
                     onPressed: () => debugger?.stopDebugging(),
                   ),
                   const SizedBox(width: 3),
                   _toolbarButton(
-                    icon: Icons.redo,
+                    iconType: 'step_over',
                     tooltip: 'Step Over',
                     onPressed: () => debugger?.stepOver(),
                   ),
                   const SizedBox(width: 3),
                   _toolbarButton(
-                    icon: Icons.south_east,
+                    iconType: 'step_into',
                     tooltip: 'Step Into',
                     onPressed: () => debugger?.stepInto(),
                   ),
                   const SizedBox(width: 3),
                   _toolbarButton(
-                    icon: Icons.north_east,
+                    iconType: 'step_out',
                     tooltip: 'Step Out',
                     onPressed: () => debugger?.stepOut(),
                   ),
                   const SizedBox(width: 3),
                   _toolbarButton(
-                    icon: Icons.fast_forward,
+                    iconType: 'continue',
                     tooltip: 'Continue',
                     onPressed: () => debugger?.continueExecution(),
                   ),
@@ -198,30 +205,92 @@ class RetroToolbar extends StatelessWidget {
     );
   }
 
+  Widget _buildRetroIcon(String iconType) {
+    switch (iconType) {
+      case 'new':
+        return Stack(
+          alignment: Alignment.center,
+          children: const [
+            Icon(Icons.insert_drive_file, size: 16, color: Colors.white),
+            Positioned(
+              right: 0,
+              bottom: 0,
+              child: Icon(Icons.add_circle, size: 9, color: Color(0xFF00AA00)),
+            ),
+          ],
+        );
+      case 'open':
+        // Darker amber so the folder stays legible on all three (light) themes.
+        return const Icon(
+          Icons.folder_open_sharp,
+          size: 16,
+          color: Color(0xFFCC7A00),
+        );
+      case 'save':
+        return const Icon(Icons.save_sharp, size: 16, color: Color(0xFF0000AA));
+      case 'compile':
+        return const Icon(
+          Icons.build_sharp,
+          size: 15,
+          color: Color(0xFF555555),
+        );
+      case 'run':
+        return const Icon(
+          Icons.play_arrow_sharp,
+          size: 18,
+          color: Color(0xFF00AA00),
+        );
+      case 'stop':
+        return const Icon(Icons.stop_sharp, size: 16, color: Color(0xFFCC0000));
+      case 'debug':
+        return const Icon(
+          Icons.bug_report_sharp,
+          size: 16,
+          color: Color(0xFF880000),
+        );
+      case 'step_over':
+        return const Icon(Icons.redo_sharp, size: 16, color: Color(0xFF000080));
+      case 'step_into':
+        return const Icon(
+          Icons.south_east_sharp,
+          size: 16,
+          color: Color(0xFF000080),
+        );
+      case 'step_out':
+        return const Icon(
+          Icons.north_east_sharp,
+          size: 16,
+          color: Color(0xFF000080),
+        );
+      case 'continue':
+        return const Icon(
+          Icons.fast_forward_sharp,
+          size: 16,
+          color: Color(0xFF008000),
+        );
+      default:
+        return const Icon(Icons.code_sharp, size: 16, color: Colors.black);
+    }
+  }
+
   /// Toolbar icon button formatted with 3D raised border and Tooltip.
   Widget _toolbarButton({
-    required IconData icon,
+    required String iconType,
     required String tooltip,
     VoidCallback? onPressed,
-    Color? iconColor,
   }) {
     return Tooltip(
       message: tooltip,
       child: InkWell(
         onTap: onPressed,
         child: Container(
-          margin: const EdgeInsets.only(top: 1, bottom: 1),
-          constraints: const BoxConstraints(minHeight: 30, minWidth: 32),
+          constraints: const BoxConstraints(minWidth: 28),
           alignment: Alignment.center,
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+          padding: const EdgeInsets.all(4),
           decoration: RetroBorder.raised(
             backgroundColor: ThemeService.instance.uiColors['panel'],
           ),
-          child: Icon(
-            icon,
-            size: 18,
-            color: iconColor ?? ThemeService.instance.uiColors['text'],
-          ),
+          child: _buildRetroIcon(iconType),
         ),
       ),
     );
@@ -230,7 +299,6 @@ class RetroToolbar extends StatelessWidget {
   Widget _buildSeparator() {
     return Container(
       width: 2,
-      height: 18,
       decoration: BoxDecoration(
         border: Border(
           left: BorderSide(
@@ -263,7 +331,6 @@ class RetroThemeDropdown extends StatelessWidget {
     return ListenableBuilder(
       listenable: ThemeService.instance,
       builder: (context, _) {
-        final currentThemeName = ThemeService.instance.currentThemeName;
         final currentTheme = ThemeService.instance.currentTheme;
         final uiColors = ThemeService.instance.uiColors;
 
@@ -322,7 +389,7 @@ class RetroThemeDropdown extends StatelessWidget {
                         themeName,
                         style: TextStyle(
                           fontSize: 12,
-                          fontFamily: 'Arial',
+                          fontFamily: 'Tahoma',
                           color: isSelected
                               ? ThemeService.instance.uiColors['selection']
                               : ThemeService.instance.uiColors['text'],
@@ -337,7 +404,6 @@ class RetroThemeDropdown extends StatelessWidget {
               }).toList();
             },
             child: Container(
-              margin: const EdgeInsets.only(top: 1, bottom: 1),
               constraints: const BoxConstraints(minHeight: 30),
               alignment: Alignment.center,
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
@@ -347,14 +413,12 @@ class RetroThemeDropdown extends StatelessWidget {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  _Swatch(color: _themeSwatch(currentTheme)),
-                  const SizedBox(width: 4),
                   Text(
-                    currentThemeName,
+                    'Theme',
                     style: TextStyle(
-                      fontSize: 13,
+                      fontSize: 12,
                       fontWeight: FontWeight.bold,
-                      fontFamily: 'Arial',
+                      fontFamily: 'Tahoma',
                       color: uiColors['text'],
                     ),
                   ),

@@ -22,9 +22,24 @@ class LanguageRunnerService extends ChangeNotifier {
   bool get isRunning => _isRunning;
   int? get exitCode => _exitCode;
 
+  /// The language currently forced from the toolbar dropdown, or `'Auto'`.
+  String get preferredLanguage => _preferredLanguage;
+
   void setPreferredLanguage(String language) {
     _preferredLanguage = language;
     notifyListeners();
+  }
+
+  /// Pushes a single line of externally produced text (for example a debugger
+  /// tracing notice) onto the shared [outputStream] so the Console panel shows
+  /// it alongside normal program output.
+  ///
+  /// This is an additive hook: the runner keeps owning its process, while other
+  /// services can contribute to the same console stream without touching it.
+  void emitOutput(String line) {
+    if (!_outputController.isClosed) {
+      _outputController.add(line);
+    }
   }
 
   Future<void> runActiveFile(FileService fileService) async {
@@ -35,9 +50,22 @@ class LanguageRunnerService extends ChangeNotifier {
     }
   }
 
-  LanguageConfig _resolveLanguage(String? filePath, String content) {
-    if (_preferredLanguage != 'Auto') {
-      switch (_preferredLanguage) {
+  LanguageConfig _resolveLanguage(String? filePath, String content) =>
+      resolveLanguage(filePath, content, preferredLanguage: _preferredLanguage);
+
+  /// Resolves the [LanguageConfig] for [filePath]/[content].
+  ///
+  /// When [preferredLanguage] is not `'Auto'` the manual dropdown selection
+  /// wins; otherwise the file extension is consulted and, for unsaved buffers,
+  /// the content is sniffed. Exposed statically so the debugger dispatcher can
+  /// reuse the exact same rules and Run/Debug never disagree about a file.
+  static LanguageConfig resolveLanguage(
+    String? filePath,
+    String content, {
+    String preferredLanguage = 'Auto',
+  }) {
+    if (preferredLanguage != 'Auto') {
+      switch (preferredLanguage) {
         case 'Dart':
           return LanguageConfig.fromExtension('test.dart');
         case 'Python':
@@ -65,15 +93,33 @@ class LanguageRunnerService extends ChangeNotifier {
     }
 
     // Automatic content-based detection for unsaved tabs ("Untitled *")
+    //
+    // C++ *only* markers are checked before the plain `#include` rule: almost
+    // every C file starts with an `#include`, so testing `#include` first made
+    // every untitled C buffer resolve to C++ and be compiled with `clang++`.
     final trimmed = content.trim();
-    if (trimmed.contains('#include') ||
-        trimmed.contains('std::') ||
+    if (trimmed.contains('std::') ||
         trimmed.contains('cout') ||
-        trimmed.contains('cin')) {
+        trimmed.contains('cin') ||
+        trimmed.contains('iostream') ||
+        trimmed.contains('#include <string>') ||
+        trimmed.contains('#include <vector>') ||
+        trimmed.contains('namespace ') ||
+        trimmed.contains('template<') ||
+        trimmed.contains('template <')) {
       return LanguageConfig.fromExtension('test.cpp');
     }
-    if (trimmed.contains('#include <stdio.h>') || trimmed.contains('printf(')) {
+    if (trimmed.contains('#include <stdio.h>') ||
+        trimmed.contains('#include <stdlib.h>') ||
+        trimmed.contains('#include <string.h>') ||
+        trimmed.contains('printf(') ||
+        trimmed.contains('scanf(') ||
+        trimmed.contains('malloc(')) {
       return LanguageConfig.fromExtension('test.c');
+    }
+    // A bare `#include` with none of the markers above is far more likely C++.
+    if (trimmed.contains('#include')) {
+      return LanguageConfig.fromExtension('test.cpp');
     }
     if (trimmed.contains('def ') ||
         trimmed.contains('import sys') ||

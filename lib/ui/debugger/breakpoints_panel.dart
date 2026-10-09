@@ -40,8 +40,9 @@ class BreakpointsPanel extends StatelessWidget {
                     ),
                     if (breakpoints.isNotEmpty)
                       SizedBox(
-                        height: 18,
+                        height: 36,
                         child: RetroButton(
+                          height: 36,
                           padding: const EdgeInsets.symmetric(
                             horizontal: 4,
                             vertical: 0,

@@ -4,6 +4,6 @@ import 'package:borland_dart/app.dart';
 void main() {
   testWidgets('RetroDartApp smoke test', (WidgetTester tester) async {
     await tester.pumpWidget(const RetroDartApp());
-    expect(find.text('RetroDart IDE'), findsOneWidget);
+    expect(find.text('File'), findsOneWidget);
   });
 }

@@ -21,6 +21,8 @@
 | 12 | Terminal | ✅ DONE |
 | 13 | Debugger | ✅ DONE |
 | 14 | Multi-Language Support | ✅ DONE |
+| 15 | Multi-Language Debugging | ✅ DONE |
+| 16 | Debugger Hardening & Test Coverage | ✅ DONE |
 
 ## Rule
 - Phases are sequential
