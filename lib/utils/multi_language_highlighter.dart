@@ -8,7 +8,7 @@ import 'package:highlight/languages/python.dart';
 import '../models/language_config.dart';
 
 void registerHighlightLanguages() {
-  // No-op for highlight 0.7+ where modes are passed directly.
+  MultiLanguageHighlighter.patchSymbolModes();
 }
 
 class MultiLanguageHighlighter {
@@ -19,7 +19,8 @@ class MultiLanguageHighlighter {
   static const Color methodColor = Color(0xFF0D47A1);
   static const Color numberColor = Color(0xFFE65100);
   static const Color commentColor = Color(0xFF558B2F);
-  static const Color operatorColor = Color(0xFF03E8FC);
+  static const Color operatorColor = Color(0xFF0B6E00);
+  static const Color bracketColor = Color(0xFF031CFC);
   static const Color variableColor = Color(0xFF1A237E);
 
   static Map<String, TextStyle> getThemeStyles() {
@@ -77,7 +78,7 @@ class MultiLanguageHighlighter {
         fontWeight: FontWeight.bold,
       ),
       'punctuation': const TextStyle(
-        color: operatorColor,
+        color: bracketColor,
         fontWeight: FontWeight.bold,
       ),
       'symbol': const TextStyle(
@@ -87,7 +88,51 @@ class MultiLanguageHighlighter {
     };
   }
 
+  static bool _symbolsPatched = false;
+
+  /// highlight 0.7's Dart / C / C++ / Python grammars emit no
+  /// `operator` / `punctuation` classes of their own, so symbols used to
+  /// render in the default editor text color. These single-character rules
+  /// are appended to each grammar once (before any controller compiles it)
+  /// so operators pick up `operatorColor` and brackets `bracketColor`.
+  static void patchSymbolModes() {
+    if (_symbolsPatched) return;
+    _symbolsPatched = true;
+
+    final fatArrow = Mode(begin: '=>', className: 'operator', relevance: 0);
+    final brackets = Mode(
+      begin: r'[()\[\]{}]',
+      className: 'punctuation',
+      relevance: 0,
+    );
+    final operators = Mode(
+      begin: r'[!@#\$%^&*+=\-~<>/|?:;.,]',
+      className: 'operator',
+      relevance: 0,
+    );
+
+    void patch(Mode mode) {
+      final contains = List<Mode?>.from(mode.contains ?? const <Mode?>[]);
+      // Replace the stock plain `=>` rule so the fat arrow is colored too.
+      for (var i = 0; i < contains.length; i++) {
+        final m = contains[i];
+        if (m != null && m.begin == '=>' && m.className == null) {
+          contains[i] = fatArrow;
+        }
+      }
+      contains.add(brackets);
+      contains.add(operators);
+      mode.contains = contains;
+      mode.compiled = false; // force a recompile including the new rules
+    }
+
+    patch(dart);
+    patch(python);
+    patch(cpp);
+  }
+
   static Mode getModeForLanguage(String highlightLanguage) {
+    patchSymbolModes();
     switch (highlightLanguage) {
       case 'c':
       case 'cpp':
