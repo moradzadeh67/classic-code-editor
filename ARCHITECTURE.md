@@ -157,6 +157,10 @@ output and a session is never silent.
 | flutter_code_editor | Code editing | Phase 04 |
 | file_picker | File open/save | Phase 07 |
 | path_provider | File paths | Phase 07 |
+| highlight | Syntax highlighting (Dart/C/C++/Python) | Phase 14 |
+
+> `cupertino_icons` also appears in `pubspec.yaml` but is the unused Flutter
+> template default, not an approved dependency.
 
 > No new packages were added for the debugger work — the Dart VM Service client
 > is hand-rolled over `dart:io`.
@@ -180,19 +184,22 @@ output and a session is never silent.
 
 ## Retro Design Tokens
 
-### VC++ 6.0 Theme:
-UI Background: #C0C0C0
-UI Panel: #D4D0C8
-UI Border Dark: #404040
+### VC++ 6.0 Theme (Windows XP Luna-inspired):
+UI Background: #0055EA (Luna blue)
+UI Panel: #ECE9D8
+UI Border Dark: #716F64
 UI Border Light: #FFFFFF
-UI Highlight: #DFDFDF
-UI Shadow: #808080
-UI Selection: #000080
+UI Highlight: #F4F2E8
+UI Shadow: #ACA899
+UI Selection: #316AC5 (XP active-selection blue)
 UI Text: #000000
 UI Error: #CC0000
-Editor Background: #FFFFFF
+Menu Active: #316AC5 / Menu Active Text: #FFFFFF
+Editor Background: #E8F1FF (soft blue)
 Editor Text: #000000
-Editor Selection: #000080
+Editor Selection: #000080 / Selection Text: #FFFFFF
+Editor Line-Number BG: #ECE9D8 / Text: #000000
+Editor Cursor: #000000
 Paused Line: #FFF0A0
 Syntax Colors:
 Keywords: #0000FF (blue)
@@ -202,52 +209,65 @@ Comments: #008000 (green)
 Numbers: #098658 (dark green)
 Functions: #000000 (black)
 Preprocessor: #800080 (purple)
+Operators: #000000 (black)
 
-### Borland Delphi Theme:
-UI Background: #D4D0C8
-UI Panel: #E8E0D0
-UI Border Dark: #808080
-UI Border Light: #FFFFFF
-UI Highlight: #F0E8D8
-UI Shadow: #A09888
-UI Selection: #000080
+### Borland Delphi Theme (warm mustard-beige):
+UI Background: #D2BA7E
+UI Panel: #DFCD9B
+UI Border Dark: #7A683E
+UI Border Light: #FAF0C5
+UI Highlight: #EAD8AA
+UI Shadow: #A08B53
+UI Selection: #A08035 (dark mustard)
 UI Text: #000000
 UI Error: #CC0000
-Editor Background: #FFFFF0 (ivory)
+Menu Active: #A08035 / Menu Active Text: #FFFFFF
+Editor Background: #E8F1FF (soft blue)
 Editor Text: #000000
-Editor Selection: #000080
+Editor Selection: #000080 / Selection Text: #FFFFFF
+Editor Line-Number BG: #DFCD9B / Text: #000000
+Editor Cursor: #000000
 Paused Line: #E9D9A5
 Syntax Colors:
-Keywords: #0000FF (blue, bold)
+Keywords: #0000FF (blue)
 Types: #0000FF (blue)
 Strings: #0000FF (blue)
-Comments: #008000 (green, italic)
+Comments: #008000 (green)
 Numbers: #0000FF (blue)
-Functions: #000000 (black, bold)
-Directives: #800080 (purple)
+Functions: #000000 (black)
+Preprocessor: #800080 (purple)
+Operators: #000000 (black)
 
-### Visual Basic 6.0 Theme:
-UI Background: #C0C0C0
-UI Panel: #D4D0C8
-UI Border Dark: #404040
-UI Border Light: #FFFFFF
-UI Highlight: #DFDFDF
-UI Shadow: #808080
-UI Selection: #000080
+### Visual Basic 6.0 Theme (deep navy desktop):
+UI Background: #2C4A8E (deep navy)
+UI Panel: #C0C0C0
+UI Border Dark: #303030
+UI Border Light: #E0E0E0
+UI Highlight: #D8D8D8
+UI Shadow: #707070
+UI Selection: #1B3260
 UI Text: #000000
 UI Error: #CC0000
-Editor Background: #FFFFFF
+Menu Active: #1B3260 / Menu Active Text: #FFFFFF
+Editor Background: #E8F1FF (soft blue)
 Editor Text: #000000
-Editor Selection: #000080
+Editor Selection: #000080 / Selection Text: #FFFFFF
+Editor Line-Number BG: #C0C0C0 / Text: #000000
+Editor Cursor: #000000
 Paused Line: #DCDCA8
 Syntax Colors:
 Keywords: #0000FF (blue)
+Types: #0000FF (blue)
 Strings: #FF0000 (red)
 Comments: #008000 (green)
-Others: #000000 (black)
+Numbers: #0000FF (blue)
+Functions: #000000 (black)
+Preprocessor: #800080 (purple)
+Operators: #000000 (black)
 
-> NOTE: In every theme `Editor Background` currently resolves to **#E8F1FF**
-> (soft blue), set in `ThemeService`.
+> NOTE: In every theme `Editor Background` is intentionally `#E8F1FF`
+> (soft blue), set in `ThemeService` — kept by design decision so the editor
+> reads clearly against each theme's chrome.
 
 ### Common Rules:
 - Border width: 2.0
