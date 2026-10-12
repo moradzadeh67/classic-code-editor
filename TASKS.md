@@ -223,3 +223,27 @@
   default so the suite stays offline.
 - Verified `flutter analyze` clean (0 issues) and `flutter test` green
   (106 tests, 1 opt-in integration test skipped).
+
+---
+
+## Current Active Task
+
+### TASK-017: Release Smoke Gate
+**Phase:** 17
+**Status:** ✅ DONE
+**Completed:**
+- Added `scripts/release_gate/` with four self-contained gate scripts that any
+  agent can run unattended before cutting a release:
+  - `01_analyze.sh` — `flutter analyze` must report 0 issues.
+  - `02_test.sh` — `flutter test` must report "All tests passed".
+  - `03_build_macos.sh` — `flutter build macos --release` must succeed and
+    produce `build/macos/Build/Products/Release/borland_dart.app`.
+  - `04_launch_smoke.sh` — launches the built release app, verifies it stays
+    alive for 8 seconds (no startup crash), then kills it; log kept at
+    `/tmp/borland_launch_smoke.log`.
+- Each script prints a clear `PASS: <name>` / `FAIL: <name>` line and exits
+  0/1, so an agent can chain them and gate the release on the exit codes.
+- Release rule for agents: run the four scripts in order (01 → 02 → 03 → 04);
+  a release (v1) may only be cut when all four report PASS.
+- Verified locally: all four gates pass (analyze clean, 106 tests green,
+  release build succeeds, app launches and survives the 8s smoke window).
