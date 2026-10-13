@@ -189,7 +189,17 @@ class _RetroAboutDialogWidgetState extends State<_RetroAboutDialogWidget> {
               height: 52,
               decoration: RetroBorder.raised(backgroundColor: colors.panel),
               child: Center(
-                child: Icon(Icons.terminal, size: 32, color: colors.selection),
+                child: Image.asset(
+                  'assets/branding/about-logo.png',
+                  width: 46,
+                  height: 46,
+                  fit: BoxFit.contain,
+                  errorBuilder: (context, error, stackTrace) => Icon(
+                    Icons.terminal,
+                    size: 32,
+                    color: colors.selection,
+                  ),
+                ),
               ),
             ),
             const SizedBox(width: 12),

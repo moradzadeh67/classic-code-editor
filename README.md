@@ -1,5 +1,7 @@
 # 🖥️ Classic Code Editor
 
+![Classic Code Editor](assets/branding/readme-banner.png)
+
 A retro-styled, multi-language IDE built with Flutter for macOS. Inspired by classic 90s IDEs like Borland C++, Visual C++ 6.0, and Delphi.
 
 [![Latest Release](https://img.shields.io/github/v/release/moradzadeh67/classic-code-editor?style=flat-square&color=green)](https://github.com/moradzadeh67/classic-code-editor/releases/latest)
@@ -264,6 +266,23 @@ flutter build macos --release
 - Python 3 (for running Python code)
 - Clang (for running C/C++ code — comes with Xcode Command Line Tools)
 - LLDB (for debugging C/C++ code — ships with the Xcode Command Line Tools)
+
+## 💻 Development Environment
+
+This project is actively developed and tested using:
+
+- **Hardware:** MacBook Pro (Apple M3 Pro)
+- **OS:** macOS 27.0.1
+- **IDE:** VS Code / Android Studio
+- **Xcode:** Xcode 27.0
+- **Flutter:** Flutter 3.47.2 • channel stable
+- **Dart SDK:** Dart 3.13.2
+
+### Requirements
+
+- Dart SDK: `^3.13.2`
+- macOS 12+ (Monterey or later)
+- Xcode Command Line Tools (for `clang` and `lldb`)
 
 ## 🗺️ Roadmap
 
