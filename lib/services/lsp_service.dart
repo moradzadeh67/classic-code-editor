@@ -284,6 +284,44 @@ class LspService extends ChangeNotifier {
     });
   }
 
+  /// Tells the server the document is closed and forgets everything we knew
+  /// about it (tracked version, cached content, published diagnostics).
+  ///
+  /// Without this the server keeps publishing diagnostics for a file the user
+  /// closed, and since [errorCount] / [warningCount] aggregate every known
+  /// URI, the status bar kept reporting problems from files nobody is looking
+  /// at any more.
+  void closeDocument(String filePath) {
+    if (_disposed) return;
+
+    final uri = _pathToUri(filePath);
+    final wasOpen = _documentVersions.containsKey(uri);
+
+    if (wasOpen && isConnected) {
+      _sendNotification('textDocument/didClose', <String, dynamic>{
+        'textDocument': <String, dynamic>{'uri': uri},
+      });
+    }
+
+    _documentVersions.remove(uri);
+    _documentContents.remove(uri);
+
+    // Only notify when something actually went away, so listeners are not
+    // rebuilt on every tab switch that had no diagnostics.
+    if (_diagnosticsByUri.remove(uri) != null) {
+      notifyListeners();
+    }
+  }
+
+  /// Test seam: injects diagnostics exactly as the server would publish them,
+  /// so the aggregation/close lifecycle can be verified without spawning
+  /// `dart language-server`.
+  @visibleForTesting
+  void debugSetDiagnosticsFor(String filePath, List<Diagnostic> diagnostics) {
+    _diagnosticsByUri[_pathToUri(filePath)] = diagnostics;
+    notifyListeners();
+  }
+
   /// Requests completion items from the LSP server at [filePath], [line], [column].
   Future<List<CompletionItem>> requestCompletion(
     String filePath,

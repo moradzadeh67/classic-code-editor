@@ -121,7 +121,7 @@ The suite runs fully offline — no language server, compiler or VM is spawned.
 # Static analysis must report zero issues
 flutter analyze
 
-# Unit + widget tests (113 tests; 1 opt-in integration test is skipped)
+# Unit + widget tests (119 tests; 1 opt-in integration test is skipped)
 flutter test
 
 # Opt-in: really spawn a Dart VM and attach over a real WebSocket

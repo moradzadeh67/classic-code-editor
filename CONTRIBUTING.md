@@ -45,7 +45,7 @@ This project follows the Dart style guide. We recommend:
 ### Testing
 - Ensure static analysis is clean: `flutter analyze` (must report
   `No issues found!`)
-- Run the full test suite before submitting: `flutter test` (113 tests pass;
+- Run the full test suite before submitting: `flutter test` (119 tests pass;
   1 opt-in integration test is skipped by default)
 - Add unit tests for new functionality
 - Ensure existing tests continue to pass

@@ -88,8 +88,16 @@ class _IDEShellState extends State<IDEShell> {
 
     // Push the active document to the language server (open once, then change).
     if (path != _lspOpenPath) {
+      final previousPath = _lspOpenPath;
       _lspOpenPath = path;
       _lspLastContent = content;
+      // Close the document we are leaving first: the server otherwise keeps
+      // publishing its diagnostics and the status bar counts problems from a
+      // file that is no longer open (e.g. errors from a closed tab showing up
+      // under the file that replaced it).
+      if (previousPath != null) {
+        _lspService.closeDocument(previousPath);
+      }
       unawaited(_lspService.openFile(path, content));
     } else if (content != _lspLastContent) {
       _lspLastContent = content;

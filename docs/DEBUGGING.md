@@ -328,7 +328,7 @@ This keeps CI deterministic and headless-safe.
 
 ```bash
 flutter analyze                 # must report "No issues found!"
-flutter test                    # 113 tests; 1 opt-in integration test skipped
+flutter test                    # 119 tests; 1 opt-in integration test skipped
 
 # Opt-in: really spawn a Dart VM and attach over a real WebSocket
 BORLAND_REAL_VM_TEST=1 flutter test test/integration/dart_vm_pause_test.dart
