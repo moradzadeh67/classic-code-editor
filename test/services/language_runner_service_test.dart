@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:borland_dart/services/language_runner_service.dart';
-import 'package:borland_dart/services/file_service.dart';
+import 'package:classic_code_editor/services/language_runner_service.dart';
+import 'package:classic_code_editor/services/file_service.dart';
 
 void main() {
   group('LanguageRunnerService Tests', () {

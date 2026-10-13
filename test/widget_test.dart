@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:borland_dart/app.dart';
+import 'package:classic_code_editor/app.dart';
 
 void main() {
   testWidgets('RetroDartApp smoke test', (WidgetTester tester) async {

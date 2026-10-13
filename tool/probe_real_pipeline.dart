@@ -14,8 +14,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:borland_dart/models/lsp_models.dart';
-import 'package:borland_dart/utils/completion_filter.dart';
+import 'package:classic_code_editor/models/lsp_models.dart';
+import 'package:classic_code_editor/utils/completion_filter.dart';
 
 const String _source = 'void main() {\n  prin\n}\n';
 const int _cursorLine = 1; // 0-based

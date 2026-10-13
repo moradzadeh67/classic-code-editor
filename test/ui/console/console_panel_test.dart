@@ -1,8 +1,8 @@
 import 'dart:async';
 
-import 'package:borland_dart/services/dart_runner_service.dart';
-import 'package:borland_dart/services/debugger_factory.dart';
-import 'package:borland_dart/ui/console/console_panel.dart';
+import 'package:classic_code_editor/services/dart_runner_service.dart';
+import 'package:classic_code_editor/services/debugger_factory.dart';
+import 'package:classic_code_editor/ui/console/console_panel.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 

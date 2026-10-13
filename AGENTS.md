@@ -1,7 +1,7 @@
-# AGENTS.md — borland_dart
+# AGENTS.md — classic_code_editor
 
 ## Project Identity
-- Name: borland_dart (RetroDart IDE)
+- Name: classic_code_editor (Classic Code Editor)
 - Platform: macOS ONLY (Flutter Desktop)
 - Style: Retro 1990s (Borland C++, Visual C++ 6, Windows 95/98)
 - Language: Dart

@@ -8,7 +8,7 @@
 PRODUCT_NAME = Classic Code Editor
 
 // The application's bundle identifier
-PRODUCT_BUNDLE_IDENTIFIER = com.example.borlandDart
+PRODUCT_BUNDLE_IDENTIFIER = com.moradzadeh67.classicCodeEditor
 
 // The copyright displayed in application information
-PRODUCT_COPYRIGHT = Copyright © 2026 com.example. All rights reserved.
+PRODUCT_COPYRIGHT = Copyright © 2026 Mohammadreza Moradzadeh. All rights reserved.

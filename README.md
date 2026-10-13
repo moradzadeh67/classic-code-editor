@@ -5,7 +5,7 @@ A retro-styled, multi-language IDE built with Flutter for macOS. Inspired by cla
 [![Latest Release](https://img.shields.io/github/v/release/moradzadeh67/classic-code-editor?style=flat-square&color=green)](https://github.com/moradzadeh67/classic-code-editor/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](https://opensource.org/licenses/MIT)
 [![Platform](https://img.shields.io/badge/Platform-macOS-black?style=flat-square&logo=apple)](https://www.apple.com/macos/)
-[![Flutter](https://img.shields.io/badge/Flutter-3.x-02569B?style=flat-square&logo=flutter)](https://flutter.dev)
+[![Flutter](https://img.shields.io/badge/Flutter-3.13+-02569B?style=flat-square&logo=flutter)](https://flutter.dev)
 
 ### 📥 [Download Latest Release](https://github.com/moradzadeh67/classic-code-editor/releases/latest)
 
@@ -16,23 +16,18 @@ I grew up fascinated by the golden age of IDEs — Borland C++, Visual C++ 6.0, 
 I wanted to build a **real IDE** — not a toy — that:
 - Runs natively on macOS (my daily driver)
 - Supports multiple languages (Dart, Python, C, C++)
-- Has **real LSP integration** for diagnostics and autocomplete
-- Has a **real debugger** with breakpoints and variable inspection
+- Has **real LSP integration** and a **real debugger** with breakpoints and variable inspection
 - Brings back the **retro 3D UI** of the 90s
 
 Classic Code Editor is my attempt at a **production-quality IDE** with a retro soul.
 
 ## 📸 Screenshots
 
-> **Screenshots pending.** These captures are not in the repository yet, so the
-> tables below stay empty until the `.png` files are added to
-> `assets/screenshots/`.
-
-### Visual Basic 6.0
+### VC++ 6.0
 
 | Editor | Debugger | Terminal |
 |:---:|:---:|:---:|
-| <img src="assets/screenshots/vb6-editor.png" width="150" /> | <img src="assets/screenshots/vb6-debugger.png" width="150" /> | <img src="assets/screenshots/vb6-terminal.png" width="150" /> |
+| <img src="assets/screenshots/vc6-editor.png" width="150" /> | <img src="assets/screenshots/vc6-debugger.png" width="150" /> | <img src="assets/screenshots/vc6-terminal.png" width="150" /> |
 
 ### Borland Delphi
 
@@ -40,11 +35,11 @@ Classic Code Editor is my attempt at a **production-quality IDE** with a retro s
 |:---:|:---:|:---:|
 | <img src="assets/screenshots/delphi-editor.png" width="150" /> | <img src="assets/screenshots/delphi-debugger.png" width="150" /> | <img src="assets/screenshots/delphi-terminal.png" width="150" /> |
 
-### VC++ 6.0
+### Visual Basic 6.0
 
 | Editor | Debugger | Terminal |
 |:---:|:---:|:---:|
-| <img src="assets/screenshots/vc6-editor.png" width="150" /> | <img src="assets/screenshots/vc6-debugger.png" width="150" /> | <img src="assets/screenshots/vc6-terminal.png" width="150" /> |
+| <img src="assets/screenshots/vb6-editor.png" width="150" /> | <img src="assets/screenshots/vb6-debugger.png" width="150" /> | <img src="assets/screenshots/vb6-terminal.png" width="150" /> |
 
 ## ✨ Features
 
@@ -126,7 +121,7 @@ The suite runs fully offline — no language server, compiler or VM is spawned.
 # Static analysis must report zero issues
 flutter analyze
 
-# Unit + widget tests (109 tests; 1 opt-in integration test is skipped)
+# Unit + widget tests (113 tests; 1 opt-in integration test is skipped)
 flutter test
 
 # Opt-in: really spawn a Dart VM and attach over a real WebSocket
@@ -229,9 +224,11 @@ lib/
 
 | Platform | Status | Notes |
 |---|:---:|---|
-| 🖥️ macOS | ✅ Tested | macOS 12+ (Monterey or later) |
-| 🪟 Windows | ⚠️ By design | macOS-only — Flutter desktop, not a web/mobile app |
-| 🐧 Linux | ⚠️ By design | macOS-only — Flutter desktop, not a web/mobile app |
+| 🖥️ macOS | ✅ Released | macOS 12+ (Monterey or later) — v1.0.0 |
+| 🪟 Windows | 🔜 Planned | Next major target (v1.x) |
+| 🐧 Linux | 🔜 Planned | After Windows |
+| 📱 iOS / Android | ❌ Not planned | An IDE needs a keyboard and a real shell |
+| 🌐 Web | ❌ Not planned | Requires a backend — out of scope |
 
 > **Note:** This app spawns external processes (`dart`, `python3`, `clang`, `lldb`). The macOS App Sandbox is **disabled** (`com.apple.security.app-sandbox = false`) to allow `Process.start`.
 
@@ -263,32 +260,32 @@ flutter build macos --release
 ### System Requirements
 
 - macOS 12+ (Monterey or later)
-- Dart SDK (for running Dart code)
+- Dart SDK (bundled with Flutter — used at runtime for executing Dart code)
 - Python 3 (for running Python code)
 - Clang (for running C/C++ code — comes with Xcode Command Line Tools)
 - LLDB (for debugging C/C++ code — ships with the Xcode Command Line Tools)
 
 ## 🗺️ Roadmap
 
-- ☑ Phase 01 — Project Skeleton
-- ☑ Phase 02 — Retro UI Design System
-- ☑ Phase 03 — IDE Shell
-- ☑ Phase 04 — Code Editor
-- ☑ Phase 05 — Dart Runner
-- ☑ Phase 06 — Console
-- ☑ Phase 07 — File Management
-- ☑ Phase 08 — Tabs & Projects
-- ☑ Phase 09 — Dart Analyzer (Static)
-- ☑ Phase 10 — Dart LSP (Real-time)
-- ☑ Phase 11 — IDE Intelligence (Autocomplete, Hover)
-- ☑ Phase 12 — Terminal
-- ☑ Phase 13 — Debugger
-- ☑ Phase 14 — Multi-Language Support
-- ☑ Phase 15 — Multi-Language Debugging
-- ☑ Phase 16 — Debugger Hardening & Test Coverage
-- □ Python LSP support
-- □ C/C++ LSP support (clangd)
-- □ On-device ML for code suggestions
+- [x] Phase 01 — Project Skeleton
+- [x] Phase 02 — Retro UI Design System
+- [x] Phase 03 — IDE Shell
+- [x] Phase 04 — Code Editor
+- [x] Phase 05 — Dart Runner
+- [x] Phase 06 — Console
+- [x] Phase 07 — File Management
+- [x] Phase 08 — Tabs & Projects
+- [x] Phase 09 — Dart Analyzer (Static)
+- [x] Phase 10 — Dart LSP (Real-time)
+- [x] Phase 11 — IDE Intelligence (Autocomplete, Hover)
+- [x] Phase 12 — Terminal
+- [x] Phase 13 — Debugger
+- [x] Phase 14 — Multi-Language Support
+- [x] Phase 15 — Multi-Language Debugging
+- [x] Phase 16 — Debugger Hardening & Test Coverage
+- [ ] Python LSP support
+- [ ] C/C++ LSP support (clangd)
+- [ ] On-device ML for code suggestions
 
 See [ROADMAP.md](ROADMAP.md) for the canonical phase list and
 [docs/PHASE_DETAILS.md](docs/PHASE_DETAILS.md) for per-phase scope.
@@ -325,8 +322,13 @@ Contributions, issues, and feature requests are welcome! Feel free to check the
 
 ## 🙏 Credits & Attribution
 
-Built on top of Flutter, flutter_code_editor, highlight, the Dart Language Server, the Dart VM
-Service, and LLDB. Design inspired by Visual C++ 6.0, Borland Delphi, and Visual Basic 6.0.
+Built on top of [Flutter](https://flutter.dev), 
+[flutter_code_editor](https://pub.dev/packages/flutter_code_editor), 
+[highlight](https://pub.dev/packages/highlight), 
+the [Dart Language Server](https://github.com/dart-lang/sdk/tree/main/pkg/analysis_server), 
+the [Dart VM Service](https://github.com/dart-lang/sdk/tree/main/pkg/vm_service), 
+and [LLDB](https://lldb.llvm.org/). 
+Design inspired by Visual C++ 6.0, Borland Delphi, and Visual Basic 6.0.
 
 ## 📄 License
 

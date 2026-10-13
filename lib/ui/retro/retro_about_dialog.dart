@@ -261,7 +261,7 @@ class _RetroAboutDialogWidgetState extends State<_RetroAboutDialogWidget> {
               _buildInfoRow('Role:', 'Lead Flutter & Systems Engineer', colors),
               _buildInfoRow(
                 'GitHub Repository:',
-                'github.com/moradzadeh67/borland_dart',
+                'github.com/moradzadeh67/classic-code-editor',
                 colors,
               ),
               _buildInfoRow(

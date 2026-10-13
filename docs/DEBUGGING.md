@@ -1,6 +1,6 @@
 # DEBUGGING.md — Multi-Language Debugging
 
-This document explains how the borland_dart (RetroDart IDE) debugger works: the
+This document explains how the Classic Code Editor debugger works: the
 shared contract, the per-language engines, the wire protocols, how to test it,
 and the known limitations.
 
@@ -328,7 +328,7 @@ This keeps CI deterministic and headless-safe.
 
 ```bash
 flutter analyze                 # must report "No issues found!"
-flutter test                    # 106 tests; 1 opt-in integration test skipped
+flutter test                    # 113 tests; 1 opt-in integration test skipped
 
 # Opt-in: really spawn a Dart VM and attach over a real WebSocket
 BORLAND_REAL_VM_TEST=1 flutter test test/integration/dart_vm_pause_test.dart

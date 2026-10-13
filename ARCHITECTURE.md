@@ -1,7 +1,7 @@
-# ARCHITECTURE.md — borland_dart
+# ARCHITECTURE.md — classic_code_editor
 
 ## Overview
-borland_dart is a Flutter Desktop app for macOS.
+classic_code_editor is a Flutter Desktop app for macOS.
 It provides a retro-styled environment to write, run, and debug Dart, Python,
 C, and C++ code. Supports three themes: VC++ 6.0 (gray), Borland Delphi
 (beige), and Visual Basic 6.0.
@@ -84,7 +84,7 @@ User clicks Debug
 → every debugger output line → IDEShell → LanguageRunnerService.emitOutput → ConsolePanel
 
 ### macOS sandbox note
-RetroDart spawns the Dart SDK (`dart run`, `dart language-server`) as a child
+Classic Code Editor spawns the Dart SDK (`dart run`, `dart language-server`) as a child
 process. App Sandbox forbids exec'ing external binaries, so
 `macos/Runner/*.entitlements` set `com.apple.security.app-sandbox` to `false`.
 Without this, both `DartRunnerService` and `LspService` fail with

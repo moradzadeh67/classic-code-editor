@@ -1,5 +1,5 @@
-import 'package:borland_dart/models/debugger_models.dart';
-import 'package:borland_dart/services/c_debugger.dart';
+import 'package:classic_code_editor/models/debugger_models.dart';
+import 'package:classic_code_editor/services/c_debugger.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Subscribes to [stream] and records every line until the test completes.

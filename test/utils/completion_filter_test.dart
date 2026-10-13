@@ -1,5 +1,5 @@
-import 'package:borland_dart/models/lsp_models.dart';
-import 'package:borland_dart/utils/completion_filter.dart';
+import 'package:classic_code_editor/models/lsp_models.dart';
+import 'package:classic_code_editor/utils/completion_filter.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

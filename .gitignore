@@ -79,3 +79,8 @@ macos/Pods/
 macos/Runner.xcodeproj/project.xcworkspace/xcshareddata/
 macos/Runner.xcodeproj/xcuserdata/
 macos/Runner.xcworkspace/xcshareddata/
+
+# Dev artifacts
+directory-tree.txt
+*.dmg
+*.zip

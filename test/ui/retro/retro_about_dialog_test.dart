@@ -1,4 +1,4 @@
-import 'package:borland_dart/ui/retro/retro_about_dialog.dart';
+import 'package:classic_code_editor/ui/retro/retro_about_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 

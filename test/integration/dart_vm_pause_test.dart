@@ -1,8 +1,8 @@
 import 'dart:io';
 
-import 'package:borland_dart/models/debugger_models.dart';
-import 'package:borland_dart/services/debugger_environment.dart';
-import 'package:borland_dart/services/dart_debugger.dart';
+import 'package:classic_code_editor/models/debugger_models.dart';
+import 'package:classic_code_editor/services/debugger_environment.dart';
+import 'package:classic_code_editor/services/dart_debugger.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// End-to-end test of the Dart debugger's *real* pause behaviour.
@@ -39,7 +39,9 @@ void main() {
     setUp(() async {
       // Allow the real process to launch even though we run under flutter_test.
       DebuggerEnvironment.allowRealProcesses = true;
-      tempDir = await Directory.systemTemp.createTemp('borland_dart_it_');
+      tempDir = await Directory.systemTemp.createTemp(
+        'classic_code_editor_it_',
+      );
       scriptPath = '${tempDir.path}${Platform.pathSeparator}main.dart';
       await File(scriptPath).writeAsString(sampleSource);
     });

@@ -1,4 +1,4 @@
-import 'package:borland_dart/utils/vm_service_client.dart';
+import 'package:classic_code_editor/utils/vm_service_client.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Verifying that the HTTP VM Service URI printed by the Dart VM is translated

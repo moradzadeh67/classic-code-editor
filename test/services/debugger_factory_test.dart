@@ -1,14 +1,14 @@
 import 'dart:async';
 
-import 'package:borland_dart/models/debugger_models.dart';
-import 'package:borland_dart/models/language_config.dart';
-import 'package:borland_dart/services/c_debugger.dart';
-import 'package:borland_dart/services/dart_debugger.dart';
-import 'package:borland_dart/services/debugger_factory.dart';
-import 'package:borland_dart/services/debugger_manager.dart';
-import 'package:borland_dart/services/file_service.dart';
-import 'package:borland_dart/services/language_runner_service.dart';
-import 'package:borland_dart/services/python_debugger.dart';
+import 'package:classic_code_editor/models/debugger_models.dart';
+import 'package:classic_code_editor/models/language_config.dart';
+import 'package:classic_code_editor/services/c_debugger.dart';
+import 'package:classic_code_editor/services/dart_debugger.dart';
+import 'package:classic_code_editor/services/debugger_factory.dart';
+import 'package:classic_code_editor/services/debugger_manager.dart';
+import 'package:classic_code_editor/services/file_service.dart';
+import 'package:classic_code_editor/services/language_runner_service.dart';
+import 'package:classic_code_editor/services/python_debugger.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Dispatch tests for the debugger layer.

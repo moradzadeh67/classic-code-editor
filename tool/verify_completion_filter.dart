@@ -2,8 +2,8 @@
 //   dart run tool/verify_completion_filter.dart
 //
 // Exercises the exact cases from the bug report against the real filter code.
-import 'package:borland_dart/models/lsp_models.dart';
-import 'package:borland_dart/utils/completion_filter.dart';
+import 'package:classic_code_editor/models/lsp_models.dart';
+import 'package:classic_code_editor/utils/completion_filter.dart';
 
 int _failures = 0;
 int _checks = 0;

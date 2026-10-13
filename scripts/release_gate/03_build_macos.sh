@@ -17,8 +17,8 @@ OUT="$("$FLUTTER" build macos --release 2>&1)"
 CODE=$?
 echo "$OUT"
 
-APP="build/macos/Build/Products/Release/borland_dart.app"
-EXE="$APP/Contents/MacOS/borland_dart"
+APP="build/macos/Build/Products/Release/Classic Code Editor.app"
+EXE="$APP/Contents/MacOS/Classic Code Editor"
 
 if [ "$CODE" -eq 0 ] && [ -d "$APP" ] && [ -x "$EXE" ]; then
   echo "PASS: 03_build_macos ($APP)"

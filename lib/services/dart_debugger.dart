@@ -104,7 +104,9 @@ class DartDebugger extends BaseDebugger {
     if (await file.exists()) return filePath;
     if (content == null || content.trim().isEmpty) return null;
 
-    final dir = await Directory.systemTemp.createTemp('borland_dart_debug_');
+    final dir = await Directory.systemTemp.createTemp(
+      'classic_code_editor_debug_',
+    );
     _tempDirectory = dir.path;
     // Untitled buffers carry no extension, but the VM expects a .dart path.
     final name = _basename(filePath);

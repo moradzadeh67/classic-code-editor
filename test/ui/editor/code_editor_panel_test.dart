@@ -1,8 +1,8 @@
-import 'package:borland_dart/models/lsp_models.dart';
-import 'package:borland_dart/services/file_service.dart';
-import 'package:borland_dart/services/lsp_service.dart';
-import 'package:borland_dart/ui/editor/autocomplete_popup.dart';
-import 'package:borland_dart/ui/editor/code_editor_panel.dart';
+import 'package:classic_code_editor/models/lsp_models.dart';
+import 'package:classic_code_editor/services/file_service.dart';
+import 'package:classic_code_editor/services/lsp_service.dart';
+import 'package:classic_code_editor/ui/editor/autocomplete_popup.dart';
+import 'package:classic_code_editor/ui/editor/code_editor_panel.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';

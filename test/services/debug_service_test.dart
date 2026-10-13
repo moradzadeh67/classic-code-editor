@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:borland_dart/services/debug_service.dart';
+import 'package:classic_code_editor/services/debug_service.dart';
 
 /// Regression tests for [DebugService.parseAndExtractVariables].
 ///
@@ -16,9 +16,11 @@ void main() {
   group('parseAndExtractVariables', () {
     test('bare `var` declaration does not throw and is recorded', () {
       expect(
-        () => service.parseAndExtractVariables('void main() {\n'
-            '  var counter = 0;\n'
-            '}\n'),
+        () => service.parseAndExtractVariables(
+          'void main() {\n'
+          '  var counter = 0;\n'
+          '}\n',
+        ),
         returnsNormally,
       );
 
@@ -37,7 +39,9 @@ void main() {
     });
 
     test('explicitly typed declarations keep their type', () {
-      service.parseAndExtractVariables('int total = 0;\nString label = "hi";\n');
+      service.parseAndExtractVariables(
+        'int total = 0;\nString label = "hi";\n',
+      );
 
       final byName = {for (final v in service.variables) v.name: v};
       expect(byName.keys, containsAll(<String>['total', 'label']));

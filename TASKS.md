@@ -237,7 +237,7 @@
   - `01_analyze.sh` — `flutter analyze` must report 0 issues.
   - `02_test.sh` — `flutter test` must report "All tests passed".
   - `03_build_macos.sh` — `flutter build macos --release` must succeed and
-    produce `build/macos/Build/Products/Release/borland_dart.app`.
+    produce `build/macos/Build/Products/Release/Classic Code Editor.app`.
   - `04_launch_smoke.sh` — launches the built release app, verifies it stays
     alive for 8 seconds (no startup crash), then kills it; log kept at
     `/tmp/borland_launch_smoke.log`.

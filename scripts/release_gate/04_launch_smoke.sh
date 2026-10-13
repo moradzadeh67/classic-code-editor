@@ -3,8 +3,8 @@
 set -u
 cd "$(dirname "$0")/../.." || exit 1
 
-APP="build/macos/Build/Products/Release/borland_dart.app"
-EXE="$APP/Contents/MacOS/borland_dart"
+APP="build/macos/Build/Products/Release/Classic Code Editor.app"
+EXE="$APP/Contents/MacOS/Classic Code Editor"
 
 if [ ! -d "$APP" ] || [ ! -x "$EXE" ]; then
   echo "FAIL: 04_launch_smoke — $APP not found; run 03_build_macos.sh first"
