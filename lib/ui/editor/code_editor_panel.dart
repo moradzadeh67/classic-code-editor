@@ -31,6 +31,20 @@ const double editorLineHeightFactor = 1.45;
 /// Height of a single line of code, in logical pixels.
 const double editorLineHeight = editorFontSize * editorLineHeightFactor;
 
+/// Gutter width and the gap between the gutter and the editor surface.
+const double gutterWidth = 52.0;
+const double gutterGap = 4.0;
+
+/// Memoised wrap measurement for the gutter (see `_gutterRows`).
+class _GutterRowsCache {
+  final String text;
+  final double maxWidth;
+  final TextScaler scaler;
+  final List<int> rows;
+
+  const _GutterRowsCache(this.text, this.maxWidth, this.scaler, this.rows);
+}
+
 /// The main code-editor area.
 class CodeEditorPanel extends StatefulWidget {
   final FileService fileService;
@@ -67,6 +81,13 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   int _completionRequestId = 0;
   String? _programmaticText;
 
+  /// Kept in sync with the editor so the gutter never scrolls out of step.
+  final ScrollController _editorScrollController = ScrollController();
+  final ScrollController _gutterScrollController = ScrollController();
+
+  /// Memoised result of the last gutter wrap measurement.
+  _GutterRowsCache? _gutterRowsCache;
+
   bool get _showAutocomplete => _completionItems.isNotEmpty;
   bool get _showHover => _hoverInfo != null;
   String get _filePath =>
@@ -84,6 +105,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
           filePath: _filePath,
         );
     _controller.addListener(_onTextChanged);
+    _editorScrollController.addListener(_syncGutterScroll);
     widget.fileService.addListener(_onFileServiceChanged);
     widget.debugger?.addListener(_onDebuggerChanged);
     _lastActiveTabIndex = widget.fileService.activeTabIndex;
@@ -114,6 +136,8 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     _controller.removeListener(_onTextChanged);
     widget.fileService.removeListener(_onFileServiceChanged);
     widget.debugger?.removeListener(_onDebuggerChanged);
+    _editorScrollController.dispose();
+    _gutterScrollController.dispose();
     _controller.dispose();
     _focusNode.dispose();
     super.dispose();
@@ -541,6 +565,80 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     return KeyEventResult.ignored;
   }
 
+  /// Text metrics shared with the editor. Wrapping must be measured with the
+  /// same font/size/height the field renders with, or the gutter drifts.
+  TextStyle get _editorTextStyle => const TextStyle(
+    fontFamily: 'Menlo',
+    fontSize: editorFontSize,
+    height: editorLineHeightFactor,
+  );
+
+  /// Flat gutter rows: the logical line number for the first visual row of a
+  /// line, and `0` for every continuation row produced by wrapping.
+  ///
+  /// The editor wraps long logical lines onto several visual rows, so drawing
+  /// exactly one gutter row per logical line pushed the code one row further
+  /// down for every wrapped line — very visible on long files.
+  List<int> _gutterRows(String text, double maxWidth, TextScaler scaler) {
+    final cached = _gutterRowsCache;
+    if (cached != null &&
+        cached.text == text &&
+        cached.maxWidth == maxWidth &&
+        cached.scaler == scaler) {
+      return cached.rows;
+    }
+
+    final lines = text.split('\n');
+    final rows = <int>[];
+    // Menlo is monospace, so a line can only wrap once its character count
+    // exceeds what fits; this cheap gate keeps most lines out of text layout.
+    final unwrappedCharLimit = (maxWidth / (editorFontSize * 0.62)).floor();
+    TextPainter? painter;
+
+    for (var i = 0; i < lines.length; i++) {
+      final line = lines[i];
+      var visualRows = 1;
+
+      if (line.length > unwrappedCharLimit || line.contains('\t')) {
+        painter ??= TextPainter(
+          textDirection: TextDirection.ltr,
+          textScaler: scaler,
+        );
+        painter.text = TextSpan(
+          text: line.isEmpty ? ' ' : line,
+          style: _editorTextStyle,
+        );
+        painter.layout(maxWidth: maxWidth);
+        visualRows = painter.computeLineMetrics().length.clamp(1, 1000);
+      }
+
+      rows.add(i + 1);
+      for (var r = 1; r < visualRows; r++) {
+        rows.add(0);
+      }
+    }
+    painter?.dispose();
+
+    _gutterRowsCache = _GutterRowsCache(text, maxWidth, scaler, rows);
+    return rows;
+  }
+
+  /// Mirrors the editor's scroll offset onto the gutter so the numbers never
+  /// scroll out of step with the code.
+  void _syncGutterScroll() {
+    if (!_gutterScrollController.hasClients ||
+        !_editorScrollController.hasClients) {
+      return;
+    }
+    final target = _editorScrollController.offset.clamp(
+      _gutterScrollController.position.minScrollExtent,
+      _gutterScrollController.position.maxScrollExtent,
+    );
+    if ((_gutterScrollController.offset - target).abs() > 0.5) {
+      _gutterScrollController.jumpTo(target);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final activeTab = widget.fileService.activeTab;
@@ -562,8 +660,6 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
       );
     }
 
-    final lineCount = (_controller.text.split('\n').length).clamp(1, 9999);
-
     return CodeTheme(
       data: CodeThemeData(styles: MultiLanguageHighlighter.getThemeStyles()),
       child: Stack(
@@ -577,177 +673,225 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
                 Expanded(
                   child: Padding(
                     padding: const EdgeInsets.all(8.0),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        // Gutter for breakpoints & line numbers
-                        Container(
-                          width: 52,
-                          color:
-                              ThemeService.instance.colors.editorLineNumberBg,
-                          child: ListView.builder(
-                            itemCount: lineCount,
-                            itemBuilder: (context, index) {
-                              final lineNumber = index + 1;
-                              final hasBp = _hasBreakpoint(lineNumber);
-                              final debugger = widget.debugger;
-                              // Keep the marker while the debugger owns a
-                              // paused line and has not been torn down, so it
-                              // also survives a plain `running` step.
-                              final isPausedLine =
-                                  debugger != null &&
-                                  debugger.currentPausedLine == lineNumber &&
-                                  debugger.state != DebugState.inactive;
-                              return GestureDetector(
-                                onTap: () => _toggleBreakpoint(lineNumber),
-                                behavior: HitTestBehavior.opaque,
-                                child: Container(
-                                  height: editorLineHeight,
-                                  color: isPausedLine
-                                      ? ThemeService.instance.colors.pausedLine
-                                      : null,
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 2,
-                                  ),
-                                  alignment: Alignment.centerRight,
-                                  child: Row(
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.spaceBetween,
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        // Measure how the editor really wraps at this width so
+                        // every visual row gets a gutter row of its own.
+                        final editorWidth =
+                            (constraints.maxWidth - gutterWidth - gutterGap)
+                                .clamp(1.0, double.infinity);
+                        final gutterRows = _gutterRows(
+                          _controller.text,
+                          editorWidth,
+                          MediaQuery.textScalerOf(context),
+                        );
+
+                        return Row(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            // Gutter for breakpoints & line numbers
+                            Container(
+                              width: gutterWidth,
+                              color: ThemeService
+                                  .instance
+                                  .colors
+                                  .editorLineNumberBg,
+                              child: ListView.builder(
+                                controller: _gutterScrollController,
+                                itemCount: gutterRows.length,
+                                itemExtent: editorLineHeight,
+                                itemBuilder: (context, index) {
+                                  final lineNumber = gutterRows[index];
+                                  if (lineNumber == 0) {
+                                    // Continuation row of a wrapped line: keep the
+                                    // height so everything below stays aligned.
+                                    return const SizedBox(
+                                      height: editorLineHeight,
+                                    );
+                                  }
+                                  final hasBp = _hasBreakpoint(lineNumber);
+                                  final debugger = widget.debugger;
+                                  // Keep the marker while the debugger owns a
+                                  // paused line and has not been torn down, so it
+                                  // also survives a plain `running` step.
+                                  final isPausedLine =
+                                      debugger != null &&
+                                      debugger.currentPausedLine ==
+                                          lineNumber &&
+                                      debugger.state != DebugState.inactive;
+                                  return GestureDetector(
+                                    onTap: () => _toggleBreakpoint(lineNumber),
+                                    behavior: HitTestBehavior.opaque,
+                                    child: Container(
+                                      height: editorLineHeight,
+                                      color: isPausedLine
+                                          ? ThemeService
+                                                .instance
+                                                .colors
+                                                .pausedLine
+                                          : null,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 2,
+                                      ),
+                                      alignment: Alignment.centerRight,
+                                      child: Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          SizedBox(
+                                            width: 22,
+                                            child: Center(
+                                              child: !isPausedLine && !hasBp
+                                                  ? null
+                                                  : FittedBox(
+                                                      fit: BoxFit.scaleDown,
+                                                      child: Row(
+                                                        mainAxisSize:
+                                                            MainAxisSize.min,
+                                                        children: [
+                                                          // The paused-line arrow
+                                                          // and the breakpoint
+                                                          // bullet are drawn
+                                                          // together, so pausing on
+                                                          // a breakpoint never
+                                                          // hides the fact that it
+                                                          // is a breakpoint.
+                                                          if (isPausedLine)
+                                                            Text(
+                                                              '▶',
+                                                              style: TextStyle(
+                                                                color: ThemeService
+                                                                    .instance
+                                                                    .colors
+                                                                    .selection,
+                                                                fontSize: 12,
+                                                              ),
+                                                            ),
+                                                          if (hasBp)
+                                                            Text(
+                                                              '●',
+                                                              style: TextStyle(
+                                                                color:
+                                                                    ThemeService
+                                                                        .instance
+                                                                        .colors
+                                                                        .error,
+                                                                fontSize: 12,
+                                                              ),
+                                                            ),
+                                                        ],
+                                                      ),
+                                                    ),
+                                            ),
+                                          ),
+                                          Text(
+                                            '$lineNumber',
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              fontFamily: 'Menlo',
+                                              color: ThemeService
+                                                  .instance
+                                                  .colors
+                                                  .editorLineNumberText,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            // Text Editor Area
+                            Expanded(
+                              child: Focus(
+                                onKeyEvent: (node, event) =>
+                                    _handleKeyEvent(event),
+                                child: GestureDetector(
+                                  behavior: HitTestBehavior.translucent,
+                                  onTapUp: (details) {
+                                    _focusNode.requestFocus();
+                                    _hoverDebounce?.cancel();
+                                  },
+                                  onSecondaryTapDown: (details) {
+                                    _requestHover();
+                                  },
+                                  child: Stack(
+                                    fit: StackFit.expand,
                                     children: [
-                                      SizedBox(
-                                        width: 22,
-                                        child: Center(
-                                          child: !isPausedLine && !hasBp
-                                              ? null
-                                              : FittedBox(
-                                                  fit: BoxFit.scaleDown,
-                                                  child: Row(
-                                                    mainAxisSize:
-                                                        MainAxisSize.min,
-                                                    children: [
-                                                      // The paused-line arrow
-                                                      // and the breakpoint
-                                                      // bullet are drawn
-                                                      // together, so pausing on
-                                                      // a breakpoint never
-                                                      // hides the fact that it
-                                                      // is a breakpoint.
-                                                      if (isPausedLine)
-                                                        Text(
-                                                          '▶',
-                                                          style: TextStyle(
-                                                            color: ThemeService
-                                                                .instance
-                                                                .colors
-                                                                .selection,
-                                                            fontSize: 12,
-                                                          ),
-                                                        ),
-                                                      if (hasBp)
-                                                        Text(
-                                                          '●',
-                                                          style: TextStyle(
-                                                            color: ThemeService
-                                                                .instance
-                                                                .colors
-                                                                .error,
-                                                            fontSize: 12,
-                                                          ),
-                                                        ),
-                                                    ],
-                                                  ),
-                                                ),
+                                      MouseRegion(
+                                        onHover: (event) {
+                                          _cursorScreenOffset =
+                                              event.position +
+                                              const Offset(0, 24);
+                                          _requestHover();
+                                        },
+                                        onExit: (event) {
+                                          _hoverDebounce?.cancel();
+                                          Timer(
+                                            const Duration(milliseconds: 100),
+                                            () {
+                                              if (mounted) {
+                                                setState(() {
+                                                  _hoverInfo = null;
+                                                });
+                                              }
+                                            },
+                                          );
+                                        },
+                                        child: TextField(
+                                          key: _editorKey,
+                                          controller: _controller,
+                                          focusNode: _focusNode,
+                                          scrollController:
+                                              _editorScrollController,
+                                          maxLines: null,
+                                          expands: true,
+                                          // Pin every line to exactly
+                                          // [editorLineHeight]. Without a forced
+                                          // strut the paragraph renders slightly
+                                          // taller per line than the gutter, which
+                                          // accumulates into a visible drift on
+                                          // long files (measured: 19.0 vs 18.857).
+                                          strutStyle: StrutStyle(
+                                            fontFamily: 'Menlo',
+                                            fontSize: editorFontSize,
+                                            height: editorLineHeightFactor,
+                                            forceStrutHeight: true,
+                                          ),
+                                          style: TextStyle(
+                                            fontFamily: 'Menlo',
+                                            fontSize: editorFontSize,
+                                            height: editorLineHeightFactor,
+                                            color: ThemeService
+                                                .instance
+                                                .colors
+                                                .editorText,
+                                          ),
+                                          decoration:
+                                              const InputDecoration.collapsed(
+                                                hintText:
+                                                    '// Type code here...',
+                                              ),
                                         ),
                                       ),
-                                      Text(
-                                        '$lineNumber',
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          fontFamily: 'Menlo',
-                                          color: ThemeService
-                                              .instance
-                                              .colors
-                                              .editorLineNumberText,
+                                      if (_showAutocomplete)
+                                        Positioned.fill(
+                                          child: TapRegion(
+                                            onTapOutside: (_) =>
+                                                _dismissCompletion(),
+                                            child: const SizedBox.expand(),
+                                          ),
                                         ),
-                                      ),
                                     ],
                                   ),
                                 ),
-                              );
-                            },
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        // Text Editor Area
-                        Expanded(
-                          child: Focus(
-                            onKeyEvent: (node, event) => _handleKeyEvent(event),
-                            child: GestureDetector(
-                              behavior: HitTestBehavior.translucent,
-                              onTapUp: (details) {
-                                _focusNode.requestFocus();
-                                _hoverDebounce?.cancel();
-                              },
-                              onSecondaryTapDown: (details) {
-                                _requestHover();
-                              },
-                              child: Stack(
-                                fit: StackFit.expand,
-                                children: [
-                                  MouseRegion(
-                                    onHover: (event) {
-                                      _cursorScreenOffset =
-                                          event.position + const Offset(0, 24);
-                                      _requestHover();
-                                    },
-                                    onExit: (event) {
-                                      _hoverDebounce?.cancel();
-                                      Timer(
-                                        const Duration(milliseconds: 100),
-                                        () {
-                                          if (mounted) {
-                                            setState(() {
-                                              _hoverInfo = null;
-                                            });
-                                          }
-                                        },
-                                      );
-                                    },
-                                    child: TextField(
-                                      key: _editorKey,
-                                      controller: _controller,
-                                      focusNode: _focusNode,
-                                      maxLines: null,
-                                      expands: true,
-                                      style: TextStyle(
-                                        fontFamily: 'Menlo',
-                                        fontSize: editorFontSize,
-                                        height: editorLineHeightFactor,
-                                        color: ThemeService
-                                            .instance
-                                            .colors
-                                            .editorText,
-                                      ),
-                                      decoration:
-                                          const InputDecoration.collapsed(
-                                            hintText: '// Type code here...',
-                                          ),
-                                    ),
-                                  ),
-                                  if (_showAutocomplete)
-                                    Positioned.fill(
-                                      child: TapRegion(
-                                        onTapOutside: (_) =>
-                                            _dismissCompletion(),
-                                        child: const SizedBox.expand(),
-                                      ),
-                                    ),
-                                ],
                               ),
                             ),
-                          ),
-                        ),
-                      ],
+                          ],
+                        );
+                      },
                     ),
                   ),
                 ),

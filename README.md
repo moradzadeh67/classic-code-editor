@@ -22,54 +22,29 @@ I wanted to build a **real IDE** — not a toy — that:
 
 Classic Code Editor is my attempt at a **production-quality IDE** with a retro soul.
 
-## 🤖 Development Approach
-
-This project follows a **phase-gated, specification-first workflow** — the
-scope is written down before the code, one phase at a time, and nothing moves
-forward without an explicit approval.
-
-1. **Specify first** — the scope of every phase was written before it was
-   implemented (`docs/PHASE_DETAILS.md`), the file structure and coding rules
-   were fixed up front (`AGENTS.md`), and the architecture plus the approved
-   dependency list were locked in `ARCHITECTURE.md`.
-2. **One task at a time** — each phase is exactly one task in `TASKS.md`; a new
-   phase may not start until the previous one is complete **and approved**.
-3. **Human in the loop** — after every task the work stops and is reported for
-   review. Agents implement and verify; architecture, scope and acceptance
-   stay with me.
-4. **Verify every step** — `flutter analyze` must report zero issues and the
-   test suite must be green before a task is marked done; a five-step release
-   gate (`scripts/release_gate/01…05`) protects the DMG.
-5. **No fabrication** — a hard project rule: if something does not work, say so
-   and never invent an API, a package or a file path.
-
-### My Role
-- **Process & rules** — designed the phase-gated workflow and wrote the project
-  rules in `AGENTS.md`, including "one task at a time" and "stop and report".
-- **Architecture** — the four-layer design (UI / Services / Models / Utils),
-  the debugger contract, the data flows and the approved dependency list.
-- **Scope** — the phase list in `ROADMAP.md`, the per-phase specification in
-  `docs/PHASE_DETAILS.md`, and the approval that gates each next phase.
-- **Quality & release** — reviewed every result, required a clean analyze run
-  and a green suite, caught regressions, and owns the release gate and DMG.
-
-### Implementation
-- Implementation was carried out by **AI coding agents** operating under the
-  written rules in `AGENTS.md`: they implement, run the checks and report back
-  for approval — the design, the scope and the final call stay with me.
-
 ## 📸 Screenshots
 
-> **Not committed yet.** Screenshot captures are not in the repository, so
-> embedding them would render broken images. They are listed by their intended
-> filenames instead — drop the `.png` files into `assets/screenshots/` to embed
-> them again.
+> **Screenshots pending.** These captures are not in the repository yet, so the
+> tables below stay empty until the `.png` files are added to
+> `assets/screenshots/`.
 
-| Theme | Editor | Console | Debugger |
-|-------|--------|---------|----------|
-| **VC++ 6.0** | `assets/screenshots/vc6-editor.png` | `assets/screenshots/vc6-console.png` | `assets/screenshots/vc6-debugger.png` |
-| **Borland Delphi** | `assets/screenshots/delphi-editor.png` | `assets/screenshots/delphi-console.png` | `assets/screenshots/delphi-debugger.png` |
-| **Visual Basic 6.0** | `assets/screenshots/vb6-editor.png` | `assets/screenshots/vb6-console.png` | `assets/screenshots/vb6-debugger.png` |
+### Visual Basic 6.0
+
+| Editor | Debugger | Terminal |
+|:---:|:---:|:---:|
+| <img src="assets/screenshots/vb6-editor.png" width="150" /> | <img src="assets/screenshots/vb6-debugger.png" width="150" /> | <img src="assets/screenshots/vb6-terminal.png" width="150" /> |
+
+### Borland Delphi
+
+| Editor | Debugger | Terminal |
+|:---:|:---:|:---:|
+| <img src="assets/screenshots/delphi-editor.png" width="150" /> | <img src="assets/screenshots/delphi-debugger.png" width="150" /> | <img src="assets/screenshots/delphi-terminal.png" width="150" /> |
+
+### VC++ 6.0
+
+| Editor | Debugger | Terminal |
+|:---:|:---:|:---:|
+| <img src="assets/screenshots/vc6-editor.png" width="150" /> | <img src="assets/screenshots/vc6-debugger.png" width="150" /> | <img src="assets/screenshots/vc6-terminal.png" width="150" /> |
 
 ## ✨ Features
 
@@ -151,7 +126,7 @@ The suite runs fully offline — no language server, compiler or VM is spawned.
 # Static analysis must report zero issues
 flutter analyze
 
-# Unit + widget tests (106 tests; 1 opt-in integration test is skipped)
+# Unit + widget tests (109 tests; 1 opt-in integration test is skipped)
 flutter test
 
 # Opt-in: really spawn a Dart VM and attach over a real WebSocket
@@ -170,40 +145,15 @@ Classic Code Editor follows a clean layered architecture with strict separation 
 
 ### Project Structure
 
-```mermaid
-graph TD
-    main["main.dart"] --> app["app.dart<br/>MaterialApp + ThemeService"]
-    app --> ui["lib/ui/<br/>retro · shell · editor · console · terminal · analyzer · debugger · explorer"]
-    app --> services["lib/services/<br/>theme · file · runners · analyzer · lsp · terminal · debugger"]
-    app --> models["lib/models/<br/>pure Dart data classes"]
-    app --> utils["lib/utils/<br/>json_rpc · vm_service · completion_filter · highlighters"]
-    ui --> services
-    services --> models
-    services --> utils
-```
+<img src="assets/diagrams/project-structure.png" alt="Project Structure" width="600">
 
 ### Architecture Layers
 
-```mermaid
-graph TD
-    UI["UI Layer — lib/ui/<br/>pure Flutter widgets · no business logic · no SDK calls"] --> SV["Services Layer — lib/services/<br/>all business logic + Process/SDK interaction"]
-    SV --> MD["Models Layer — lib/models/<br/>plain Dart classes, no Flutter imports"]
-    SV --> UT["Utils Layer — lib/utils/<br/>constants, helpers, transports"]
-```
+<img src="assets/diagrams/architecture-layers.png" alt="Architecture Layers" width="800">
 
 ### Data Flow
 
-```mermaid
-flowchart LR
-    Editor["Editor keystroke"] --> FS["FileService.updateContent()"]
-    FS --> Shell["IDEShell listener"]
-    Shell --> LSP["LspService"]
-    LSP --> LS["dart language-server (stdio)"]
-    LS -->|publishDiagnostics| LSP
-    LSP --> Panels["DiagnosticsPanel / RetroStatusBar rebuild"]
-    Shell --> DBG["DebuggerManager → active BaseDebugger"]
-    DBG -->|output stream| Console["ConsolePanel"]
-```
+<img src="assets/diagrams/data-flow.png" alt="Data Flow" width="600">
 
 ### Layer Breakdown
 
@@ -280,8 +230,8 @@ lib/
 | Platform | Status | Notes |
 |---|:---:|---|
 | 🖥️ macOS | ✅ Tested | macOS 12+ (Monterey or later) |
-| 🪟 Windows | ❌ Not supported | Flutter desktop only |
-| 🐧 Linux | ❌ Not supported | Flutter desktop only |
+| 🪟 Windows | ⚠️ By design | macOS-only — Flutter desktop, not a web/mobile app |
+| 🐧 Linux | ⚠️ By design | macOS-only — Flutter desktop, not a web/mobile app |
 
 > **Note:** This app spawns external processes (`dart`, `python3`, `clang`, `lldb`). The macOS App Sandbox is **disabled** (`com.apple.security.app-sandbox = false`) to allow `Process.start`.
 
@@ -356,23 +306,30 @@ Every technical choice was made with simplicity, performance, and authenticity i
 - **MacOS App Sandbox disabled:** Required because the app spawns external processes.
 - **No rounded corners:** Authentic to the 90s aesthetic.
 
+## 🤖 Development Approach
+
+This project was built with a **phase-gated, specification-first workflow**: the scope of each
+phase was written before implementation, the file structure and coding rules were fixed up front
+(`AGENTS.md`, `ARCHITECTURE.md`), and nothing moved forward without explicit approval.
+
+Implementation was carried out by **AI coding agents** operating under those written rules — they
+implement, run the checks, and report back for review. Architecture, scope, and the final call
+stayed with me. This is honest AI-assisted development: agents accelerate the work, humans own
+the design.
+
 ## 🤝 Contributing
 
-Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on how to get started.
+Contributions, issues, and feature requests are welcome! Feel free to check the
+[issues page](https://github.com/moradzadeh67/classic-code-editor/issues). Please read
+[CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on how to get started.
 
 ## 🙏 Credits & Attribution
 
-- Flutter — Cross-platform UI framework
-- flutter_code_editor — Code editing surface
-- highlight — Syntax highlighting engine
-- Dart Language Server — LSP for real-time diagnostics
-- Dart VM Service — Real debugging protocol for Dart
-- LLDB — Native debugger used for C/C++
-- Visual C++ 6.0 — Original design inspiration
-- Borland Delphi — Original design inspiration
+Built on top of Flutter, flutter_code_editor, highlight, the Dart Language Server, the Dart VM
+Service, and LLDB. Design inspired by Visual C++ 6.0, Borland Delphi, and Visual Basic 6.0.
 
 ## 📄 License
 
 This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
 
-Copyright © 2026 moradzadeh67
+Copyright © 2026 Mohammadreza Moradzadeh ([@moradzadeh67](https://github.com/moradzadeh67))

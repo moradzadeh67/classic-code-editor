@@ -53,7 +53,10 @@ class DebugService extends ChangeNotifier {
       multiLine: true,
     );
     for (final match in typedRegex.allMatches(code)) {
-      final type = match.group(2)!; // actual type
+      // Group 2 only participates when a concrete type keyword matched; a bare
+      // `var` (group 1) leaves it null, so fall back to 'var' (normalized to
+      // 'dynamic' by _normalizeType and refined by the re-scan below).
+      final type = match.group(2) ?? 'var';
       final name = match.group(3)!;
       final value = match
           .group(4)!
