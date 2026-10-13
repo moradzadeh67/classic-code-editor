@@ -269,6 +269,26 @@ Operators: #000000 (black)
 > (soft blue), set in `ThemeService` — kept by design decision so the editor
 > reads clearly against each theme's chrome.
 
+### Editor syntax palette (applies to all three themes)
+The editor surface does not read the per-theme `SyntaxColors` tables above; it
+loads `MultiLanguageHighlighter.getThemeStyles()`
+(`lib/utils/multi_language_highlighter.dart`) through `CodeThemeData`. Key
+slots of that palette:
+
+- Keywords: `#F803FC` (bold) · Strings: `#C62828` · Comments: `#558B2F` (italic)
+- Numbers: `#E65100` · Types / built-ins: `#00796B` · Functions: `#0D47A1`
+- **Operators** (`! @ # $ % ^ & * + = - ~ < > / | ? : ; , .` and `=>`):
+  **`#0B6E00`** (dark green, bold)
+- **Brackets** (`( ) { } [ ]`, tokenized as `punctuation`): **`#031CFC`**
+  (blue, bold)
+
+> highlight 0.7's Dart / C / C++ / Python grammars emit no `operator` /
+> `punctuation` classes of their own, so
+> `MultiLanguageHighlighter.patchSymbolModes()` appends single-character
+> rules to each grammar before any controller compiles it (no extra package).
+> Strings, comments, numbers, `#include` (meta) and Python `#` comments keep
+> their own colors.
+
 ### Common Rules:
 - Border width: 2.0
 - Corner radius: 0.0 (NO rounded corners, incl. internal widgets only)

@@ -129,6 +129,60 @@ class MultiLanguageHighlighter {
     patch(dart);
     patch(python);
     patch(cpp);
+
+    // cpp fix: the generated grammar opens swallowing variants on
+    // `Mode(begin: "=", end: ";")` / `Mode(begin: "(", end: ")")` whose own
+    // `contains` never include the symbol rules above, so operators and
+    // brackets inside assignments / calls stayed uncolored (user-visible in
+    // real C++ files even though `mode.contains` carried the rules).
+    // Those variants only boost highlight.js relevance — their keyword lists
+    // duplicate the top-level ones — so dropping that element lets the
+    // patched top-level rules color symbols everywhere. Function parameter
+    // lists still open the `params` mode below, so patch it (and its nested
+    // paren mode) with the same rules.
+    void patchContains(Mode? mode) {
+      if (mode == null) return;
+      final list = List<Mode?>.from(mode.contains ?? const <Mode?>[]);
+      list.add(brackets);
+      list.add(operators);
+      mode.contains = list;
+      mode.compiled = false;
+    }
+
+    cpp.contains = List<Mode?>.from(cpp.contains ?? const <Mode?>[])
+      ..removeWhere(
+        (m) =>
+            m != null &&
+            m.className == null &&
+            m.begin == null &&
+            m.beginKeywords == null &&
+            m.variants != null,
+      );
+
+    Mode? firstWhereOrNull(List<Mode?>? list, bool Function(Mode) test) {
+      for (final m in list ?? const <Mode?>[]) {
+        if (m != null && test(m)) return m;
+      }
+      return null;
+    }
+
+    final functionMode = firstWhereOrNull(
+      cpp.contains,
+      (m) => m.className == 'function',
+    );
+    final paramsMode = firstWhereOrNull(
+      functionMode?.contains,
+      (m) => m.className == 'params',
+    );
+    patchContains(paramsMode);
+    patchContains(
+      firstWhereOrNull(
+        paramsMode?.contains,
+        (m) => m.begin == r'\(' && m.className == null && m.contains != null,
+      ),
+    );
+
+    cpp.compiled = false; // recompile everything touched above
   }
 
   static Mode getModeForLanguage(String highlightLanguage) {

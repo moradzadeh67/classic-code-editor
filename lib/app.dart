@@ -13,7 +13,7 @@ class RetroDartApp extends StatelessWidget {
       listenable: ThemeService.instance,
       builder: (context, _) {
         return MaterialApp(
-          title: 'RetroDart IDE',
+          title: 'Classic Code Editor',
           debugShowCheckedModeBanner: false,
           theme: RetroTheme.theme,
           home: const IDEShell(),

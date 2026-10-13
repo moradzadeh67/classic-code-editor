@@ -54,7 +54,7 @@ class PanelLayout extends StatefulWidget {
 
 class _PanelLayoutState extends State<PanelLayout> {
   double _explorerWidth = 200;
-  double _consoleHeight = 150;
+  double _consoleHeight = 240;
   int _activeBottomTab = 0; // 0: Console, 1: Diagnostics, 2: Terminal, 3: Watch
   String _selectedLanguage = 'Auto';
 
@@ -66,7 +66,10 @@ class _PanelLayoutState extends State<PanelLayout> {
 
   void _onConsoleResize(double delta) {
     setState(() {
-      _consoleHeight = (_consoleHeight - delta).clamp(80, 400);
+      // Keep a floor that still fits the tab strip, the "Console" header and
+      // the stdin input bar; below that the output ListView collapses to a
+      // few pixels and the console looks empty.
+      _consoleHeight = (_consoleHeight - delta).clamp(200, 400);
     });
   }
 

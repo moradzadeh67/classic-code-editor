@@ -22,6 +22,42 @@ I wanted to build a **real IDE** — not a toy — that:
 
 Classic Code Editor is my attempt at a **production-quality IDE** with a retro soul.
 
+## 🤖 Development Approach
+
+This project follows a **phase-gated, specification-first workflow** — the
+scope is written down before the code, one phase at a time, and nothing moves
+forward without an explicit approval.
+
+1. **Specify first** — the scope of every phase was written before it was
+   implemented (`docs/PHASE_DETAILS.md`), the file structure and coding rules
+   were fixed up front (`AGENTS.md`), and the architecture plus the approved
+   dependency list were locked in `ARCHITECTURE.md`.
+2. **One task at a time** — each phase is exactly one task in `TASKS.md`; a new
+   phase may not start until the previous one is complete **and approved**.
+3. **Human in the loop** — after every task the work stops and is reported for
+   review. Agents implement and verify; architecture, scope and acceptance
+   stay with me.
+4. **Verify every step** — `flutter analyze` must report zero issues and the
+   test suite must be green before a task is marked done; a five-step release
+   gate (`scripts/release_gate/01…05`) protects the DMG.
+5. **No fabrication** — a hard project rule: if something does not work, say so
+   and never invent an API, a package or a file path.
+
+### My Role
+- **Process & rules** — designed the phase-gated workflow and wrote the project
+  rules in `AGENTS.md`, including "one task at a time" and "stop and report".
+- **Architecture** — the four-layer design (UI / Services / Models / Utils),
+  the debugger contract, the data flows and the approved dependency list.
+- **Scope** — the phase list in `ROADMAP.md`, the per-phase specification in
+  `docs/PHASE_DETAILS.md`, and the approval that gates each next phase.
+- **Quality & release** — reviewed every result, required a clean analyze run
+  and a green suite, caught regressions, and owns the release gate and DMG.
+
+### Implementation
+- Implementation was carried out by **AI coding agents** operating under the
+  written rules in `AGENTS.md`: they implement, run the checks and report back
+  for approval — the design, the scope and the final call stay with me.
+
 ## 📸 Screenshots
 
 > **Not committed yet.** Screenshot captures are not in the repository, so
@@ -50,7 +86,8 @@ Classic Code Editor is my attempt at a **production-quality IDE** with a retro s
 
 ### ⌨️ Smart Code Editor
 - **Multi-Language Support:** Dart, Python, C, C++
-- **Syntax Highlighting:** Per-language syntax colors, IntelliJ-style
+- **Syntax Highlighting:** Per-language syntax colors, IntelliJ-style —
+  operators dark green (`#0B6E00`), brackets blue (`#031CFC`)
 - **Language Logos:** Real per-language icons in the panel header (with a
   vector fallback when an asset is missing)
 - **Auto-Indentation:** Smart indentation on Enter, auto-dedent on closing brackets

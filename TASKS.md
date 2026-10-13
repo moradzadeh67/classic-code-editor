@@ -247,3 +247,21 @@
   a release (v1) may only be cut when all four report PASS.
 - Verified locally: all four gates pass (analyze clean, 106 tests green,
   release build succeeds, app launches and survives the 8s smoke window).
+
+---
+
+## Current Active Task
+
+### TASK-018: Colored Operators & Brackets
+**Phase:** post-17 polish
+**Status:** ✅ DONE
+**Completed:**
+- Operators/symbols (`! @ # $ % ^ & * + = - ~ < > / | ? : ; , .` and `=>`)
+  now render dark green `#0B6E00`; brackets `() { } [ ]` render blue
+  `#031CFC` — in all three themes.
+- highlight 0.7's Dart/C/C++/Python grammars emit no `operator` /
+  `punctuation` classes, so `MultiLanguageHighlighter.patchSymbolModes()`
+  appends single-character rules to each grammar before first compile
+  (no new packages; strings/comments/numbers/`#include` keep their colors).
+- Verified: `flutter analyze` clean and `flutter test` green (109 tests,
+  including a real-parse test that asserts the colored token classes).

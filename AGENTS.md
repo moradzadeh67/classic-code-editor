@@ -54,7 +54,7 @@
 ### Rule 7: Respect .aiexclude
 - Read .aiexclude before scanning project
 - NEVER read/modify files in excluded paths
-- Only work with: lib/, test/, pubspec.yaml, AGENTS.md, ARCHITECTURE.md, TASKS.md, ROADMAP.md
+- Only work with: lib/, test/, pubspec.yaml, README.md, AGENTS.md, ARCHITECTURE.md, TASKS.md, ROADMAP.md
 
 ### Rule 8: Theme-aware rebuilds (important)
 - Do NOT mark a widget that renders theme-dependent content as `const`
