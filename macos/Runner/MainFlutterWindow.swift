@@ -8,7 +8,7 @@ class MainFlutterWindow: NSWindow {
     self.contentViewController = flutterViewController
     self.setFrame(windowFrame, display: true)
 
-    self.title = "RetroDart IDE"
+    self.title = "Classic Code Editor"
     self.minSize = NSSize(width: 800, height: 600)
 
     RegisterGeneratedPlugins(registry: flutterViewController)
