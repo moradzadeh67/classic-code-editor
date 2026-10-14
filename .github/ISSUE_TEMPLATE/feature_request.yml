@@ -23,18 +23,6 @@ body:
     validations:
       required: true
 
-  - type: dropdown
-    id: platforms
-    attributes:
-      label: Which platforms should this cover?
-      multiple: true
-      options:
-        - macOS
-        - Android
-        - Web
-    validations:
-      required: false
-
   - type: textarea
     id: alternatives
     attributes:

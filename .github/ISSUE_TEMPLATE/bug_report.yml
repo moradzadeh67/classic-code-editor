@@ -15,8 +15,6 @@ body:
       description: Where did you see the problem?
       options:
         - macOS
-        - Android
-        - Web
         - Other
     validations:
       required: true
@@ -26,7 +24,7 @@ body:
     attributes:
       label: App version
       description: The release you are running, or the version shown in the About dialog.
-      placeholder: "1.0.1"
+      placeholder: "1.1.0"
     validations:
       required: true
 
