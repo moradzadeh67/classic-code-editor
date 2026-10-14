@@ -2,7 +2,7 @@
 
 ## Project Identity
 - Name: classic_code_editor (Classic Code Editor)
-- Platform: macOS ONLY (Flutter Desktop)
+- Platform: macOS (Flutter Desktop) is the only fully supported platform. `android/` and `web/` scaffolding exist for the editor UI only — running, debugging, and LSP require macOS because they spawn external processes.
 - Style: Retro 1990s (Borland C++, Visual C++ 6, Windows 95/98)
 - Language: Dart
 - Framework: Flutter

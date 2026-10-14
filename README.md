@@ -2,12 +2,12 @@
 
 ![Classic Code Editor](assets/branding/readme-banner.png)
 
-A retro-styled, multi-language IDE built with Flutter for macOS. Inspired by classic 90s IDEs like Borland C++, Visual C++ 6.0, and Delphi.
+A retro-styled, multi-language IDE built with Flutter. Primarily a macOS desktop app — now with an Android build and a browser demo. Inspired by classic 90s IDEs like Borland C++, Visual C++ 6.0, and Delphi.
 
 [![Latest Release](https://img.shields.io/github/v/release/moradzadeh67/classic-code-editor?style=flat-square&color=green)](https://github.com/moradzadeh67/classic-code-editor/releases/latest)
 [![CI](https://github.com/moradzadeh67/classic-code-editor/actions/workflows/ci.yml/badge.svg)](https://github.com/moradzadeh67/classic-code-editor/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](https://opensource.org/licenses/MIT)
-[![Platform](https://img.shields.io/badge/Platform-macOS-black?style=flat-square&logo=apple)](https://www.apple.com/macos/)
+[![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Android%20%7C%20Web-black?style=flat-square&logo=apple)](https://github.com/moradzadeh67/classic-code-editor#-platform-support)
 [![Flutter](https://img.shields.io/badge/Flutter-3.47.2-02569B?style=flat-square&logo=flutter)](https://flutter.dev)
 [![Dart](https://img.shields.io/badge/Dart-3.13.2-0175C2?style=flat-square&logo=dart&logoColor=white)](https://dart.dev)
 [![Live Demo](https://img.shields.io/badge/Demo-GitHub%20Pages-2ea44f?style=flat-square&logo=github)](https://moradzadeh67.github.io/classic-code-editor/)
@@ -233,11 +233,12 @@ lib/
 
 | Platform | Status | Notes |
 |---|:---:|---|
-| 🖥️ macOS | ✅ Released | macOS 12+ (Monterey or later) — v1.0.1 |
+| 🖥️ macOS | ✅ Released | macOS 12+ (Monterey or later) — v1.1.0. The full IDE: run, debug, and LSP all work. |
+| 📱 Android | ✅ Released | v1.1.0. Editor and file management only — Android has no shell, so **run, debug, and LSP are unavailable**. |
+| 🌐 Web | 🧪 Demo | [Live demo](https://moradzadeh67.github.io/classic-code-editor/). Editor UI preview only — no code execution. |
 | 🪟 Windows | 🔜 Planned | Next major target (v1.x) |
 | 🐧 Linux | 🔜 Planned | After Windows |
-| 📱 iOS / Android | ❌ Not planned | An IDE needs a keyboard and a real shell |
-| 🌐 Web | ❌ Not planned | Requires a backend — out of scope |
+| 🍎 iOS | ❌ Not planned | An IDE needs a keyboard and a real shell |
 
 > **Note:** This app spawns external processes (`dart`, `python3`, `clang`, `lldb`). The macOS App Sandbox is **disabled** (`com.apple.security.app-sandbox = false`) to allow `Process.start`.
 
@@ -245,9 +246,21 @@ lib/
 
 ### Download Pre-built Release
 
-1. Download the latest `.dmg` (`Classic.Code.Editor-1.0.1+2.dmg`) from [Releases](https://github.com/moradzadeh67/classic-code-editor/releases/latest)
+**macOS**
+
+1. Download the latest `.dmg` (`Classic.Code.Editor-1.1.0+3.dmg`) from [Releases](https://github.com/moradzadeh67/classic-code-editor/releases/latest)
 2. Open the `.dmg` and drag `Classic Code Editor.app` to `Applications`
 3. **First launch (Gatekeeper):** the app is not notarized, so macOS blocks it — click **Done** on the dialog, then open **System Settings → Privacy & Security → Open Anyway** ([Apple: Safely open apps on your Mac](https://support.apple.com/en-us/102445))
+
+**Android**
+
+1. Download the latest `.apk` (`Classic.Code.Editor-1.1.0+3.apk`) from [Releases](https://github.com/moradzadeh67/classic-code-editor/releases/latest)
+2. Open it on your device and allow **Install unknown apps** when prompted
+3. The Android build is the editor only — it cannot run or debug code, see [Platform Support](#-platform-support)
+
+**Web**
+
+Open the [live demo](https://moradzadeh67.github.io/classic-code-editor/) — editor UI preview only, no code execution.
 
 ### Build from Source
 
@@ -264,6 +277,10 @@ flutter run -d macos
 
 # Build release
 flutter build macos --release
+
+# Other platforms
+flutter build apk --release
+flutter build web --release --base-href /classic-code-editor/
 ```
 
 ### System Requirements
