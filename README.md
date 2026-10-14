@@ -5,12 +5,16 @@
 A retro-styled, multi-language IDE built with Flutter for macOS. Inspired by classic 90s IDEs like Borland C++, Visual C++ 6.0, and Delphi.
 
 [![Latest Release](https://img.shields.io/github/v/release/moradzadeh67/classic-code-editor?style=flat-square&color=green)](https://github.com/moradzadeh67/classic-code-editor/releases/latest)
+[![CI](https://github.com/moradzadeh67/classic-code-editor/actions/workflows/ci.yml/badge.svg)](https://github.com/moradzadeh67/classic-code-editor/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](https://opensource.org/licenses/MIT)
 [![Platform](https://img.shields.io/badge/Platform-macOS-black?style=flat-square&logo=apple)](https://www.apple.com/macos/)
 [![Flutter](https://img.shields.io/badge/Flutter-3.47.2-02569B?style=flat-square&logo=flutter)](https://flutter.dev)
 [![Dart](https://img.shields.io/badge/Dart-3.13.2-0175C2?style=flat-square&logo=dart&logoColor=white)](https://dart.dev)
+[![Live Demo](https://img.shields.io/badge/Demo-GitHub%20Pages-2ea44f?style=flat-square&logo=github)](https://moradzadeh67.github.io/classic-code-editor/)
 
 ### 📥 [Download Latest Release](https://github.com/moradzadeh67/classic-code-editor/releases/latest)
+
+### 🌐 [Try the Live Web Demo](https://moradzadeh67.github.io/classic-code-editor/)
 
 **Contents:** [Why I Built This](#-why-i-built-this) · [Screenshots](#-screenshots) · [Features](#-features) · [Tech Stack](#-tech-stack) · [Testing](#-testing) · [Architecture](#-architecture) · [Retro Design System](#-retro-design-system) · [Platform Support](#-platform-support) · [Installation](#-installation) · [Development Environment](#-development-environment) · [Roadmap](#-roadmap) · [Development Approach](#-development-approach) · [Contributing](#-contributing) · [License](#-license)
 

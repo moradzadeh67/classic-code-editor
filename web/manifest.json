@@ -1,0 +1,35 @@
+{
+    "name": "Classic Code Editor",
+    "short_name": "Classic Code Editor",
+    "start_url": ".",
+    "display": "standalone",
+    "background_color": "#c0c0c0",
+    "theme_color": "#c0c0c0",
+    "description": "A retro-styled, multi-language IDE built with Flutter.",
+    "orientation": "portrait-primary",
+    "prefer_related_applications": false,
+    "icons": [
+        {
+            "src": "icons/Icon-192.png",
+            "sizes": "192x192",
+            "type": "image/png"
+        },
+        {
+            "src": "icons/Icon-512.png",
+            "sizes": "512x512",
+            "type": "image/png"
+        },
+        {
+            "src": "icons/Icon-maskable-192.png",
+            "sizes": "192x192",
+            "type": "image/png",
+            "purpose": "maskable"
+        },
+        {
+            "src": "icons/Icon-maskable-512.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "maskable"
+        }
+    ]
+}
