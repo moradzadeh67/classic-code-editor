@@ -7,9 +7,12 @@ A retro-styled, multi-language IDE built with Flutter for macOS. Inspired by cla
 [![Latest Release](https://img.shields.io/github/v/release/moradzadeh67/classic-code-editor?style=flat-square&color=green)](https://github.com/moradzadeh67/classic-code-editor/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](https://opensource.org/licenses/MIT)
 [![Platform](https://img.shields.io/badge/Platform-macOS-black?style=flat-square&logo=apple)](https://www.apple.com/macos/)
-[![Flutter](https://img.shields.io/badge/Flutter-3.13+-02569B?style=flat-square&logo=flutter)](https://flutter.dev)
+[![Flutter](https://img.shields.io/badge/Flutter-3.47.2-02569B?style=flat-square&logo=flutter)](https://flutter.dev)
+[![Dart](https://img.shields.io/badge/Dart-3.13.2-0175C2?style=flat-square&logo=dart&logoColor=white)](https://dart.dev)
 
 ### 📥 [Download Latest Release](https://github.com/moradzadeh67/classic-code-editor/releases/latest)
+
+**Contents:** [Why I Built This](#-why-i-built-this) · [Screenshots](#-screenshots) · [Features](#-features) · [Tech Stack](#-tech-stack) · [Testing](#-testing) · [Architecture](#-architecture) · [Retro Design System](#-retro-design-system) · [Platform Support](#-platform-support) · [Installation](#-installation) · [Development Environment](#-development-environment) · [Roadmap](#-roadmap) · [Development Approach](#-development-approach) · [Contributing](#-contributing) · [License](#-license)
 
 ## 💡 Why I Built This
 
@@ -29,19 +32,19 @@ Classic Code Editor is my attempt at a **production-quality IDE** with a retro s
 
 | Editor | Debugger | Terminal |
 |:---:|:---:|:---:|
-| <img src="assets/screenshots/vc6-editor.png" width="150" /> | <img src="assets/screenshots/vc6-debugger.png" width="150" /> | <img src="assets/screenshots/vc6-terminal.png" width="150" /> |
+| <img src="assets/screenshots/vc6-editor.png" width="280" /> | <img src="assets/screenshots/vc6-debugger.png" width="280" /> | <img src="assets/screenshots/vc6-terminal.png" width="280" /> |
 
 ### Borland Delphi
 
 | Editor | Debugger | Terminal |
 |:---:|:---:|:---:|
-| <img src="assets/screenshots/delphi-editor.png" width="150" /> | <img src="assets/screenshots/delphi-debugger.png" width="150" /> | <img src="assets/screenshots/delphi-terminal.png" width="150" /> |
+| <img src="assets/screenshots/delphi-editor.png" width="280" /> | <img src="assets/screenshots/delphi-debugger.png" width="280" /> | <img src="assets/screenshots/delphi-terminal.png" width="280" /> |
 
 ### Visual Basic 6.0
 
 | Editor | Debugger | Terminal |
 |:---:|:---:|:---:|
-| <img src="assets/screenshots/vb6-editor.png" width="150" /> | <img src="assets/screenshots/vb6-debugger.png" width="150" /> | <img src="assets/screenshots/vb6-terminal.png" width="150" /> |
+| <img src="assets/screenshots/vb6-editor.png" width="280" /> | <img src="assets/screenshots/vb6-debugger.png" width="280" /> | <img src="assets/screenshots/vb6-terminal.png" width="280" /> |
 
 ## ✨ Features
 
@@ -189,7 +192,7 @@ lib/
 │   ├── console/                     → Console output
 │   ├── debugger/                    → Variables, call stack, breakpoints panels
 │   ├── editor/                      → Code editor, tabs, autocomplete, hover
-│   ├── explorer/                    → File explorer
+│   ├── explorer/                    → (placeholder - the file explorer lives in shell/panel_layout.dart)
 │   ├── retro/                       → Retro design system (+ about dialog, logos)
 │   ├── shell/                       → IDE shell (menu, toolbar, status)
 │   └── terminal/                    → Integrated terminal
@@ -226,7 +229,7 @@ lib/
 
 | Platform | Status | Notes |
 |---|:---:|---|
-| 🖥️ macOS | ✅ Released | macOS 12+ (Monterey or later) — v1.0.0 |
+| 🖥️ macOS | ✅ Released | macOS 12+ (Monterey or later) — v1.0.1 |
 | 🪟 Windows | 🔜 Planned | Next major target (v1.x) |
 | 🐧 Linux | 🔜 Planned | After Windows |
 | 📱 iOS / Android | ❌ Not planned | An IDE needs a keyboard and a real shell |
@@ -238,9 +241,9 @@ lib/
 
 ### Download Pre-built Release
 
-1. Download the latest `.dmg` or `.zip` from [Releases](https://github.com/moradzadeh67/classic-code-editor/releases/latest)
+1. Download the latest `.dmg` (`Classic.Code.Editor-1.0.1+2.dmg`) from [Releases](https://github.com/moradzadeh67/classic-code-editor/releases/latest)
 2. Open the `.dmg` and drag `Classic Code Editor.app` to `Applications`
-3. **First launch:** Right-click → Open (since the app is not notarized)
+3. **First launch (Gatekeeper):** the app is not notarized, so macOS blocks it — click **Done** on the dialog, then open **System Settings → Privacy & Security → Open Anyway** ([Apple: Safely open apps on your Mac](https://support.apple.com/en-us/102445))
 
 ### Build from Source
 
@@ -274,9 +277,9 @@ This project is actively developed and tested using:
 - **Hardware:** MacBook Pro (Apple M3 Pro)
 - **OS:** macOS 27.0.1
 - **IDE:** VS Code / Android Studio
-- **Xcode:** Xcode 27.0
-- **Flutter:** Flutter 3.47.2 • channel stable
-- **Dart SDK:** Dart 3.13.2
+- **Xcode:** 27.0
+- **Flutter:** 3.47.2 (stable)
+- **Dart SDK:** 3.13.2
 
 ### Requirements
 
@@ -319,7 +322,7 @@ Every technical choice was made with simplicity, performance, and authenticity i
 - **Hand-rolled Dart VM Service client:** The VM Service speaks JSON-RPC over a WebSocket; `VmServiceClient` wraps `dart:io`'s `WebSocket`, avoiding a new package while giving real breakpoints, stepping and call stacks.
 - **LSP over JSON-RPC:** Connects to the official Dart language server via stdio, giving real diagnostics, autocomplete, and hover.
 - **flutter_code_editor over custom:** Building a code editor from scratch is a project on its own — we layer syntax highlighting via `highlight`.
-- **MacOS App Sandbox disabled:** Required because the app spawns external processes.
+- **macOS App Sandbox disabled:** Required because the app spawns external processes.
 - **No rounded corners:** Authentic to the 90s aesthetic.
 
 ## 🤖 Development Approach

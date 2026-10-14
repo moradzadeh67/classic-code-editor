@@ -13,6 +13,7 @@ C, and C++ code. Supports three themes: VC++ 6.0 (gray), Borland Delphi
 - No business logic
 - No SDK calls
 - Observes state from Services via ThemeService or ChangeNotifier
+- `explorer/` (placeholder - the file explorer lives in shell/panel_layout.dart)
 
 ### 2. Services Layer (lib/services/)
 - All business logic
