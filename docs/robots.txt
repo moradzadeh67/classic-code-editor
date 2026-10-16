@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://moradzadeh67.github.io/classic-code-editor/sitemap.xml

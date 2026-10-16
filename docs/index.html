@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Classic Code Editor — a retro-styled, multi-language IDE for macOS</title>
+<meta name="description" content="Classic Code Editor is a free, open-source IDE for macOS with the dense 90s UI of Borland C++, Visual C++ 6.0 and Delphi — real LSP diagnostics, a real debugger with breakpoints, an integrated terminal, and three authentic retro themes. Built with Flutter.">
+<meta name="keywords" content="Classic Code Editor, retro IDE, macOS IDE, Borland C++, Visual C++ 6.0, Delphi, Visual Basic 6.0, Flutter desktop, LSP, debugger, breakpoints, code editor, open source, Dart, Python, C, C++">
+<meta name="author" content="Mohammadreza Moradzadeh">
+<link rel="canonical" href="https://moradzadeh67.github.io/classic-code-editor/">
+<link rel="icon" href="https://raw.githubusercontent.com/moradzadeh67/classic-code-editor/main/assets/branding/favicon.ico">
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="Classic Code Editor — a retro-styled IDE for macOS">
+<meta property="og:description" content="Real LSP, real debugger, three authentic 90s themes (VC++ 6.0, Delphi, VB6). Free and open source, built with Flutter.">
+<meta property="og:url" content="https://moradzadeh67.github.io/classic-code-editor/">
+<meta property="og:image" content="https://raw.githubusercontent.com/moradzadeh67/classic-code-editor/main/assets/branding/social-preview.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Classic Code Editor — a retro-styled IDE for macOS">
+<meta name="twitter:description" content="A production-quality IDE with a 90s soul: real LSP, real debugger, three retro themes.">
+<meta name="twitter:image" content="https://raw.githubusercontent.com/moradzadeh67/classic-code-editor/main/assets/branding/social-preview.png">
+
+<style>
+  /* Retro design system: no rounded corners, 2px raised borders, Arial/Menlo. */
+  * { box-sizing: border-box; border-radius: 0 !important; }
+  body { margin: 0; background: #ECE9D8; color: #000; font: 14px/1.6 Arial, Helvetica, sans-serif; }
+  a { color: #0000CC; }
+  .titlebar { background: #0055EA; color: #fff; padding: 6px 10px; font-weight: bold; font-size: 13px;
+              border-bottom: 2px solid #000; }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 18px 16px 48px; }
+  .panel { background: #ECE9D8; border: 2px outset #fff; padding: 14px; margin: 14px 0; }
+  .panel h2 { margin: 0 0 8px; font-size: 16px; background: #C0C0C0; border: 2px inset #fff;
+              padding: 3px 6px; }
+  h1 { font-size: 26px; margin: 4px 0 2px; }
+  .tagline { color: #333; margin: 0 0 12px; }
+  .btns { margin: 12px 0 4px; }
+  .btn { display: inline-block; padding: 5px 14px; min-height: 22px; background: #ECE9D8;
+         border: 2px outset #fff; color: #000; text-decoration: none; font-weight: bold; font-size: 13px; }
+  .btn:active { border-style: inset; }
+  ul { margin: 6px 0 6px 20px; padding: 0; }
+  li { margin: 3px 0; }
+  .shots { display: flex; flex-wrap: wrap; gap: 10px; }
+  .shots img { width: 300px; border: 2px inset #fff; background: #fff; }
+  code { font-family: Menlo, Consolas, monospace; background: #fff; border: 2px inset #fff; padding: 0 4px; }
+  pre { background: #fff; border: 2px inset #fff; padding: 10px; overflow-x: auto;
+        font-family: Menlo, Consolas, monospace; font-size: 12px; }
+  .warn { background: #FFFFC0; border: 2px inset #fff; padding: 8px 10px; }
+  footer { margin-top: 24px; padding-top: 10px; border-top: 2px solid #808080; color: #333; font-size: 12px; }
+</style>
+</head>
+<body>
+
+<div class="titlebar">Classic Code Editor — a retro-styled, multi-language IDE for macOS</div>
+
+<div class="wrap">
+
+  <div class="panel">
+    <h1>Classic Code Editor</h1>
+    <p class="tagline">A production-quality IDE with a 90s soul — Borland C++, Visual C++ 6.0 and Delphi,
+    rebuilt with Flutter for macOS 12+.</p>
+    <div class="btns">
+      <a class="btn" href="https://github.com/moradzadeh67/classic-code-editor/releases/latest">Download for macOS (.dmg)</a>
+      <a class="btn" href="https://github.com/moradzadeh67/classic-code-editor">Source code</a>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Highlights</h2>
+    <ul>
+      <li><strong>Three authentic retro themes</strong> — Visual C++ 6.0, Borland Delphi and Visual Basic 6.0, with 2px raised borders and zero rounded corners.</li>
+      <li><strong>Multi-language editor</strong> — Dart, Python, C and C++, with syntax highlighting and completion.</li>
+      <li><strong>Real LSP integration</strong> — live diagnostics, hover and autocomplete from the actual language server.</li>
+      <li><strong>Real debuggers</strong> — Dart VM Service, Python <code>sys.settrace</code>, C/C++ via <code>clang</code> + <code>lldb</code>, with breakpoints and variable inspection.</li>
+      <li><strong>Integrated terminal and console</strong> — with a debug-output bridge.</li>
+      <li><strong>Offline test suite</strong> — 119 passing tests, no language server or compiler spawned during tests.</li>
+    </ul>
+  </div>
+
+  <div class="panel">
+    <h2>Screenshots</h2>
+    <div class="shots">
+      <img src="https://raw.githubusercontent.com/moradzadeh67/classic-code-editor/main/assets/screenshots/vc6-editor.png" alt="Visual C++ 6.0 theme: the editor">
+      <img src="https://raw.githubusercontent.com/moradzadeh67/classic-code-editor/main/assets/screenshots/delphi-editor.png" alt="Borland Delphi theme: the editor">
+      <img src="https://raw.githubusercontent.com/moradzadeh67/classic-code-editor/main/assets/screenshots/vb6-editor.png" alt="Visual Basic 6.0 theme: the editor">
+      <img src="https://raw.githubusercontent.com/moradzadeh67/classic-code-editor/main/assets/screenshots/delphi-debugger.png" alt="Delphi theme: the debugger with variables and call stack">
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Requirements &amp; install</h2>
+    <ul>
+      <li>macOS 12+ (Monterey or later), Apple Silicon or Intel.</li>
+      <li>To run and debug code: <code>dart</code>, <code>python3</code>, <code>clang</code> and <code>lldb</code> on your <code>PATH</code> (Xcode Command Line Tools cover the last two).</li>
+    </ul>
+    <p>Download the DMG, open it and drag <strong>Classic Code Editor.app</strong> to Applications.</p>
+    <p class="warn"><strong>First launch:</strong> the app is not notarized, so macOS blocks it. Click
+    <em>Done</em>, then open <em>System Settings → Privacy &amp; Security</em> and choose
+    <em>Open Anyway</em>.</p>
+  </div>
+
+  <div class="panel">
+    <h2>Build from source</h2>
+    <pre>git clone https://github.com/moradzadeh67/classic-code-editor.git
+cd classic-code-editor
+flutter pub get
+flutter run -d macos</pre>
+    <p>The full release gate lives in <code>scripts/release_gate/</code> (analyze → test → build → smoke → DMG).</p>
+  </div>
+
+  <div class="panel">
+    <h2>Privacy in one line</h2>
+    <p>Everything happens on your machine: no accounts, no telemetry, no backend. Code you press Run on is
+    executed locally, with your own privileges. See
+    <a href="https://github.com/moradzadeh67/classic-code-editor/blob/main/docs/PRIVACY.md">docs/PRIVACY.md</a>.</p>
+  </div>
+
+  <footer>
+    Classic Code Editor is released under the <a href="https://github.com/moradzadeh67/classic-code-editor/blob/main/LICENSE">MIT License</a>.
+    © 2026 Mohammadreza Moradzadeh.
+  </footer>
+
+</div>
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Classic Code Editor",
+  "applicationCategory": "DeveloperApplication",
+  "operatingSystem": "macOS 12+",
+  "description": "Free, open-source retro-styled multi-language IDE for macOS with real LSP diagnostics, real debuggers and three authentic 90s themes (VC++ 6.0, Borland Delphi, VB6). Built with Flutter.",
+  "url": "https://moradzadeh67.github.io/classic-code-editor/",
+  "downloadUrl": "https://github.com/moradzadeh67/classic-code-editor/releases/latest",
+  "codeRepository": "https://github.com/moradzadeh67/classic-code-editor",
+  "license": "https://opensource.org/licenses/MIT",
+  "author": { "@type": "Person", "name": "Mohammadreza Moradzadeh", "url": "https://github.com/moradzadeh67" },
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+}
+</script>
+</body>
+</html>

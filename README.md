@@ -1,18 +1,54 @@
-# 🖥️ Classic Code Editor
+<p align="center">
+  <a href="https://github.com/moradzadeh67/classic-code-editor">
+    <img src="assets/branding/readme-banner.png" width="100%" alt="Classic Code Editor Banner">
+  </a>
+</p>
 
-![Classic Code Editor](assets/branding/readme-banner.png)
+<p align="center">
+  <a href="https://github.com/moradzadeh67/classic-code-editor/releases/latest">
+    <img src="https://img.shields.io/github/v/release/moradzadeh67/classic-code-editor?style=for-the-badge&color=2e7d32" alt="Latest Release">
+  </a>
+  <a href="https://opensource.org/licenses/MIT">
+    <img src="https://img.shields.io/badge/License-MIT-orange.svg?style=for-the-badge" alt="License MIT">
+  </a>
+  <a href="https://www.apple.com/macos/">
+    <img src="https://img.shields.io/badge/Platform-macOS-black?style=for-the-badge&logo=apple" alt="Platform macOS">
+  </a>
+  <a href="https://flutter.dev">
+    <img src="https://img.shields.io/badge/Flutter-3.47.2-02569B?style=for-the-badge&logo=flutter" alt="Flutter">
+  </a>
+  <a href="https://dart.dev">
+    <img src="https://img.shields.io/badge/Dart-3.13.2-0175C2?style=for-the-badge&logo=dart&logoColor=white" alt="Dart">
+  </a>
+  <a href="https://github.com/moradzadeh67/classic-code-editor/actions/workflows/ci.yml">
+    <img src="https://github.com/moradzadeh67/classic-code-editor/actions/workflows/ci.yml/badge.svg" alt="CI Status">
+  </a>
+</p>
 
-A retro-styled, multi-language IDE built with Flutter for macOS. Inspired by classic 90s IDEs like Borland C++, Visual C++ 6.0, and Delphi.
+<p align="center">
+  <a href="https://github.com/moradzadeh67/classic-code-editor/releases/latest"><b>📥 Download for macOS</b></a> •
+  <a href="https://moradzadeh67.github.io/classic-code-editor/"><b>🌐 Website</b></a> •
+  <a href="#-features"><b>✨ Features</b></a> •
+  <a href="#-architecture"><b>🏗️ Architecture</b></a> •
+  <a href="#-installation"><b>🚀 Installation</b></a> •
+  <a href="#-troubleshooting--faq"><b>❓ FAQ</b></a>
+</p>
 
-[![Latest Release](https://img.shields.io/github/v/release/moradzadeh67/classic-code-editor?style=flat-square&color=green)](https://github.com/moradzadeh67/classic-code-editor/releases/latest)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](https://opensource.org/licenses/MIT)
-[![Platform](https://img.shields.io/badge/Platform-macOS-black?style=flat-square&logo=apple)](https://www.apple.com/macos/)
-[![Flutter](https://img.shields.io/badge/Flutter-3.47.2-02569B?style=flat-square&logo=flutter)](https://flutter.dev)
-[![Dart](https://img.shields.io/badge/Dart-3.13.2-0175C2?style=flat-square&logo=dart&logoColor=white)](https://dart.dev)
+---
 
-### 📥 [Download Latest Release](https://github.com/moradzadeh67/classic-code-editor/releases/latest)
+## 🌍 What is Classic Code Editor?
 
-**Contents:** [Why I Built This](#-why-i-built-this) · [Screenshots](#-screenshots) · [Features](#-features) · [Tech Stack](#-tech-stack) · [Testing](#-testing) · [Architecture](#-architecture) · [Retro Design System](#-retro-design-system) · [Platform Support](#-platform-support) · [Installation](#-installation) · [Development Environment](#-development-environment) · [Roadmap](#-roadmap) · [Development Approach](#-development-approach) · [Contributing](#-contributing) · [License](#-license)
+**Classic Code Editor** is a **free, open-source IDE for macOS** that brings back the dense, functional
+UI of the 90s — Borland C++, Visual C++ 6.0, Delphi — without giving up modern tooling.
+
+It is a real IDE, not a mock-up:
+
+- ✅ **100% free** — no accounts, no telemetry, no backend
+- ✅ **MIT licensed** — read it, fork it, ship it
+- ✅ **Real language intelligence** — the actual Dart language server over LSP (diagnostics, hover, completion)
+- ✅ **Real debuggers** — Dart VM Service, Python `sys.settrace`, C/C++ via `clang` + `lldb`, with breakpoints and variable inspection
+- ✅ **Three authentic retro themes** — VC++ 6.0, Borland Delphi, Visual Basic 6.0
+- ✅ **Everything stays on your machine** — code is run and debugged locally
 
 ## 💡 Why I Built This
 
@@ -25,6 +61,14 @@ I wanted to build a **real IDE** — not a toy — that:
 - Brings back the **retro 3D UI** of the 90s
 
 Classic Code Editor is my attempt at a **production-quality IDE** with a retro soul.
+
+## 🎬 Demo
+
+<p align="center">
+  <img src="assets/demo/demo.gif" width="620" alt="Classic Code Editor demo: switching between the VC++ 6.0, Borland Delphi and Visual Basic 6.0 themes">
+</p>
+
+Switching between the three authentic themes — the same IDE shell, restyled to each 90s environment.
 
 ## 📸 Screenshots
 
@@ -118,6 +162,20 @@ Classic Code Editor is my attempt at a **production-quality IDE** with a retro s
 - **Debugger:** Dart VM Service (JSON-RPC over WebSocket), Python `sys.settrace`, C/C++ `clang` + `lldb`
 - **Architecture:** Layered (UI / Services / Models / Utils)
 
+### Key Dependencies
+
+| Package | Version | Purpose |
+|---|:---:|---|
+| `flutter_code_editor` | `^0.3.5` | The code editor surface (with the `highlight` language modes) |
+| `highlight` | `^0.7.0` | Syntax highlighting for Dart, Python, C and C++ |
+| `file_picker` | `^8.0.0` | Native macOS open/save dialogs |
+| `path_provider` | `^2.1.0` | Locating the app's support directory |
+| `cupertino_icons` | `^1.0.8` | macOS-style icon set |
+
+> 💡 **Note:** Versions are the constraints declared in `pubspec.yaml`. The LSP, VM-service and debugger
+> clients are **hand-written** on `dart:io` (`WebSocket`, `Process`) — no extra package is pulled in for
+> them ([Technical Decisions](#-technical-decisions)).
+
 ## ✅ Testing
 
 The suite runs fully offline — no language server, compiler or VM is spawned.
@@ -138,6 +196,37 @@ so the default `flutter test` run never launches `dart`, `python` or
 `clang`/`lldb`. The opt-in test above flips that guard on for a single run so the
 real attach/pause chain can be exercised. See [docs/DEBUGGING.md](docs/DEBUGGING.md)
 for the full debugging architecture and troubleshooting guide.
+
+## 🔧 Build & Release
+
+The macOS DMG is produced by the release gate in `scripts/release_gate/`, which runs the whole chain in
+order — analyze → test → release build → launch smoke test → package:
+
+```bash
+scripts/release_gate/01_analyze.sh      # flutter analyze (must be clean)
+scripts/release_gate/02_test.sh         # flutter test (offline)
+scripts/release_gate/03_build_macos.sh  # flutter build macos --release
+scripts/release_gate/04_launch_smoke.sh # launch the built app
+scripts/release_gate/05_make_dmg.sh     # package the .app into a DMG (hdiutil)
+```
+
+`05_make_dmg.sh` names the artifact `Classic.Code.Editor-<version>.dmg` from `pubspec.yaml`, so **the
+pubspec version, the git tag and the DMG name stay in sync** (`1.1.0+3` → tag `v1.1.0` →
+`Classic.Code.Editor-1.1.0+3.dmg`).
+
+> [!NOTE]
+> The app is **unsigned and not notarized** (that needs a paid Apple Developer account). Every user must
+> therefore use **System Settings → Privacy & Security → Open Anyway** once on first launch.
+
+Full details and the pre-release checklist: [docs/RELEASE.md](docs/RELEASE.md).
+
+## 🔄 CI/CD
+
+| Workflow | Trigger | What it does |
+|---|---|---|
+| [`ci.yml`](.github/workflows/ci.yml) | push & PR to `main` | Runs `flutter analyze` and `flutter test` on `macos-latest` (Flutter 3.47.2) |
+
+The DMG is **not** built in CI yet — releases are produced locally by the release gate above.
 
 ## 🏗️ Architecture
 
@@ -229,13 +318,23 @@ lib/
 
 | Platform | Status | Notes |
 |---|:---:|---|
-| 🖥️ macOS | ✅ Released | macOS 12+ (Monterey or later) — v1.0.1 |
+| 🖥️ macOS | ✅ Released | macOS 12+ (Monterey or later) — v1.1.0 · [download the DMG](https://github.com/moradzadeh67/classic-code-editor/releases/latest) |
 | 🪟 Windows | 🔜 Planned | Next major target (v1.x) |
 | 🐧 Linux | 🔜 Planned | After Windows |
 | 📱 iOS / Android | ❌ Not planned | An IDE needs a keyboard and a real shell |
 | 🌐 Web | ❌ Not planned | Requires a backend — out of scope |
 
 > **Note:** This app spawns external processes (`dart`, `python3`, `clang`, `lldb`). The macOS App Sandbox is **disabled** (`com.apple.security.app-sandbox = false`) to allow `Process.start`.
+
+## 🔒 Privacy & Security
+
+> [!IMPORTANT]
+> - **Local only.** No accounts, no analytics, no crash reporting, no backend. Your code, file names and terminal output never leave your machine.
+> - **Local processes.** Running, debugging and the language server all start processes on *your* machine; the VM Service connection is bound to `localhost`.
+> - **Sandbox disabled by design.** An IDE must be able to spawn compilers, debuggers and shells, so `com.apple.security.app-sandbox = false`. The app has the same file access as any normal unsigned macOS app — only run code you trust.
+> - **No secrets in this repository**, and the app needs none.
+
+Details: [docs/PRIVACY.md](docs/PRIVACY.md) · Vulnerability reports: [SECURITY.md](SECURITY.md).
 
 ## 🚀 Installation
 
@@ -269,6 +368,54 @@ flutter build macos --release
 - Python 3 (for running Python code)
 - Clang (for running C/C++ code — comes with Xcode Command Line Tools)
 - LLDB (for debugging C/C++ code — ships with the Xcode Command Line Tools)
+
+## ⚠️ Known Limitations
+
+- **Unsigned / not notarized** — Gatekeeper blocks the first launch until you choose *Open Anyway*.
+- **External toolchain required** — running and debugging needs `dart`, `python3`, `clang` and `lldb` on your `PATH`; without them the editor still works but Run/Debug fails with a clear message.
+- **LSP today is Dart-only** — Python and C/C++ language servers (pyright/clangd) are on the roadmap.
+- **macOS only** — Windows and Linux are planned; iOS/Android/Web are out of scope for an IDE.
+- **Not sandboxed** — see [Privacy & Security](#-privacy--security) for why.
+
+## ❓ Troubleshooting & FAQ
+
+<details>
+<summary><b>1. macOS says the app "can't be opened because Apple cannot check it for malicious software".</b></summary>
+
+The DMG is unsigned. Click **Done** on the dialog, then open **System Settings → Privacy & Security**,
+scroll to the security section and choose **Open Anyway** for *Classic Code Editor*. You only need to do
+this once. See [Apple's guide](https://support.apple.com/en-us/102445).
+</details>
+
+<details>
+<summary><b>2. Run / Debug does nothing or reports a missing tool.</b></summary>
+
+Install the toolchain: Xcode Command Line Tools give you `clang` and `lldb`
+(`xcode-select --install`); Python 3 comes from python.org, Homebrew or Xcode; `dart` is used at runtime
+for Dart programs. Verify with `which dart python3 clang lldb` in a terminal.
+</details>
+
+<details>
+<summary><b>3. The status bar says "LSP: Disconnected".</b></summary>
+
+The language server starts when a Dart file is open. Open a `.dart` file from *File → Open* and give it a
+moment; if it stays disconnected, make sure `dart` is on `PATH` (the app spawns `dart language-server`).
+</details>
+
+<details>
+<summary><b>4. Why does everything look like Windows 95/98?</b></summary>
+
+That is the point. The retro design system uses **2px raised/sunken borders, zero rounded corners, no
+gradients and no transparency**, and the three themes are colour-matched to Visual C++ 6.0, Borland Delphi
+and Visual Basic 6.0. See [Retro Design System](#-retro-design-system).
+</details>
+
+<details>
+<summary><b>5. How do I change the theme?</b></summary>
+
+Use the **Theme ▾** button in the toolbar (or the View menu). The choice is saved to a small
+`.retro_theme_config.json` next to where you launched the app.
+</details>
 
 ## 💻 Development Environment
 
@@ -341,6 +488,8 @@ the design.
 Contributions, issues, and feature requests are welcome! Feel free to check the
 [issues page](https://github.com/moradzadeh67/classic-code-editor/issues). Please read
 [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on how to get started.
+Security problems: please **do not** open a public issue — see [SECURITY.md](SECURITY.md).
+Release history: [CHANGELOG.md](CHANGELOG.md).
 
 ## 🙏 Credits & Attribution
 
