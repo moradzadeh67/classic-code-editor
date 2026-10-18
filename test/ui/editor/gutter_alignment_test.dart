@@ -1,8 +1,11 @@
+import 'dart:io';
+
 import 'package:classic_code_editor/models/lsp_models.dart';
 import 'package:classic_code_editor/services/file_service.dart';
 import 'package:classic_code_editor/services/lsp_service.dart';
 import 'package:classic_code_editor/ui/editor/code_editor_panel.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// A language server that never connects, keeping the widget test offline.
@@ -29,6 +32,56 @@ Widget _wrap(Widget child) => MaterialApp(
   home: Scaffold(body: SizedBox(width: 900, height: 600, child: child)),
 );
 
+/// Lines sitting all around the one-row/two-row wrap boundary, including a
+/// tab-indented line (flutter_code_editor renders a tab as two spaces).
+///
+/// The 90- and 95-character lines are the interesting ones: the gutter's old
+/// `fontSize * 0.62` estimate said 90 characters fitted on one row at 800px,
+/// but the editor had already wrapped them onto two.
+final _boundaryLines = <String>[
+  'short = 1;',
+  'a' * 60,
+  'b' * 90,
+  'c' * 95,
+  'd' * 100,
+  'e' * 105,
+  'f' * 120,
+  'g' * 200,
+  '\tindented_call(arg1, arg2, arg3, arg4, arg5);',
+  'final x = 42;',
+];
+
+final _fileContents = '${_boundaryLines.join('\n')}\n';
+
+/// Pumps the editor at a specific width so wrapping can be exercised across
+/// the range of window sizes the app supports.
+Future<void> _pumpSized(WidgetTester tester, double width) async {
+  final fileService = FileService();
+  addTearDown(fileService.dispose);
+  fileService.openFilePath('/tmp/gutter_alignment.dart', _fileContents);
+
+  final lsp = _OfflineLspService();
+  addTearDown(lsp.dispose);
+
+  await tester.pumpWidget(
+    MaterialApp(
+      home: Scaffold(
+        body: SizedBox(
+          width: width,
+          height: 700,
+          child: CodeEditorPanel(fileService: fileService, lspService: lsp),
+        ),
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
+}
+
+/// The text the editor and the gutter actually lay out. The controller expands
+/// tabs to spaces, so this is *not* always the raw file on disk.
+String _laidOutText(WidgetTester tester) =>
+    tester.widget<EditableText>(find.byType(EditableText)).controller.text;
+
 /// Byte offset of the start of [oneBasedLine].
 int _offsetOfLine(String text, int oneBasedLine) {
   var offset = 0;
@@ -43,6 +96,18 @@ int _offsetOfLine(String text, int oneBasedLine) {
 }
 
 void main() {
+  setUpAll(() async {
+    // Loading the real font keeps the measurements honest. It is optional:
+    // the gutter measures the actual font too, so the tests hold either way.
+    final font = File('/System/Library/Fonts/Menlo.ttc');
+    if (font.existsSync()) {
+      final bytes = await font.readAsBytes();
+      await (FontLoader(
+        'Menlo',
+      )..addFont(Future<ByteData>.value(ByteData.view(bytes.buffer)))).load();
+    }
+  });
+
   /// The gutter used to be driven by the nominal `13 * 1.45 = 18.85`, while
   /// Flutter rounds a rendered line to 19.0. The 0.15px error accumulated per
   /// line, so the numbers detached from their code on longer files. This test
@@ -127,12 +192,93 @@ void main() {
     expect(metrics.length, 2);
     final renderedStep = metrics[1].baseline - metrics[0].baseline;
 
+    // The engine computes `fontSize * height` in floating point, so the real
+    // step can differ from the constant in the last bits. What matters is that
+    // the difference is far too small to accumulate over a long file.
     expect(
-      editorLineHeight,
       renderedStep,
+      closeTo(editorLineHeight, 0.01),
       reason: 'the gutter row height must equal the rendered line height',
     );
 
     painter.dispose();
   });
+
+  /// The gutter once *guessed* the character advance as `fontSize * 0.62`
+  /// (8.06px) while the editor really paints 8.33px, so a line that just
+  /// exceeded the real capacity was assumed to fit on one row. The gutter then
+  /// reserved one row too few and every number below it sat a full row high.
+  for (final width in <double>[420, 520, 640, 800, 1000, 1200, 1600]) {
+    testWidgets('gutter reserves a row per wrapped row at ${width}px', (
+      tester,
+    ) async {
+      await _pumpSized(tester, width);
+
+      // Offsets must come from the text the controller lays out, because it
+      // expands tabs to spaces before the editor ever sees them.
+      final text = _laidOutText(tester);
+      final renderEditable = tester
+          .state<EditableTextState>(find.byType(EditableText))
+          .renderEditable;
+      final first = renderEditable.getLocalRectForCaret(
+        const TextPosition(offset: 0),
+      );
+      final last = renderEditable.getLocalRectForCaret(
+        TextPosition(offset: text.length),
+      );
+      // The editor's own row count, read back from its caret positions.
+      final editorRows =
+          ((last.top - first.top) / editorLineHeight).round() + 1;
+
+      final gutterRows = tester
+          .widget<ListView>(find.byType(ListView))
+          .childrenDelegate
+          .estimatedChildCount;
+
+      expect(
+        gutterRows,
+        editorRows,
+        reason:
+            'at ${width}px the editor painted $editorRows visual rows but the '
+            'gutter reserved $gutterRows.',
+      );
+    });
+
+    testWidgets('line numbers stay beside their line at ${width}px', (
+      tester,
+    ) async {
+      await _pumpSized(tester, width);
+
+      final lines = _laidOutText(tester).split('\n');
+      final renderEditable = tester
+          .state<EditableTextState>(find.byType(EditableText))
+          .renderEditable;
+
+      var offset = 0;
+      for (var i = 0; i < lines.length; i++) {
+        final label = find.text('${i + 1}');
+        expect(label, findsOneWidget, reason: 'gutter row for line ${i + 1}');
+
+        final caret = renderEditable.getLocalRectForCaret(
+          TextPosition(offset: offset),
+        );
+        final codeCentre =
+            renderEditable.localToGlobal(caret.topLeft).dy +
+            editorLineHeight / 2;
+        final numberCentre = tester.getRect(label).center.dy;
+
+        // A whole row is the failure mode, so half a row of tolerance catches
+        // real drift without being brittle about sub-pixel centring.
+        expect(
+          (numberCentre - codeCentre).abs(),
+          lessThan(editorLineHeight / 2),
+          reason:
+              'line ${i + 1} at ${width}px: the number sat '
+              '${(numberCentre - codeCentre).toStringAsFixed(1)}px away from '
+              'the line it labels.',
+        );
+        offset += lines[i].length + 1;
+      }
+    });
+  }
 }

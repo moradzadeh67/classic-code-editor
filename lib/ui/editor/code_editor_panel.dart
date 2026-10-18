@@ -125,6 +125,11 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   /// Memoised result of the last gutter wrap measurement.
   _GutterRowsCache? _gutterRowsCache;
 
+  /// Measured advance of one monospace character, and the scale it was
+  /// measured at. See `_charAdvance`.
+  double? _charAdvanceCache;
+  TextScaler? _charAdvanceScaler;
+
   bool get _showAutocomplete => _completionItems.isNotEmpty;
   bool get _showHover => _hoverInfo != null;
   String get _filePath =>
@@ -607,6 +612,36 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   /// the gutter predicts the wrong number of wrapped rows.
   TextStyle get _editorTextStyle => editorTextStyle;
 
+  /// Width the editor gives one character, measured with the exact style the
+  /// code is rendered in (see [editorTextStyle]) instead of guessed.
+  ///
+  /// Menlo is monospace, so this single number lets `_gutterRows` decide which
+  /// lines are short enough to skip text layout. Guessing it is what caused the
+  /// gutter to drift: a `fontSize * 0.62` estimate gave 8.06px per character
+  /// while the editor really paints 8.33px (the glyph advance plus the theme's
+  /// 0.5px letter spacing), so a line of, say, 90 characters looked like it fit
+  /// on one row when the editor had already wrapped it onto two — and every
+  /// line number below it came up one row short.
+  ///
+  /// Measuring keeps the gate exact even if the font, size or letter spacing
+  /// change, because it uses the same style the editor does.
+  double _charAdvance(TextScaler scaler) {
+    if (_charAdvanceCache != null && _charAdvanceScaler == scaler) {
+      return _charAdvanceCache!;
+    }
+    final painter = TextPainter(
+      textDirection: TextDirection.ltr,
+      textScaler: scaler,
+    );
+    painter.text = const TextSpan(text: '0000000000', style: editorTextStyle);
+    painter.layout();
+    final advance = painter.width / 10;
+    painter.dispose();
+    _charAdvanceCache = advance;
+    _charAdvanceScaler = scaler;
+    return advance;
+  }
+
   /// Flat gutter rows: the logical line number for the first visual row of a
   /// line, and `0` for every continuation row produced by wrapping.
   ///
@@ -626,7 +661,10 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     final rows = <int>[];
     // Menlo is monospace, so a line can only wrap once its character count
     // exceeds what fits; this cheap gate keeps most lines out of text layout.
-    final unwrappedCharLimit = (maxWidth / (editorFontSize * 0.62)).floor();
+    // The limit uses the *measured* character advance, so a line this short is
+    // guaranteed to fit on one row — over-estimating the advance can only cost
+    // a little extra layout, never an unmeasured wrapped line.
+    final unwrappedCharLimit = (maxWidth / _charAdvance(scaler)).floor();
     TextPainter? painter;
 
     for (var i = 0; i < lines.length; i++) {
