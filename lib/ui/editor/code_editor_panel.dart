@@ -72,6 +72,19 @@ const StrutStyle editorStrutStyle = StrutStyle(
 const double gutterWidth = 52.0;
 const double gutterGap = 4.0;
 
+/// Font size of the gutter's line numbers.
+const double lineNumberFontSize = 11.0;
+
+/// Line-height multiplier that gives a line number the same *row height* as a
+/// line of code.
+///
+/// This is what keeps the digits on the code's baseline. A baseline is placed
+/// from the line box, not from the glyph size, so a smaller font with a
+/// matching box height lands on exactly the same baseline as the taller code
+/// beside it. Left at the font's default, an 11px number sat in a 13px box
+/// inside the 19px row and floated 1.7px above the code it labelled.
+const double lineNumberLineHeightFactor = editorLineHeight / lineNumberFontSize;
+
 /// Memoised wrap measurement for the gutter (see `_gutterRows`).
 class _GutterRowsCache {
   final String text;
@@ -806,7 +819,11 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
                                       padding: const EdgeInsets.symmetric(
                                         horizontal: 2,
                                       ),
-                                      alignment: Alignment.centerRight,
+                                      // Top-aligned: the number's line box
+                                      // starts on the same row grid as the
+                                      // code, so line 1 of both begin at the
+                                      // same y and every row below matches.
+                                      alignment: Alignment.topRight,
                                       child: Row(
                                         mainAxisAlignment:
                                             MainAxisAlignment.spaceBetween,
@@ -860,8 +877,17 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
                                           Text(
                                             '$lineNumber',
                                             style: TextStyle(
-                                              fontSize: 11,
                                               fontFamily: 'Menlo',
+                                              fontSize: lineNumberFontSize,
+                                              // Same row height as the code, so
+                                              // the digit sits on the code's
+                                              // baseline instead of floating
+                                              // above it (see
+                                              // [lineNumberLineHeightFactor]).
+                                              height:
+                                                  lineNumberLineHeightFactor,
+                                              leadingDistribution:
+                                                  TextLeadingDistribution.even,
                                               color: ThemeService
                                                   .instance
                                                   .colors

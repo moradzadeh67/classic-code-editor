@@ -4,6 +4,7 @@ import 'package:classic_code_editor/models/lsp_models.dart';
 import 'package:classic_code_editor/services/file_service.dart';
 import 'package:classic_code_editor/services/lsp_service.dart';
 import 'package:classic_code_editor/ui/editor/code_editor_panel.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -208,77 +209,110 @@ void main() {
   /// (8.06px) while the editor really paints 8.33px, so a line that just
   /// exceeded the real capacity was assumed to fit on one row. The gutter then
   /// reserved one row too few and every number below it sat a full row high.
-  for (final width in <double>[420, 520, 640, 800, 1000, 1200, 1600]) {
-    testWidgets('gutter reserves a row per wrapped row at ${width}px', (
-      tester,
-    ) async {
-      await _pumpSized(tester, width);
+  for (final platform in <TargetPlatform>[
+    TargetPlatform.macOS,
+    TargetPlatform.android,
+  ]) {
+    for (final width in <double>[420, 520, 640, 800, 1000, 1200, 1600]) {
+      testWidgets(
+        'gutter reserves a row per wrapped row at ${width}px on $platform',
+        (tester) async {
+          // Overriding the platform reproduces the typography the app really
+          // runs with; ThemeData(platform:) alone does not.
+          debugDefaultTargetPlatformOverride = platform;
+          try {
+            await _pumpSized(tester, width);
 
-      // Offsets must come from the text the controller lays out, because it
-      // expands tabs to spaces before the editor ever sees them.
-      final text = _laidOutText(tester);
-      final renderEditable = tester
-          .state<EditableTextState>(find.byType(EditableText))
-          .renderEditable;
-      final first = renderEditable.getLocalRectForCaret(
-        const TextPosition(offset: 0),
+            // Offsets must come from the text the controller lays out, because
+            // it expands tabs to spaces before the editor ever sees them.
+            final text = _laidOutText(tester);
+            final renderEditable = tester
+                .state<EditableTextState>(find.byType(EditableText))
+                .renderEditable;
+            final first = renderEditable.getLocalRectForCaret(
+              const TextPosition(offset: 0),
+            );
+            final last = renderEditable.getLocalRectForCaret(
+              TextPosition(offset: text.length),
+            );
+            // The editor's own row count, read back from its caret positions.
+            final editorRows =
+                ((last.top - first.top) / editorLineHeight).round() + 1;
+
+            final gutterRows = tester
+                .widget<ListView>(find.byType(ListView))
+                .childrenDelegate
+                .estimatedChildCount;
+
+            expect(
+              gutterRows,
+              editorRows,
+              reason:
+                  'at ${width}px the editor painted $editorRows visual rows '
+                  'but the gutter reserved $gutterRows.',
+            );
+          } finally {
+            debugDefaultTargetPlatformOverride = null;
+          }
+        },
       );
-      final last = renderEditable.getLocalRectForCaret(
-        TextPosition(offset: text.length),
-      );
-      // The editor's own row count, read back from its caret positions.
-      final editorRows =
-          ((last.top - first.top) / editorLineHeight).round() + 1;
 
-      final gutterRows = tester
-          .widget<ListView>(find.byType(ListView))
-          .childrenDelegate
-          .estimatedChildCount;
+      testWidgets('line numbers share the code rows at ${width}px on $platform', (
+        tester,
+      ) async {
+        debugDefaultTargetPlatformOverride = platform;
+        try {
+          await _pumpSized(tester, width);
 
-      expect(
-        gutterRows,
-        editorRows,
-        reason:
-            'at ${width}px the editor painted $editorRows visual rows but the '
-            'gutter reserved $gutterRows.',
-      );
-    });
+          final lines = _laidOutText(tester).split('\n');
+          final renderEditable = tester
+              .state<EditableTextState>(find.byType(EditableText))
+              .renderEditable;
 
-    testWidgets('line numbers stay beside their line at ${width}px', (
-      tester,
-    ) async {
-      await _pumpSized(tester, width);
+          var offset = 0;
+          for (var i = 0; i < lines.length; i++) {
+            final label = find.text('${i + 1}');
+            expect(
+              label,
+              findsOneWidget,
+              reason: 'gutter row for line ${i + 1}',
+            );
 
-      final lines = _laidOutText(tester).split('\n');
-      final renderEditable = tester
-          .state<EditableTextState>(find.byType(EditableText))
-          .renderEditable;
+            final caret = renderEditable.getLocalRectForCaret(
+              TextPosition(offset: offset),
+            );
+            final caretCentre = renderEditable.localToGlobal(caret.center).dy;
+            final numberBox = tester.getRect(label);
 
-      var offset = 0;
-      for (var i = 0; i < lines.length; i++) {
-        final label = find.text('${i + 1}');
-        expect(label, findsOneWidget, reason: 'gutter row for line ${i + 1}');
-
-        final caret = renderEditable.getLocalRectForCaret(
-          TextPosition(offset: offset),
-        );
-        final codeCentre =
-            renderEditable.localToGlobal(caret.topLeft).dy +
-            editorLineHeight / 2;
-        final numberCentre = tester.getRect(label).center.dy;
-
-        // A whole row is the failure mode, so half a row of tolerance catches
-        // real drift without being brittle about sub-pixel centring.
-        expect(
-          (numberCentre - codeCentre).abs(),
-          lessThan(editorLineHeight / 2),
-          reason:
-              'line ${i + 1} at ${width}px: the number sat '
-              '${(numberCentre - codeCentre).toStringAsFixed(1)}px away from '
-              'the line it labels.',
-        );
-        offset += lines[i].length + 1;
-      }
-    });
+            // A line number must occupy exactly one code row. Matching the
+            // height is what puts the digits on the code's baseline: a
+            // baseline is placed from the line box, not from the glyph size,
+            // so an 11px number in a 13px box floats 1.7px above the code.
+            expect(
+              numberBox.height,
+              closeTo(editorLineHeight, 0.5),
+              reason:
+                  'line ${i + 1} at ${width}px: the number occupied a '
+                  '${numberBox.height.toStringAsFixed(1)}px row but a code '
+                  'line is ${editorLineHeight}px tall.',
+            );
+            // Compare centres rather than tops: the caret rect is taller than
+            // its line on macOS (21px caret on a 19px line), so only its
+            // centre marks where the row actually sits.
+            expect(
+              numberBox.center.dy,
+              closeTo(caretCentre, 0.5),
+              reason:
+                  'line ${i + 1} at ${width}px: the number sat '
+                  '${(numberBox.center.dy - caretCentre).toStringAsFixed(1)}px '
+                  'away from the row it labels.',
+            );
+            offset += lines[i].length + 1;
+          }
+        } finally {
+          debugDefaultTargetPlatformOverride = null;
+        }
+      });
+    }
   }
 }
