@@ -88,6 +88,67 @@ class MultiLanguageHighlighter {
     };
   }
 
+  /// Minimal ARM64 (AArch64) grammar for `.s` files.
+  ///
+  /// `highlight` 0.7 does ship an `armasm` grammar, but it targets 32-bit ARM:
+  /// it has no `x0`..`x30` / `w0`..`w30` registers and no `//` comments, both of
+  /// which every clang-assembled Apple Silicon file uses. This grammar is built
+  /// here instead (no extra package) and reuses the shared palette classes.
+  static final Mode arm64Asm = _buildArm64Asm();
+
+  static Mode _buildArm64Asm() {
+    final registers = <String>[
+      for (var i = 0; i <= 30; i++) 'x$i',
+      for (var i = 0; i <= 30; i++) 'w$i',
+      'sp',
+      'fp',
+      'lr',
+      'pc',
+      'xzr',
+      'wzr',
+      'cpsr',
+    ].join(' ');
+
+    return Mode(
+      case_insensitive: true,
+      lexemes: r'[a-zA-Z_.$][\w.$]*',
+      keywords: {
+        'keyword':
+            'adc add adds adr adrp and asr b b.eq b.ne b.lt b.le b.gt b.ge '
+            'b.hi b.lo b.hs b.cs b.cc b.mi b.pl b.vs b.vc b.al bl blr br brk '
+            'cbz cbnz cmn cmp csel eor eret hlt ldp ldr ldur lsl lsr madd '
+            'mov movk movn movz msub mul mvn neg nop orr ret rev sdiv smaddl '
+            'smulh stp str stur sub subs svc sxtb sxth sxtw tbnz tbz udiv '
+            'umaddl uxtb uxth uxtw',
+        'meta':
+            '.align .ascii .asciz .balign .byte .data .double .equ .file '
+            '.float .globl .global .hidden .include .long .p2align .quad '
+            '.section .set .short .skip .space .text .type .weak .word '
+            '.private_extern .subsections_via_symbols',
+        'built_in': registers,
+      },
+      contains: [
+        // Clang accepts both comment forms; `//` is what Apple's own examples
+        // and this project's sample file use.
+        Mode(className: 'comment', begin: '//', end: r'$', relevance: 0),
+        Mode(className: 'comment', begin: r'/\*', end: r'\*/', relevance: 0),
+        Mode(className: 'string', begin: '"', end: '"', illegal: r'\n'),
+        // Immediates, decimal and hexadecimal, with or without the `#`.
+        // The lookbehind keeps the digits of `x19` / `w0` out of this rule:
+        // without it the mode starts mid-identifier and `x19` never reaches
+        // the keyword pass as a whole lexeme.
+        Mode(
+          className: 'number',
+          begin: r'(?<![\w.$])#?-?0x[0-9a-fA-F]+',
+          relevance: 0,
+        ),
+        Mode(className: 'number', begin: r'(?<![\w.$])#?-?\d+', relevance: 0),
+        // A label is anything followed by a colon at the start of a line.
+        Mode(className: 'symbol', begin: r'^[A-Za-z_.$][\w.$]*:', relevance: 0),
+      ],
+    );
+  }
+
   static bool _symbolsPatched = false;
 
   /// highlight 0.7's Dart / C / C++ / Python grammars emit no
@@ -194,6 +255,9 @@ class MultiLanguageHighlighter {
       case 'python':
         return python;
       case 'dart':
+        return dart;
+      case 'armasm':
+        return arm64Asm;
       default:
         return dart;
     }

@@ -4,6 +4,49 @@ All notable changes to Classic Code Editor are documented here. The format follo
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [1.3.0] — 2026-10-19
+
+### Added
+- **ARM64 Assembly (`.s`) support** — a fifth language, end to end:
+  - `language_config.dart`: `.s` → *ARM64 Assembly*, `clang -g -arch arm64`, highlight language `armasm`.
+  - `multi_language_highlighter.dart`: a purpose-built `arm64Asm` grammar (AArch64 registers
+    `x0`..`x30` / `w0`..`w30` / `sp` / `fp` / `lr` / `pc` / `xzr` / `wzr` / `cpsr`, `//` and `/* */`
+    comments, `.directives`, labels, `#immediates`) — `highlight` 0.7's own `armasm` mode targets
+    32-bit ARM and has neither the 64-bit registers nor `//` comments. No new package.
+  - `language_runner_service.dart`: Run assembles and executes `.s` sources, gated on
+    Apple Silicon (`uname -m == arm64`).
+  - `asm_debugger.dart` (new): `AsmDebugger extends CDebugger` — assembles with
+    `clang -g -arch arm64`, installs a dedicated LLDB stop-hook that reports the register file
+    (`x0`..`x28`, `fp`, `lr`, `sp`, `pc`, `cpsr`) as Variables and a one-instruction disassembly,
+    and maps Step Into/Over/Out to `thread step-inst` / `thread step-inst-over` / `thread step-out`.
+  - `debugger_factory.dart`: dispatch for `.s` (four debuggers now).
+  - `assets/icons/asm.png` (new): blue heptagon `ASM` logo in the editor header, with a vector
+    fallback painter; `panel_layout.dart` also detects `.s` and sniffs assembler directives.
+  - `samples/hello_arm64.s` (new) — runnable sample that sums 1..5 and prints via `_puts`.
+  - *ARM64 Assembly* added to the manual language dropdown.
+- **Fourth theme: Turbo Pascal 7.0** — DOS navy desktop, gray 3D dialogs and cyan menu highlight;
+  selectable from the View menu and the toolbar theme dropdown, persisted like the other three.
+  The editor surface and syntax palette stay identical to the other themes by design.
+- **Current-line highlight** — the caret's row is tinted full-width with a hairline outline, its
+  gutter number is emphasised, and clicking the empty space past the end of a line selects that row.
+- Tests: `asm_debugger_test.dart`, `highlighter_asm_test.dart`, `language_runner_asm_test.dart`,
+  `editor_current_line_test.dart`, `language_logo_test.dart`, `integration/asm_debug_test.dart`
+  (opt-in, `BORLAND_REAL_ASM_TEST=1`). Suite: **204 tests** (1 opt-in skipped).
+
+### Changed
+- **Gutter layout:** line numbers moved to the left of the gutter and 10px reserved on the right for
+  the gutter's own scrollbar, so the numbers and the slider can no longer overlap.
+- **Breakpoint bullet** is now a painted dot at `0.7 × lineHeight` — roughly twice the size of the
+  old `●` glyph — while still fitting inside one row.
+- **Debugger sidebar only opens while debugging**: `PanelLayout` shows it for a `running`/`paused`
+  session instead of "any debugger that has breakpoints", and `PanelLayout` now listens to the
+  active debugger so it opens/closes with the session.
+- `EditorSettingsService` resolves its settings file once and writes synchronously afterwards;
+  this removes an ordering race where a queued async save could land after the file was rewritten.
+- `pubspec.yaml` version bumped to `1.3.0+5`.
+- Documentation refreshed: `README.md`, `ARCHITECTURE.md`, `TASKS.md`, `docs/PHASE_DETAILS.md`,
+  `docs/DEBUGGING.md`, `docs/RELEASE.md`, `docs/RETRO_DESIGN.md`.
+
 ## [1.2.0] — 2026-10-18
 
 ### Added

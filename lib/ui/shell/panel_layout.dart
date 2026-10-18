@@ -58,6 +58,34 @@ class _PanelLayoutState extends State<PanelLayout> {
   int _activeBottomTab = 0; // 0: Console, 1: Diagnostics, 2: Terminal, 3: Watch
   String _selectedLanguage = 'Auto';
 
+  @override
+  void initState() {
+    super.initState();
+    widget.debugger?.addListener(_onDebuggerChanged);
+  }
+
+  @override
+  void didUpdateWidget(covariant PanelLayout oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // The shell hands us a different debugger when the tab language changes.
+    if (oldWidget.debugger != widget.debugger) {
+      oldWidget.debugger?.removeListener(_onDebuggerChanged);
+      widget.debugger?.addListener(_onDebuggerChanged);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.debugger?.removeListener(_onDebuggerChanged);
+    super.dispose();
+  }
+
+  /// Rebuilds when a session starts or ends so the debugger sidebar appears
+  /// only while something is actually being debugged.
+  void _onDebuggerChanged() {
+    if (mounted) setState(() {});
+  }
+
   void _onExplorerResize(double delta) {
     setState(() {
       _explorerWidth = (_explorerWidth + delta).clamp(100, 400);
@@ -93,10 +121,14 @@ class _PanelLayoutState extends State<PanelLayout> {
   @override
   Widget build(BuildContext context) {
     final showBottom = widget.showConsole || widget.showDiagnostics;
+    // Only an actual debug session earns the sidebar. Breakpoints alone are a
+    // gutter concept - clicking one while merely editing used to pop the whole
+    // debugger panel open, which read as "why did the debugger open?".
+    final debuggerState = widget.debugger?.state;
     final showDebugger =
         widget.debugger != null &&
-        (widget.debugger!.state != DebugState.inactive ||
-            widget.debugger!.breakpoints.isNotEmpty);
+        (debuggerState == DebugState.running ||
+            debuggerState == DebugState.paused);
 
     return Container(
       color: ThemeService.instance.uiColors['panel'],
@@ -274,6 +306,8 @@ class _PanelLayoutState extends State<PanelLayout> {
       case 'h':
       case 'hpp':
         return 'cpp';
+      case 's':
+        return 'asm';
     }
 
     // No usable extension (e.g. "Untitled") -> sniff the buffer content.
@@ -297,6 +331,14 @@ class _PanelLayoutState extends State<PanelLayout> {
         RegExp(r'^\s*print\s*\(', multiLine: true).hasMatch(content)) {
       return 'py';
     }
+    // ARM64 assembly saved without an extension: assembled source always
+    // carries at least one directive or a `_main:` entry label.
+    if (RegExp(
+      r'^\s*(\.globl|\.global|\.text|\.section|\.p2align|_main:|main:)',
+      multiLine: true,
+    ).hasMatch(content)) {
+      return 'asm';
+    }
     return '';
   }
 
@@ -312,7 +354,7 @@ class _PanelLayoutState extends State<PanelLayout> {
         child: DropdownButton<String>(
           value: _selectedLanguage,
           isDense: true,
-          items: const ['Auto', 'Dart', 'Python', 'C', 'C++']
+          items: const ['Auto', 'Dart', 'Python', 'C', 'C++', 'ARM64 Assembly']
               .map(
                 (lang) => DropdownMenuItem<String>(
                   value: lang,

@@ -95,6 +95,7 @@ Future<void> continueExecution();
 |--------------|----------|
 | `.py` | `PythonDebugger` |
 | `.c`, `.cpp`, `.cc`, `.cxx` | `CDebugger` |
+| `.s` | `AsmDebugger` (ARM64 Assembly) |
 | anything else (default) | `DartDebugger` |
 
 Instances are created **once and reused**. This is what lets breakpoints survive
@@ -293,7 +294,68 @@ Command Line Tools). If compilation or the debugger binary is missing,
 
 ---
 
-## 8. Console output bridge
+## 8. ARM64 Assembly: the instruction engine
+
+`AsmDebugger` (`lib/services/asm_debugger.dart`) subclasses `CDebugger` and reuses
+its lldb process handling, breakpoint resync and output plumbing — only the
+things that differ are overridden.
+
+### Compile
+
+```bash
+clang -g -arch arm64 -o <temp>/program <temp>/program.s
+```
+
+`.s` sources are first written to a temp copy, so an unsaved buffer debugs the
+same way a saved file does. On a non-arm64 host the debugger refuses up front
+with `[ARM64 Assembly requires Apple Silicon macOS and clang/lldb.]` instead of
+producing a binary it cannot debug.
+
+### Register + disassembly stop-hook
+
+Where `CDebugger` reports variables, `AsmDebugger` writes its own helper
+(`borland_lldb_asm.py`) that is imported and hooked exactly like the C/C++ one:
+
+```
+command script import "<temp>/borland_lldb_asm.py"
+command script add -f borland_lldb_asm.borland_snapshot borland_snapshot
+target stop-hook add -o borland_snapshot
+breakpoint set --name _main
+breakpoint set --name main
+run
+```
+
+At every stop it prints one `@@BORLAND_SNAP {json}` line containing:
+
+- `vars` — the register file as Variables with `type: "register"`:
+  `x0`..`x28`, `fp`, `lr`, `sp`, `pc`, `cpsr` (read from `frame.GetRegisters()`);
+- `disasm` — one line built from `target.ReadInstructions(frame.GetPCAddress(), 1)`,
+  formatted `pc=0x<addr>  <mnemonic> <operands>`, emitted to the Console before the
+  pause banner;
+- `file` / `line` / `reason` / `stack` — the same keys the shared
+  `DebugSnapshot` decoder already understands.
+
+Because the register names arrive as ordinary Variables, the Variables panel
+needs no special case: it renders `x19 (register): 0x000000000000000f` on its own.
+
+### Stepping
+
+| UI action | lldb command |
+|---|---|
+| Step Into | `thread step-inst` |
+| Step Over | `thread step-inst-over` |
+| Step Out | `thread step-out` |
+
+### Requirements
+
+Apple Silicon (arm64) macOS with `clang` and `lldb` on `PATH`. Stops that carry no
+source line (`line <= 0` / `0xFFFFFFFF`, i.e. the dynamic-loader entry) are
+ignored, exactly like the C/C++ engine, so the gutter is never asked to
+highlight a line that does not exist.
+
+---
+
+## 9. Console output bridge
 
 Debug sessions are never silent. Each debugger writes lifecycle and event
 messages through `emitOutput`. `IDEShell` subscribes to every debugger's `output`
@@ -306,7 +368,7 @@ it works, so this bridge is the first thing to check when a session seems dead.
 
 ---
 
-## 9. Testing strategy
+## 10. Testing strategy
 
 The suite runs **fully offline**. It never launches `dart`, `python`, `clang` or
 `lldb`.
@@ -358,7 +420,7 @@ BORLAND_REAL_VM_TEST=1 flutter test test/integration/dart_vm_pause_test.dart
 
 ---
 
-## 10. Gutter and editor alignment
+## 11. Gutter and editor alignment
 
 The breakpoint gutter and the editor text must share one line height, or the
 `●` / `▶` markers drift away from their lines as you scroll.
@@ -375,7 +437,7 @@ The breakpoint gutter and the editor text must share one line height, or the
 
 ---
 
-## 11. Known limitations
+## 12. Known limitations
 
 - **C/C++ requires a native toolchain.** `clang`/`clang++`/`lldb` must be on
   `PATH`; without the Xcode Command Line Tools the engine cannot start.

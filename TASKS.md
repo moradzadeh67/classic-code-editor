@@ -339,3 +339,56 @@
 **Phase:** 18
 **Status:** ✅ DONE
 **Completed:** README/CHANGELOG/ARCHITECTURE.md/AGENTS.md/TASKS.md updated; version 1.2.0+4; gate 01-04 PASS.
+
+### TASK-032: ARM64 Assembly Language Support
+**Phase:** 19
+**Status:** ✅ DONE
+**Completed:** `LanguageConfig` `.s` entry; `arm64Asm` grammar (64-bit registers, `//` comments,
+labels, directives, immediates) wired as `armasm`; `LanguageRunnerService` assembles and runs `.s`
+with `clang -g -arch arm64` behind an Apple-Silicon check; `.s` added to open/save filters and to
+content sniffing; ARM64 option in the manual language dropdown; `samples/hello_arm64.s`.
+
+### TASK-033: AsmDebugger (registers + instruction stepping)
+**Phase:** 19
+**Status:** ✅ DONE
+**Completed:** `AsmDebugger extends CDebugger` with its own LLDB stop-hook that publishes
+`x0`..`x28`/`fp`/`lr`/`sp`/`pc`/`cpsr` as Variables plus a one-instruction disassembly; Step
+Into/Over/Out → `thread step-inst` / `thread step-inst-over` / `thread step-out`; factory dispatch
+(four debuggers); protected accessors added to `CDebugger` without changing C/C++ behaviour.
+
+### TASK-034: ASM Logo & Language Icons
+**Phase:** 19
+**Status:** ✅ DONE
+**Completed:** `assets/icons/asm.png` (blue heptagon `ASM`) + vector fallback painter; `LanguageLogo`
+map for `s` / `asm` / `arm64` / `ARM64 Assembly`; icon test.
+
+### TASK-035: Gutter Layout, Bullet Size & Current-Line Highlight
+**Phase:** 19
+**Status:** ✅ DONE
+**Completed:** line numbers on the left, 10px reserved for the gutter scrollbar; breakpoint bullet
+painted at `0.7 × lineHeight` (~2× the old glyph); full-width current-line band with hairline border,
+emphasised gutter number, and click-past-end-of-line selecting that row.
+
+### TASK-036: Debugger Sidebar Visibility
+**Phase:** 19
+**Status:** ✅ DONE
+**Completed:** `PanelLayout` shows `DebuggerSidebar` only for a `running`/`paused` session and listens
+to the active debugger, so a lone breakpoint no longer opens the panel.
+
+### TASK-037: Fourth Theme — Turbo Pascal 7.0
+**Phase:** 19
+**Status:** ✅ DONE
+**Completed:** `ThemeType.turboPascal` + DOS palette + `SyntaxColors` entry (palette shared with the
+other themes); View-menu item and toolbar dropdown; persistence key `turbopascal`.
+
+### TASK-038: Deterministic Settings Save
+**Phase:** 19
+**Status:** ✅ DONE
+**Completed:** `EditorSettingsService` caches its file and writes synchronously after the first
+resolve, removing the save/load ordering race that made `editor_settings_service_test` flaky.
+
+### TASK-039: Docs, Version, Release Gate
+**Phase:** 19
+**Status:** ✅ DONE
+**Completed:** README/CHANGELOG/ARCHITECTURE/TASKS/PHASE_DETAILS/DEBUGGING/RELEASE/RETRO_DESIGN
+updated; version 1.3.0+5; analyze + 204 tests PASS (1 opt-in skipped).

@@ -46,8 +46,8 @@ It is a real IDE, not a mock-up:
 - ✅ **100% free** — no accounts, no telemetry, no backend
 - ✅ **MIT licensed** — read it, fork it, ship it
 - ✅ **Real language intelligence** — the actual Dart language server over LSP (diagnostics, hover, completion)
-- ✅ **Real debuggers** — Dart VM Service, Python `sys.settrace`, C/C++ via `clang` + `lldb`, with breakpoints and variable inspection
-- ✅ **Three authentic retro themes** — VC++ 6.0, Borland Delphi, Visual Basic 6.0
+- ✅ **Real debuggers** — Dart VM Service, Python `sys.settrace`, C/C++ and ARM64 Assembly via `clang` + `lldb`, with breakpoints and variable inspection
+- ✅ **Four authentic retro themes** — VC++ 6.0, Borland Delphi, Visual Basic 6.0, Turbo Pascal
 - ✅ **Everything stays on your machine** — code is run and debugged locally
 
 ## 💡 Why I Built This
@@ -56,7 +56,7 @@ I grew up fascinated by the golden age of IDEs — Borland C++, Visual C++ 6.0, 
 
 I wanted to build a **real IDE** — not a toy — that:
 - Runs natively on macOS (my daily driver)
-- Supports multiple languages (Dart, Python, C, C++)
+- Supports multiple languages (Dart, Python, C, C++, ARM64 Assembly)
 - Has **real LSP integration** and a **real debugger** with breakpoints and variable inspection
 - Brings back the **retro 3D UI** of the 90s
 
@@ -68,7 +68,7 @@ Classic Code Editor is my attempt at a **production-quality IDE** with a retro s
   <img src="assets/demo/demo.gif" width="620" alt="Classic Code Editor demo: switching between the VC++ 6.0, Borland Delphi and Visual Basic 6.0 themes">
 </p>
 
-Switching between the three authentic themes — the same IDE shell, restyled to each 90s environment.
+Switching between the authentic themes — the same IDE shell, restyled to each 90s environment.
 
 ## 📸 Screenshots
 
@@ -93,7 +93,8 @@ Switching between the three authentic themes — the same IDE shell, restyled to
 ## ✨ Features
 
 ### 🎨 Authentic Retro UI
-- **3 Classic Themes:** VC++ 6.0 (gray), Borland Delphi (beige), Visual Basic 6.0
+- **4 Classic Themes:** VC++ 6.0 (gray), Borland Delphi (beige), Visual Basic 6.0,
+  Turbo Pascal 7.0 (DOS navy desktop with gray 3D dialogs)
 - **3D Raised/Sunken Borders:** Authentic Windows 95/98 look — no rounded corners
 - **Theme Persistence:** Your theme choice is saved across restarts
 - **Retro Panels:** Console, Terminal, Diagnostics, Debugger, Variables, Breakpoints
@@ -104,30 +105,47 @@ Switching between the three authentic themes — the same IDE shell, restyled to
   *System Info* (Flutter/Dart versions, active theme, platform)
 
 ### ⌨️ Smart Code Editor
-- **Multi-Language Support:** Dart, Python, C, C++
+- **Multi-Language Support:** Dart, Python, C, C++, ARM64 Assembly (`.s`,
+  Apple Silicon)
 - **Syntax Highlighting:** Per-language syntax colors, IntelliJ-style —
   operators dark green (`#0B6E00`), brackets blue (`#031CFC`)
-- **Language Logos:** Real per-language icons in the panel header (with a
-  vector fallback when an asset is missing)
+- **Language Logos:** Real per-language icons in the panel header — including
+  the `ASM` heptagon for ARM64 Assembly (with a vector fallback when an asset is
+  missing)
 - **Auto-Indentation:** Smart indentation on Enter, auto-dedent on closing brackets
 - **LSP Integration:** Real-time diagnostics, hover tooltips, autocomplete
 - **Offline Completion:** Falls back to a built-in per-language keyword/API list
   when the language server is unavailable
-- **Breakpoint Gutter:** Click line number to toggle breakpoints
+- **Breakpoint Gutter:** Click line number to toggle breakpoints; numbers sit on
+  the left of the gutter and the gutter's scrollbar owns the right edge, so the
+  two can never overlap
+- **Current-Line Highlight:** the caret's row is tinted full-width with a
+  hairline outline, and its line number is emphasised — clicking anywhere on a
+  row, including the empty space past the last character, selects that row
 - **Tab Bar:** Multiple files with modified indicators
 - **Editor Zoom:** `Cmd +` / `Cmd -` / `Cmd 0` changes font size (8..32) with live gutter alignment
 
 ### 🐛 Real Multi-Language Debuggers
 - **Debug Controls:** Debug, Stop, Step Over, Step Into, Step Out, Continue
 - **Breakpoint Gutter:** Click a line number to set/unset a breakpoint; the
-  paused line shows a `▶` marker drawn alongside the `●` bullet
+  paused line shows a `▶` marker drawn alongside the `●` bullet (drawn as a
+  painted dot, twice the size of the old glyph)
+- **Debugger Panel Only While Debugging:** the sidebar appears when a session
+  starts and closes when it stops — setting a breakpoint while editing no longer
+  pops the whole panel open
 - **Breakpoints Panel:** Set, remove, clear all breakpoints (auto-cleaned when
   the surrounding code is edited away)
 - **Variables Panel:** Live variable inspection at the paused frame
 - **Call Stack Panel:** Full call stack visualization
 - **Per-language engines:** Dart drives a real **Dart VM Service** client
   (JSON-RPC over WebSocket — no extra package), Python runs a `sys.settrace`
-  tracer, and C/C++ compile with `clang -g -O0` and attach **lldb**
+  tracer, C/C++ compile with `clang -g -O0` and attach **lldb**, and ARM64
+  Assembly assembles with `clang -g -arch arm64` and debugs through the same
+  lldb driver
+- **Instruction-level assembly debugging:** every stop reports the `x0`..`x28` /
+  `fp` / `lr` / `sp` / `pc` / `cpsr` registers as Variables plus a one-line
+  disassembly of the instruction at `pc`; Step Into/Over map to `thread
+  step-inst` / `thread step-inst-over` and Step Out to `thread step-out`
 - **Stops in *your* code:** every language installs an entry breakpoint in your
   `main`, so Debug pauses inside your file instead of VM or linker internals
 - **Modular Architecture:** `BaseDebugger` interface + `DebuggerFactory`
@@ -160,7 +178,7 @@ Switching between the three authentic themes — the same IDE shell, restyled to
 - **Path Handling:** [`path_provider`](https://pub.dev/packages/path_provider)
 - **State Management:** Service-oriented + `ChangeNotifier`
 - **LSP:** JSON-RPC over stdio via custom `JsonRpcClient`
-- **Debugger:** Dart VM Service (JSON-RPC over WebSocket), Python `sys.settrace`, C/C++ `clang` + `lldb`
+- **Debugger:** Dart VM Service (JSON-RPC over WebSocket), Python `sys.settrace`, C/C++ and ARM64 Assembly `clang` + `lldb`
 - **Architecture:** Layered (UI / Services / Models / Utils)
 
 ### Key Dependencies
@@ -168,7 +186,7 @@ Switching between the three authentic themes — the same IDE shell, restyled to
 | Package | Version | Purpose |
 |---|:---:|---|
 | `flutter_code_editor` | `^0.3.5` | The code editor surface (with the `highlight` language modes) |
-| `highlight` | `^0.7.0` | Syntax highlighting for Dart, Python, C and C++ |
+| `highlight` | `^0.7.0` | Syntax highlighting for Dart, Python, C and C++; the ARM64 (`armasm`) grammar ships with the app |
 | `file_picker` | `^8.0.0` | Native macOS open/save dialogs |
 | `path_provider` | `^2.1.0` | Locating the app's support directory |
 | `cupertino_icons` | `^1.0.8` | macOS-style icon set |
@@ -185,11 +203,14 @@ The suite runs fully offline — no language server, compiler or VM is spawned.
 # Static analysis must report zero issues
 flutter analyze
 
-# Unit + widget tests (119 tests; 1 opt-in integration test is skipped)
+# Unit + widget tests (204 tests; 1 opt-in integration test is skipped)
 flutter test
 
 # Opt-in: really spawn a Dart VM and attach over a real WebSocket
 BORLAND_REAL_VM_TEST=1 flutter test test/integration/dart_vm_pause_test.dart
+
+# Opt-in: really assemble a .s file with clang and drive lldb (Apple Silicon)
+BORLAND_REAL_ASM_TEST=1 flutter test test/integration/asm_debug_test.dart
 ```
 
 `DebuggerEnvironment` short-circuits every debugger while `FLUTTER_TEST` is set,
@@ -261,6 +282,7 @@ lib/
 │
 ├── services/                        → Business logic + SDK interaction
 │   ├── analyzer_service.dart        → Static analysis (dart analyze)
+│   ├── asm_debugger.dart            → ARM64 Assembly debugger (clang -arch arm64 + lldb)
 │   ├── base_debugger.dart           → Abstract debugger (+ output stream, paused line)
 │   ├── c_debugger.dart              → C/C++ debugger (clang + lldb)
 │   ├── dart_debugger.dart           → Dart debugger (VM Service)
@@ -271,11 +293,11 @@ lib/
 │   ├── debugger_manager.dart        → Active debugger follows the active tab
 │   ├── debugger_snapshot.dart       → Shared stop-payload decoder
 │   ├── file_service.dart            → Open/Save files
-│   ├── language_runner_service.dart → Execute Python/C/C++
+│   ├── language_runner_service.dart → Execute Python/C/C++/ARM64
 │   ├── lsp_service.dart             → Language Server Protocol
 │   ├── python_debugger.dart         → Python debugger (sys.settrace tracer)
 │   ├── terminal_service.dart        → Shell commands
-│   └── theme_service.dart           → 3 themes + persistence
+│   └── theme_service.dart           → 4 themes + persistence
 │
 ├── ui/                              → Pure Flutter widgets
 │   ├── analyzer/                    → Diagnostics panel
@@ -305,6 +327,11 @@ lib/
 | **VC++ 6.0** | `#0055EA` (blue XP) | `#ECE9D8` | `#E8F1FF` |
 | **Borland Delphi** | `#D2BA7E` (warm beige) | `#DFCD9B` | `#E8F1FF` |
 | **Visual Basic 6.0** | `#2C4A8E` (dark blue) | `#C0C0C0` | `#E8F1FF` |
+| **Turbo Pascal 7.0** | `#0000A8` (DOS navy) | `#C0C0C0` | `#E8F1FF` |
+
+> The editor surface is `#E8F1FF` in **every** theme on purpose: the syntax palette is
+> shared by all four themes, so a light editor keeps the code readable regardless of
+> the chrome around it.
 
 ### Design Rules
 - **NO rounded corners** (`BorderRadius.zero`) — internal widgets only
@@ -319,7 +346,7 @@ lib/
 
 | Platform | Status | Notes |
 |---|:---:|---|
-| 🖥️ macOS | ✅ Released | macOS 12+ (Monterey or later) — v1.1.0 · [download the DMG](https://github.com/moradzadeh67/classic-code-editor/releases/latest) |
+| 🖥️ macOS | ✅ Released | macOS 12+ (Monterey or later), Apple Silicon for ARM64 assembly — v1.3.0 · [download the DMG](https://github.com/moradzadeh67/classic-code-editor/releases/latest) |
 | 🪟 Windows | 🔜 Planned | Next major target (v1.x) |
 | 🐧 Linux | 🔜 Planned | After Windows |
 | 📱 iOS / Android | ❌ Not planned | An IDE needs a keyboard and a real shell |
@@ -364,17 +391,22 @@ flutter build macos --release
 
 ### System Requirements
 
-- macOS 12+ (Monterey or later)
+- macOS 12+ (Monterey or later), **Apple Silicon (arm64)** for the ARM64 Assembly support
 - Dart SDK (bundled with Flutter — used at runtime for executing Dart code)
 - Python 3 (for running Python code)
 - Clang (for running C/C++ code — comes with Xcode Command Line Tools)
 - LLDB (for debugging C/C++ code — ships with the Xcode Command Line Tools)
+- The same `clang` / `lldb` pair assembles and debugs `.s` files
+  (`clang -g -arch arm64`); on an Intel Mac the app refuses with a clear message
 
 ## ⚠️ Known Limitations
 
 - **Unsigned / not notarized** — Gatekeeper blocks the first launch until you choose *Open Anyway*.
 - **External toolchain required** — running and debugging needs `dart`, `python3`, `clang` and `lldb` on your `PATH`; without them the editor still works but Run/Debug fails with a clear message.
 - **LSP today is Dart-only** — Python and C/C++ language servers (pyright/clangd) are on the roadmap.
+- **Assembly support is Apple-Silicon only** — `.s` files are assembled with
+  `clang -g -arch arm64`, so Run/Debug reports that ARM64 needs an arm64 macOS
+  host instead of silently producing an Intel binary.
 - **macOS only** — Windows and Linux are planned; iOS/Android/Web are out of scope for an IDE.
 - **Not sandboxed** — see [Privacy & Security](#-privacy--security) for why.
 
@@ -407,8 +439,8 @@ moment; if it stays disconnected, make sure `dart` is on `PATH` (the app spawns 
 <summary><b>4. Why does everything look like Windows 95/98?</b></summary>
 
 That is the point. The retro design system uses **2px raised/sunken borders, zero rounded corners, no
-gradients and no transparency**, and the three themes are colour-matched to Visual C++ 6.0, Borland Delphi
-and Visual Basic 6.0. See [Retro Design System](#-retro-design-system).
+gradients and no transparency**, and the four themes are colour-matched to Visual C++ 6.0, Borland Delphi,
+Visual Basic 6.0 and Turbo Pascal 7.0. See [Retro Design System](#-retro-design-system).
 </details>
 
 <details>
@@ -453,6 +485,9 @@ This project is actively developed and tested using:
 - [x] Phase 14 — Multi-Language Support
 - [x] Phase 15 — Multi-Language Debugging
 - [x] Phase 16 — Debugger Hardening & Test Coverage
+- [x] Phase 17 — Release Smoke Gate
+- [x] Phase 18 — Editor Zoom & Gutter Metrics
+- [x] Phase 19 — ARM64 Assembly, Turbo Pascal theme & editor UX
 - [ ] Python LSP support
 - [ ] C/C++ LSP support (clangd)
 - [ ] On-device ML for code suggestions

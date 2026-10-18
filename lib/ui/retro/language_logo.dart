@@ -18,6 +18,14 @@ class LanguageLogo extends StatelessWidget {
       'py' || 'python' => 'python',
       'c' => 'c',
       'cpp' || 'c++' => 'cpp',
+      // A `.s` buffer reaches this widget as either its extension, its config
+      // display name ('ARM64 Assembly') or the manual dropdown value.
+      's' ||
+      'asm' ||
+      'arm' ||
+      'arm64' ||
+      'arm64 assembly' ||
+      'assembly' => 'asm',
       _ => '',
     };
 
@@ -37,6 +45,7 @@ class LanguageLogo extends StatelessWidget {
             'python' => const _PythonLogoPainter(),
             'c' => const _CLogoPainter(),
             'cpp' => const _CppLogoPainter(),
+            'asm' => const _AsmLogoPainter(),
             _ => null,
           };
           if (painter == null) return const SizedBox.shrink();
@@ -233,6 +242,61 @@ Path _hexagon(double x, double y, double radius, double rotation) {
   final path = Path();
   for (int i = 0; i < 6; i++) {
     final angle = (math.pi / 3) * i + rotation;
+    final px = x + radius * math.cos(angle);
+    final py = y + radius * math.sin(angle);
+    if (i == 0) {
+      path.moveTo(px, py);
+    } else {
+      path.lineTo(px, py);
+    }
+  }
+  path.close();
+  return path;
+}
+
+/// Fallback for `assets/icons/asm.png`: the same blue heptagon with the
+/// `ASM` wordmark, painted in vector form so the toolbar never shows a blank
+/// box if the asset is missing.
+class _AsmLogoPainter extends _LogoPainter {
+  const _AsmLogoPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.save();
+    canvas.scale(size.width / 100, size.height / 100);
+
+    canvas.drawPath(
+      _heptagon(50, 50, 46),
+      Paint()
+        ..shader = const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xFF4A7BE0), Color(0xFF1B3A98)],
+        ).createShader(const Rect.fromLTWH(0, 0, 100, 100)),
+    );
+
+    final label = TextPainter(
+      text: const TextSpan(
+        text: 'ASM',
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: 30,
+          fontWeight: FontWeight.bold,
+          letterSpacing: 1,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    label.paint(canvas, Offset(50 - label.width / 2, 50 - label.height / 2));
+
+    canvas.restore();
+  }
+}
+
+Path _heptagon(double x, double y, double radius) {
+  final path = Path();
+  for (int i = 0; i < 7; i++) {
+    final angle = (2 * math.pi / 7) * i - math.pi / 2;
     final px = x + radius * math.cos(angle);
     final py = y + radius * math.sin(angle);
     if (i == 0) {

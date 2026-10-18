@@ -194,11 +194,8 @@ class _RetroAboutDialogWidgetState extends State<_RetroAboutDialogWidget> {
                   width: 46,
                   height: 46,
                   fit: BoxFit.contain,
-                  errorBuilder: (context, error, stackTrace) => Icon(
-                    Icons.terminal,
-                    size: 32,
-                    color: colors.selection,
-                  ),
+                  errorBuilder: (context, error, stackTrace) =>
+                      Icon(Icons.terminal, size: 32, color: colors.selection),
                 ),
               ),
             ),
@@ -308,7 +305,10 @@ class _RetroAboutDialogWidgetState extends State<_RetroAboutDialogWidget> {
       ('Escape', 'Dismiss Autocomplete / Tooltip'),
       ('Cmd + Z', 'Undo'),
       ('Cmd + Y', 'Redo'),
-      ('Cmd + / Cmd - / Cmd 0', 'Editor Font Size (Increase / Decrease / Reset)'),
+      (
+        'Cmd + / Cmd - / Cmd 0',
+        'Editor Font Size (Increase / Decrease / Reset)',
+      ),
     ];
 
     return Column(
@@ -387,7 +387,7 @@ class _RetroAboutDialogWidgetState extends State<_RetroAboutDialogWidget> {
         _buildInfoRow('Language:', 'Dart 3.13.2+', colors),
         _buildInfoRow(
           'Supported Languages:',
-          'Dart (.dart), Python (.py), C (.c), C++ (.cpp)',
+          'Dart (.dart), Python (.py), C (.c), C++ (.cpp), ARM64 Assembly (.s)',
           colors,
         ),
         _buildInfoRow(

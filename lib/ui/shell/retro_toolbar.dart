@@ -320,6 +320,7 @@ Color _themeSwatch(ThemeType type) => switch (type) {
   ThemeType.vc6 => const Color(0xFF1C1C1C),
   ThemeType.delphi => const Color(0xFF242834),
   ThemeType.vb6 => const Color(0xFF000080),
+  ThemeType.turboPascal => const Color(0xFF0000A8),
 };
 
 /// Custom theme selector dropdown utilizing [PopupMenuButton] and root [Overlay].
@@ -371,6 +372,7 @@ class RetroThemeDropdown extends StatelessWidget {
                   ThemeType.vc6 => 'VC++ 6.0',
                   ThemeType.delphi => 'Delphi',
                   ThemeType.vb6 => 'VB6',
+                  ThemeType.turboPascal => 'Turbo Pascal',
                 };
                 final isSelected = entry == currentTheme;
                 return PopupMenuItem<ThemeType>(

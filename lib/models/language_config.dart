@@ -42,6 +42,13 @@ class LanguageConfig {
       formatCommand: 'black',
       highlightLanguage: 'python',
     ),
+    LanguageConfig(
+      extension: '.s',
+      displayName: 'ARM64 Assembly',
+      runCommand: 'clang -g -arch arm64',
+      formatCommand: null,
+      highlightLanguage: 'armasm',
+    ),
   ];
 
   static LanguageConfig fromExtension(String? filePath) {

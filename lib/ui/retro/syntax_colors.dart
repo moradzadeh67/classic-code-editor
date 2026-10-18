@@ -69,6 +69,19 @@ class SyntaxColors {
           preprocessor: Color(0xFF800080),
           operators: Color(0xFF000000),
         );
+      case ThemeType.turboPascal:
+        // عمداً همان پالت سه تم دیگر: رنگ‌های سینتکس در کل برنامه یکدست
+        // هستند و تم عوض کردن نباید رنگ کد را تغییر دهد.
+        return const SyntaxColors(
+          keywords: Color(0xFF0000FF),
+          types: Color(0xFF2B91AF),
+          strings: Color(0xFFA31515),
+          comments: Color(0xFF008000),
+          numbers: Color(0xFF098658),
+          functions: Color(0xFF000000),
+          preprocessor: Color(0xFF800080),
+          operators: Color(0xFF000000),
+        );
     }
   }
 }

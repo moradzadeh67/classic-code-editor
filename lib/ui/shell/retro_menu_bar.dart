@@ -319,6 +319,18 @@ class RetroMenuBar extends StatelessWidget {
                   ),
                 ),
               ),
+              const PopupMenuItem(
+                value: 'theme_tp',
+                child: Text(
+                  'Theme: Turbo Pascal',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    fontFamily: 'Arial',
+                    height: 1.2,
+                  ),
+                ),
+              ),
             ],
             onSelected: (value) {
               if (value == 'toggle_explorer') {
@@ -339,6 +351,8 @@ class RetroMenuBar extends StatelessWidget {
                 ThemeService.instance.switchTheme(ThemeType.delphi);
               } else if (value == 'theme_vb6') {
                 ThemeService.instance.switchTheme(ThemeType.vb6);
+              } else if (value == 'theme_tp') {
+                ThemeService.instance.switchTheme(ThemeType.turboPascal);
               }
             },
           ),

@@ -31,7 +31,7 @@
 - Fonts: Arial for UI labels, monospace (Menlo) for the code editor
 - All borders are 2px, sharp, no BoxShadow
 - Colors come from `ThemeService` (NOT hardcoded)
-- Three themes: VC++ 6.0, Borland Delphi, Visual Basic 6.0
+- Four themes: VC++ 6.0, Borland Delphi, Visual Basic 6.0, Turbo Pascal 7.0
 - Vertical UI metrics (px): menu bar 24, toolbar 28, button 22 (fixed), status bar 24
 
 ### Rule 4: No Fabrication
@@ -117,10 +117,10 @@ lib/
 │   └── explorer/ ← File explorer panel
 │
 ├── services/ ← Business logic, SDK interaction
-│   ├── theme_service.dart           (3 themes + persistence)
+│   ├── theme_service.dart           (4 themes + persistence)
 │   ├── file_service.dart            (open/save, multi-tab, format-on-save)
 │   ├── dart_runner_service.dart     (execute Dart code)
-│   ├── language_runner_service.dart (run/compile Dart/Python/C/C++ + output stream)
+│   ├── language_runner_service.dart (run/compile Dart/Python/C/C++/ARM64 + output stream)
 │   ├── analyzer_service.dart        (static analysis fallback)
 │   ├── lsp_service.dart             (Dart language server over stdio)
 │   ├── terminal_service.dart        (shell commands)
@@ -130,6 +130,7 @@ lib/
 │   ├── dart_debugger.dart           (Dart VM Service debugger)
 │   ├── python_debugger.dart         (Python sys.settrace debugger)
 │   ├── c_debugger.dart              (C/C++ clang + lldb debugger)
+│   ├── asm_debugger.dart            (ARM64 assembly debugger: registers + step-inst)
 │   ├── debugger_factory.dart        (language → debugger dispatch)
 │   ├── debugger_manager.dart        (active debugger follows the active tab)
 │   ├── debugger_snapshot.dart       (shared stop-payload decoder)

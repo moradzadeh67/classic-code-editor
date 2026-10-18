@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../ui/retro/syntax_colors.dart';
 
-enum ThemeType { vc6, delphi, vb6 }
+enum ThemeType { vc6, delphi, vb6, turboPascal }
 
 class ThemeColorsData {
   final Color background;
@@ -95,6 +95,8 @@ class ThemeService extends ChangeNotifier {
         return 'Delphi';
       case ThemeType.vb6:
         return 'VB6';
+      case ThemeType.turboPascal:
+        return 'Turbo Pascal';
       case ThemeType.vc6:
         return 'VC++ 6.0';
     }
@@ -121,6 +123,8 @@ class ThemeService extends ChangeNotifier {
       switchTheme(ThemeType.delphi);
     } else if (themeName == 'VB6') {
       switchTheme(ThemeType.vb6);
+    } else if (themeName == 'Turbo Pascal') {
+      switchTheme(ThemeType.turboPascal);
     } else {
       switchTheme(ThemeType.vc6);
     }
@@ -199,6 +203,32 @@ class ThemeService extends ChangeNotifier {
           editorCursor: Color(0xFF000000),
           pausedLine: Color(0xFFDCDCA8),
         );
+
+      case ThemeType.turboPascal:
+        // ۴. تم Turbo Pascal 7.0 (DOS): دسکتاپ آبی سرمه‌ای، پنل‌های خاکستری و
+        //    نوار آبی تیره در لبه‌ها. صفحهٔ ادیتور عمداً روشن می‌ماند تا پالت
+        //    سینتکس - که در چهار تم یکسان است - خوانا بماند.
+        return const ThemeColorsData(
+          background: Color(0xFF0000A8),
+          panel: Color(0xFFC0C0C0),
+          borderDark: Color(0xFF404040),
+          borderLight: Color(0xFFFFFFFF),
+          highlight: Color(0xFFA8A8A8),
+          shadow: Color(0xFF808080),
+          selection: Color(0xFF0000A8),
+          text: Color(0xFF000000),
+          error: Color(0xFFCC0000),
+          menuActive: Color(0xFF00A8A8),
+          menuActiveText: Color(0xFF000000),
+          editorBackground: Color(0xFFE8F1FF),
+          editorText: Color(0xFF000000),
+          editorSelection: Color(0xFF000080),
+          editorSelectionText: Color(0xFFFFFFFF),
+          editorLineNumberBg: Color(0xFFC8D0D8),
+          editorLineNumberText: Color(0xFF000080),
+          editorCursor: Color(0xFF000000),
+          pausedLine: Color(0xFFDCDCA8),
+        );
     }
   }
 
@@ -214,6 +244,8 @@ class ThemeService extends ChangeNotifier {
           _currentTheme = ThemeType.delphi;
         } else if (themeName == 'vb6') {
           _currentTheme = ThemeType.vb6;
+        } else if (themeName == 'turbopascal') {
+          _currentTheme = ThemeType.turboPascal;
         } else {
           _currentTheme = ThemeType.vc6;
         }
@@ -230,6 +262,8 @@ class ThemeService extends ChangeNotifier {
         themeName = 'delphi';
       } else if (_currentTheme == ThemeType.vb6) {
         themeName = 'vb6';
+      } else if (_currentTheme == ThemeType.turboPascal) {
+        themeName = 'turbopascal';
       }
       final content = jsonEncode({'theme': themeName});
       _configFile.writeAsStringSync(content);

@@ -38,7 +38,7 @@ class FileService extends ChangeNotifier {
     try {
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
-        allowedExtensions: ['dart', 'c', 'cpp', 'py'],
+        allowedExtensions: ['dart', 'c', 'cpp', 'py', 's'],
       );
 
       if (result != null && result.files.single.path != null) {
@@ -184,7 +184,7 @@ class FileService extends ChangeNotifier {
       String? path = await FilePicker.platform.saveFile(
         dialogTitle: 'Save File As',
         fileName: activeTab?.fileName ?? 'main.dart',
-        allowedExtensions: ['dart', 'c', 'cpp', 'py'],
+        allowedExtensions: ['dart', 'c', 'cpp', 'py', 's'],
         type: FileType.custom,
       );
       if (path == null) return;

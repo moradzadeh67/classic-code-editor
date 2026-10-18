@@ -88,3 +88,22 @@ Main window layout:
 - Dart/Python/C debugger fixes
 - Opt-in real-VM integration test
 - About dialog & Help menu
+
+## Phase 17: Release Smoke Gate
+- `scripts/release_gate/` 01 analyze / 02 test / 03 build / 04 launch smoke / 05 DMG
+
+## Phase 18: Editor Zoom & Gutter Metrics
+- EditorSettingsService (persisted font size) + EditorMetrics
+- Cmd +/-/0 shortcuts, View-menu items, About shortcuts tab
+- Dynamic editor panel; gutter alignment tests across sizes
+
+## Phase 19: ARM64 Assembly, Theme & Editor UX
+- ARM64 Assembly (`.s`): language config, `arm64Asm` grammar, runner
+  (`clang -g -arch arm64`), ASM icon, manual dropdown entry, sample file
+- `AsmDebugger`: LLDB stop-hook publishing `x0`..`x28`/`fp`/`lr`/`sp`/`pc`/`cpsr`
+  plus one-instruction disassembly; instruction-level stepping
+- Editor UX: numbers left / scrollbar right in the gutter, 2x breakpoint bullet,
+  current-line band with hairline border, click-past-end-of-line selects the row
+- Debugger sidebar only while a session is running/paused
+- Fourth theme: Turbo Pascal 7.0 (DOS navy) with the shared syntax palette
+- Deterministic settings save (removed a save/load ordering race)

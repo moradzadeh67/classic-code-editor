@@ -76,6 +76,14 @@ const StrutStyle editorStrutStyle = StrutStyle(
 const double gutterWidth = 52.0;
 const double gutterGap = 4.0;
 
+/// Space reserved at the right edge of every gutter row.
+///
+/// On desktop, Material's scroll behaviour wraps the gutter's [ListView] in a
+/// [Scrollbar], so that slider is painted on the right edge of the gutter.
+/// Reserving this strip keeps the slider from painting over the breakpoint
+/// bullet; the line numbers sit on the left of the row, out of its way.
+const double gutterScrollbarInset = 10.0;
+
 /// Font size of the gutter's line numbers.
 const double lineNumberFontSize = 11.0;
 
@@ -87,7 +95,13 @@ class _GutterRowsCache {
   final List<int> rows;
   final double fontSize;
 
-  const _GutterRowsCache(this.text, this.maxWidth, this.scaler, this.rows, this.fontSize);
+  const _GutterRowsCache(
+    this.text,
+    this.maxWidth,
+    this.scaler,
+    this.rows,
+    this.fontSize,
+  );
 }
 
 /// The main code-editor area.
@@ -139,6 +153,10 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   TextScaler? _charAdvanceScaler;
   double? _charAdvanceFontSize;
 
+  /// 1-based logical line the caret currently sits on, used to paint the
+  /// "current line" band behind the code.
+  int _caretLine = 1;
+
   bool get _showAutocomplete => _completionItems.isNotEmpty;
   bool get _showHover => _hoverInfo != null;
   String get _filePath =>
@@ -156,6 +174,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
           filePath: _filePath,
         );
     _controller.addListener(_onTextChanged);
+    _controller.addListener(_onCaretMoved);
     _editorScrollController.addListener(_syncGutterScroll);
     widget.fileService.addListener(_onFileServiceChanged);
     widget.debugger?.addListener(_onDebuggerChanged);
@@ -186,6 +205,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     _hoverDebounce?.cancel();
     _typingTimer?.cancel();
     _controller.removeListener(_onTextChanged);
+    _controller.removeListener(_onCaretMoved);
     widget.fileService.removeListener(_onFileServiceChanged);
     widget.debugger?.removeListener(_onDebuggerChanged);
     EditorSettingsService.instance.removeListener(_onFontSizeChanged);
@@ -240,6 +260,33 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     });
 
     _dismissHover();
+  }
+
+  /// Tracks the caret so the current-line band follows clicks, arrow keys and
+  /// typing. Only the logical line is stored; the wrap-aware row is resolved in
+  /// `build`, where the gutter rows for the current width are known.
+  void _onCaretMoved() {
+    final selection = _controller.selection;
+    if (!selection.isValid) return;
+    final text = _controller.text;
+    final offset = selection.extentOffset.clamp(0, text.length);
+    var line = 1;
+    for (var i = 0; i < offset; i++) {
+      if (text.codeUnitAt(i) == 0x0A) line++;
+    }
+    if (line != _caretLine) {
+      setState(() => _caretLine = line);
+    }
+  }
+
+  /// Visual row of [line] in the wrap-aware [rows] produced by `_gutterRows`.
+  ///
+  /// [rows] holds the logical line number on the first visual row of a line and
+  /// `0` on every continuation row, so the index of [line] is its first row.
+  static int _visualRowForLine(List<int> rows, int line) {
+    final index = rows.indexOf(line);
+    if (index >= 0) return index;
+    return rows.isEmpty ? 0 : rows.length - 1;
   }
 
   void _onDebuggerChanged() {
@@ -340,7 +387,8 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
       final (lineNumber, _) = _offsetToLineColumn(text, offset);
 
       final Offset cursorPosition =
-          editorGlobalPosition + Offset(8, 8 + lineNumber * _metrics.lineHeight);
+          editorGlobalPosition +
+          Offset(8, 8 + lineNumber * _metrics.lineHeight);
 
       return cursorPosition + const Offset(0, 24);
     } catch (_) {
@@ -723,7 +771,13 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     }
     painter?.dispose();
 
-    _gutterRowsCache = _GutterRowsCache(text, maxWidth, scaler, rows, _metrics.fontSize);
+    _gutterRowsCache = _GutterRowsCache(
+      text,
+      maxWidth,
+      scaler,
+      rows,
+      _metrics.fontSize,
+    );
     return rows;
   }
 
@@ -783,7 +837,9 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
                         // every visual row gets a gutter row of its own.
                         final metrics = _metrics;
                         final editorWidth =
-                            (constraints.maxWidth - metrics.gutterWidth - gutterGap)
+                            (constraints.maxWidth -
+                                    metrics.gutterWidth -
+                                    gutterGap)
                                 .clamp(1.0, double.infinity);
                         final gutterRows = _gutterRows(
                           _controller.text,
@@ -824,36 +880,86 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
                                       debugger.currentPausedLine ==
                                           lineNumber &&
                                       debugger.state != DebugState.inactive;
-                                    return GestureDetector(
-                                      onTap: () => _toggleBreakpoint(lineNumber),
-                                      behavior: HitTestBehavior.opaque,
-                                      child: Container(
-                                        height: _metrics.lineHeight,
-                                      color: isPausedLine
-                                          ? ThemeService
-                                                .instance
-                                                .colors
-                                                .pausedLine
-                                          : null,
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 2,
+                                  // Twice the size the old `●` glyph painted
+                                  // (a 12px glyph draws a ~7px dot), kept inside
+                                  // one row so it never overlaps its neighbours.
+                                  final markerDiameter =
+                                      _metrics.lineHeight * 0.7;
+                                  // The caret's row is tinted in the gutter as
+                                  // well (IntelliJ does this), but the paused
+                                  // line keeps its own stronger colour so the
+                                  // two never fight.
+                                  final gutterTint = isPausedLine
+                                      ? ThemeService.instance.colors.pausedLine
+                                      : lineNumber == _caretLine
+                                      ? ThemeService.instance.colors.selection
+                                            .withValues(alpha: 0.10)
+                                      : null;
+                                  return GestureDetector(
+                                    onTap: () => _toggleBreakpoint(lineNumber),
+                                    behavior: HitTestBehavior.opaque,
+                                    child: Container(
+                                      height: _metrics.lineHeight,
+                                      color: gutterTint,
+                                      padding: const EdgeInsets.only(
+                                        left: 2,
+                                        right: gutterScrollbarInset,
                                       ),
                                       // Top-aligned: the number's line box
                                       // starts on the same row grid as the
                                       // code, so line 1 of both begin at the
                                       // same y and every row below matches.
-                                      alignment: Alignment.topRight,
+                                      alignment: Alignment.topLeft,
                                       child: Row(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.spaceBetween,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.center,
                                         children: [
-                                          SizedBox(
-                                            width: _metrics.markerSlotWidth,
-                                            child: Center(
+                                          // Numbers first: the gutter's own
+                                          // scrollbar owns the right edge, so
+                                          // digits stay clear of it.
+                                          Text(
+                                            '$lineNumber',
+                                            // The very same strut the code uses:
+                                            // it fixes the row height AND the
+                                            // baseline position, so the digit
+                                            // sits on the code's baseline by
+                                            // construction. A bare `height`
+                                            // only resizes the box and left the
+                                            // digits ~1.8px above the code.
+                                            strutStyle: _metrics.strutStyle,
+                                            // The caret's line is emphasised in
+                                            // the gutter too, the way Xcode and
+                                            // VS Code show the active line.
+                                            style: TextStyle(
+                                              fontFamily: 'Menlo',
+                                              fontSize:
+                                                  _metrics.lineNumberFontSize,
+                                              fontWeight:
+                                                  lineNumber == _caretLine
+                                                  ? FontWeight.bold
+                                                  : null,
+                                              color: lineNumber == _caretLine
+                                                  ? ThemeService
+                                                        .instance
+                                                        .colors
+                                                        .selection
+                                                  : ThemeService
+                                                        .instance
+                                                        .colors
+                                                        .editorLineNumberText,
+                                            ),
+                                          ),
+                                          // Flexible so a three-digit line
+                                          // number can never overflow the row.
+                                          Flexible(
+                                            child: Align(
+                                              alignment: Alignment.centerRight,
                                               child: !isPausedLine && !hasBp
                                                   ? null
                                                   : FittedBox(
                                                       fit: BoxFit.scaleDown,
+                                                      alignment:
+                                                          Alignment.centerRight,
                                                       child: Row(
                                                         mainAxisSize:
                                                             MainAxisSize.min,
@@ -866,50 +972,36 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
                                                           // hides the fact that it
                                                           // is a breakpoint.
                                                           if (isPausedLine)
-                                                             Text(
-                                                               '▶',
-                                                               style: TextStyle(
-                                                                 color: ThemeService
-                                                                     .instance
-                                                                     .colors
-                                                                     .selection,
-                                                                 fontSize: _metrics.markerFontSize,
-                                                               ),
+                                                            Text(
+                                                              '▶',
+                                                              style: TextStyle(
+                                                                color: ThemeService
+                                                                    .instance
+                                                                    .colors
+                                                                    .selection,
+                                                                fontSize: _metrics
+                                                                    .markerFontSize,
+                                                              ),
                                                             ),
                                                           if (hasBp)
-                                                             Text(
-                                                               '●',
-                                                               style: TextStyle(
-                                                                 color:
-                                                                     ThemeService
-                                                                         .instance
-                                                                         .colors
-                                                                         .error,
-                                                                 fontSize: _metrics.markerFontSize,
-                                                               ),
+                                                            Container(
+                                                              width:
+                                                                  markerDiameter,
+                                                              height:
+                                                                  markerDiameter,
+                                                              decoration: BoxDecoration(
+                                                                color:
+                                                                    ThemeService
+                                                                        .instance
+                                                                        .colors
+                                                                        .error,
+                                                                shape: BoxShape
+                                                                    .circle,
+                                                              ),
                                                             ),
                                                         ],
                                                       ),
                                                     ),
-                                            ),
-                                          ),
-                                          Text(
-                                            '$lineNumber',
-                                            // The very same strut the code uses:
-                                            // it fixes the row height AND the
-                                            // baseline position, so the digit
-                                            // sits on the code's baseline by
-                                            // construction. A bare `height`
-                                            // only resizes the box and left the
-                                            // digits ~1.8px above the code.
-                                            strutStyle: _metrics.strutStyle,
-                                            style: TextStyle(
-                                              fontFamily: 'Menlo',
-                                              fontSize: _metrics.lineNumberFontSize,
-                                              color: ThemeService
-                                                  .instance
-                                                  .colors
-                                                  .editorLineNumberText,
                                             ),
                                           ),
                                         ],
@@ -937,6 +1029,69 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
                                   child: Stack(
                                     fit: StackFit.expand,
                                     children: [
+                                      // Current-line band. Clicking anywhere on
+                                      // a row - including the empty space past
+                                      // the last character - puts the caret on
+                                      // that line, and this paints the whole row
+                                      // behind the code so the selection is
+                                      // visible across the full editor width.
+                                      Positioned.fill(
+                                        child: IgnorePointer(
+                                          child: ListenableBuilder(
+                                            listenable: _editorScrollController,
+                                            builder: (context, _) {
+                                              final scrollOffset =
+                                                  _editorScrollController
+                                                      .hasClients
+                                                  ? _editorScrollController
+                                                        .offset
+                                                  : 0.0;
+                                              final accent = ThemeService
+                                                  .instance
+                                                  .colors
+                                                  .selection;
+                                              final row = _visualRowForLine(
+                                                gutterRows,
+                                                _caretLine,
+                                              );
+                                              return Stack(
+                                                clipBehavior: Clip.hardEdge,
+                                                children: [
+                                                  Positioned(
+                                                    left: 0,
+                                                    right: 0,
+                                                    top:
+                                                        row *
+                                                            metrics.lineHeight -
+                                                        scrollOffset,
+                                                    height: metrics.lineHeight,
+                                                    // Fill plus a hairline
+                                                    // outline, the equivalent
+                                                    // of VS Code's
+                                                    // `editor.lineHighlightBackground`
+                                                    // and
+                                                    // `editor.lineHighlightBorder`.
+                                                    child: DecoratedBox(
+                                                      decoration: BoxDecoration(
+                                                        color: accent
+                                                            .withValues(
+                                                              alpha: 0.14,
+                                                            ),
+                                                        border: Border.all(
+                                                          color: accent
+                                                              .withValues(
+                                                                alpha: 0.45,
+                                                              ),
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ],
+                                              );
+                                            },
+                                          ),
+                                        ),
+                                      ),
                                       MouseRegion(
                                         onHover: (event) {
                                           _cursorScreenOffset =

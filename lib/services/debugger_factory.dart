@@ -1,4 +1,5 @@
 import '../models/language_config.dart';
+import 'asm_debugger.dart';
 import 'base_debugger.dart';
 import 'c_debugger.dart';
 import 'dart_debugger.dart';
@@ -7,22 +8,25 @@ import 'python_debugger.dart';
 
 /// Maps a [LanguageConfig] to the [BaseDebugger] that knows how to drive it.
 ///
-/// The IDE supports four languages (Dart, Python, C, C++). Instead of teaching
-/// the shell about each runtime, the shell asks the factory for the debugger
-/// responsible for the active tab. Instances are created once and reused, so
-/// breakpoints set for a file survive tab and language switches.
+/// The IDE supports five languages (Dart, Python, C, C++, ARM64 Assembly).
+/// Instead of teaching the shell about each runtime, the shell asks the factory
+/// for the debugger responsible for the active tab. Instances are created once
+/// and reused, so breakpoints set for a file survive tab and language switches.
 class DebuggerFactory {
   DebuggerFactory({
     DartDebugger? dartDebugger,
     PythonDebugger? pythonDebugger,
     CDebugger? cDebugger,
+    AsmDebugger? asmDebugger,
   }) : dartDebugger = dartDebugger ?? DartDebugger(),
        pythonDebugger = pythonDebugger ?? PythonDebugger(),
-       cDebugger = cDebugger ?? CDebugger();
+       cDebugger = cDebugger ?? CDebugger(),
+       asmDebugger = asmDebugger ?? AsmDebugger();
 
   final DartDebugger dartDebugger;
   final PythonDebugger pythonDebugger;
   final CDebugger cDebugger;
+  final AsmDebugger asmDebugger;
 
   /// The debugger that handles [config]'s language.
   BaseDebugger forLanguage(LanguageConfig config) {

@@ -79,6 +79,56 @@ class CDebugger extends BaseDebugger {
   /// Whether this session is compiling/debugging C++ (as opposed to C).
   bool get isCpp => _isCpp;
 
+  @protected
+  Process? get lldbProcess => _lldb;
+  @protected
+  set lldbProcess(Process? p) => _lldb = p;
+
+  @protected
+  bool get isDisposed => _disposed;
+
+  @protected
+  bool get exitHandled => _exitHandled;
+  @protected
+  set exitHandled(bool v) => _exitHandled = v;
+
+  @protected
+  bool get awaitingEntryBreakpointId => _awaitingEntryBreakpointId;
+  @protected
+  set awaitingEntryBreakpointId(bool v) => _awaitingEntryBreakpointId = v;
+
+  @protected
+  String? get compiledSource => _compiledSource;
+  @protected
+  set compiledSource(String? v) => _compiledSource = v;
+
+  @protected
+  String? get sourcePath => _sourcePath;
+  @protected
+  set sourcePath(String? v) => _sourcePath = v;
+
+  @protected
+  void writeLldb(String command) => _write(command);
+
+  @protected
+  void resyncBreakpoints() => _resyncBreakpoints();
+
+  @protected
+  void watchStreams(Process process) => _watchStreams(process);
+
+  @protected
+  void watchExit(Process process) => _watchExit(process);
+
+  @protected
+  Future<Directory> newTempDirectory(String prefix) =>
+      _newTempDirectory(prefix);
+
+  @protected
+  void emitBlock(String block) => _emitBlock(block);
+
+  @protected
+  void resumeWithLldb(String command) => _resumeWith(command);
+
   @override
   Future<void> startDebugging(String filePath, {String? content}) async {
     if (state != DebugState.inactive) return;
@@ -226,7 +276,6 @@ class CDebugger extends BaseDebugger {
   /// Feeds a raw lldb stdout [line] through the stop/console handler.
   ///
   /// Exposed so the stop protocol can be exercised without launching lldb.
-  @visibleForTesting
   void handleStdoutLine(String line) => _onStdoutLine(line);
 
   void _onStdoutLine(String line) {

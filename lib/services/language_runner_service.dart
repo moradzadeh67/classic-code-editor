@@ -74,6 +74,10 @@ class LanguageRunnerService extends ChangeNotifier {
           return LanguageConfig.fromExtension('test.c');
         case 'C++':
           return LanguageConfig.fromExtension('test.cpp');
+        case 'ARM64 Assembly':
+        case 'Assembly':
+        case 'asm':
+          return LanguageConfig.fromExtension('test.s');
         default:
           return LanguageConfig.fromExtension(filePath);
       }
@@ -87,7 +91,8 @@ class LanguageRunnerService extends ChangeNotifier {
           ext == 'cpp' ||
           ext == 'cc' ||
           ext == 'cxx' ||
-          ext == 'py') {
+          ext == 'py' ||
+          ext == 's') {
         return LanguageConfig.fromExtension(filePath);
       }
     }
@@ -129,6 +134,12 @@ class LanguageRunnerService extends ChangeNotifier {
     }
     if (trimmed.contains('void main(') || trimmed.contains('import \'dart:')) {
       return LanguageConfig.fromExtension('test.dart');
+    }
+    if (trimmed.contains('.globl') ||
+        trimmed.contains('.text') ||
+        trimmed.contains('.section') ||
+        trimmed.contains('_main:')) {
+      return LanguageConfig.fromExtension('test.s');
     }
 
     return LanguageConfig.fromExtension(filePath);
@@ -193,6 +204,9 @@ class LanguageRunnerService extends ChangeNotifier {
           break;
         case '.cpp':
           await _runCpp(tempDir, content);
+          break;
+        case '.s':
+          await _runAsm(tempDir, content);
           break;
         default:
           await _runDart(tempDir, content);
@@ -360,6 +374,77 @@ class LanguageRunnerService extends ChangeNotifier {
     }
 
     _outputController.add('[Running C++ executable...]\n');
+
+    _process = await Process.start(
+      execFile,
+      [],
+      workingDirectory: tempDir.path,
+    );
+
+    await _listenToProcess(_process!);
+  }
+
+  Future<bool> _isAppleSilicon() async {
+    if (!Platform.isMacOS) return false;
+    try {
+      final res = await Process.run('uname', ['-m']);
+      return res.stdout.toString().trim() == 'arm64';
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _runAsm(Directory tempDir, String content) async {
+    if (!await _isAppleSilicon()) {
+      _outputController.add(
+        '[ARM64 Assembly requires Apple Silicon macOS and clang.]\n',
+      );
+      return;
+    }
+
+    final clangExec = await _findExecutable('clang');
+    if (clangExec.isEmpty) {
+      _outputController.add(
+        '[ARM64 Assembly requires clang. clang not found in PATH.]\n',
+      );
+      return;
+    }
+
+    final sourceFile = File('${tempDir.path}/main.s');
+    await sourceFile.writeAsString(content);
+    final execFile = '${tempDir.path}/main_asm_exec';
+
+    _outputController.add('[Compiling ARM64 assembly with clang...]\n');
+
+    try {
+      final compileProcess = await Process.run(clangExec, [
+        '-arch',
+        'arm64',
+        '-g',
+        '-o',
+        execFile,
+        sourceFile.path,
+      ], workingDirectory: tempDir.path);
+
+      if (compileProcess.stdout.toString().isNotEmpty) {
+        _outputController.add(compileProcess.stdout.toString());
+      }
+      if (compileProcess.stderr.toString().isNotEmpty) {
+        _outputController.add(compileProcess.stderr.toString());
+      }
+
+      if (compileProcess.exitCode != 0) {
+        _outputController.add(
+          '\n[Compilation failed with code ${compileProcess.exitCode}]\n',
+        );
+        return;
+      }
+    } catch (e) {
+      _outputController.add('\n[Error: clang compiler failed ($e)]\n');
+      return;
+    }
+
+    _outputController.add('[Running ARM64 assembly executable...]\n');
 
     _process = await Process.start(
       execFile,

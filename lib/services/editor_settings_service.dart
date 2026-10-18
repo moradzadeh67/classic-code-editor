@@ -13,17 +13,20 @@ class EditorSettingsService extends ChangeNotifier {
   static const double defaultFontSize = 13;
   static const double fontSizeStep = 1;
 
-  static final EditorSettingsService instance = EditorSettingsService._internal();
+  static final EditorSettingsService instance =
+      EditorSettingsService._internal();
 
-  EditorSettingsService._internal({Future<Directory> Function()? directoryProvider})
-      : _directoryProvider = directoryProvider {
+  EditorSettingsService._internal({
+    Future<Directory> Function()? directoryProvider,
+  }) : _directoryProvider = directoryProvider {
     _load();
   }
 
   @visibleForTesting
-  EditorSettingsService.forTesting({Future<Directory> Function()? directoryProvider})
-      : _directoryProvider = directoryProvider,
-        _fontSize = defaultFontSize {
+  EditorSettingsService.forTesting({
+    Future<Directory> Function()? directoryProvider,
+  }) : _directoryProvider = directoryProvider,
+       _fontSize = defaultFontSize {
     // Testing constructor: does not call load() automatically
     // so tests can inject state before loading if needed.
     // To match production behavior, tests may call load() explicitly.
@@ -56,13 +59,24 @@ class EditorSettingsService extends ChangeNotifier {
 
   static const String _fileName = 'editor_settings.json';
 
+  /// Settings file resolved once, so a save no longer has to await the
+  /// directory provider on every write.
+  File? _cachedFile;
+
   Future<File> get _settingsFile async {
+    final cached = _cachedFile;
+    if (cached != null) return cached;
+
+    final File file;
     if (_directoryProvider != null) {
       final dir = await _directoryProvider();
-      return File('${dir.path}/$_fileName');
+      file = File('${dir.path}/$_fileName');
+    } else {
+      final dir = await getApplicationSupportDirectory();
+      file = File('${dir.path}/$_fileName');
     }
-    final dir = await getApplicationSupportDirectory();
-    return File('${dir.path}/$_fileName');
+    _cachedFile = file;
+    return file;
   }
 
   Future<void> _load() async {
@@ -101,8 +115,17 @@ class EditorSettingsService extends ChangeNotifier {
     if (isTest && _directoryProvider == null) return;
 
     try {
-      final file = await _settingsFile;
       final content = jsonEncode({'fontSize': _fontSize});
+      final cached = _cachedFile;
+      if (cached != null) {
+        // The path is already known (load() or an earlier save resolved it), so
+        // write synchronously: an async write could otherwise land *after* the
+        // next caller has replaced the file, which made save/load round-trips
+        // order-dependent.
+        cached.writeAsStringSync(content);
+        return;
+      }
+      final file = await _settingsFile;
       await file.writeAsString(content);
     } catch (e) {
       debugPrint('EditorSettingsService save error: $e');

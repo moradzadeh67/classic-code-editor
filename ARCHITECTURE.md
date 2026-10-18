@@ -3,8 +3,8 @@
 ## Overview
 classic_code_editor is a Flutter Desktop app for macOS.
 It provides a retro-styled environment to write, run, and debug Dart, Python,
-C, and C++ code. Supports three themes: VC++ 6.0 (gray), Borland Delphi
-(beige), and Visual Basic 6.0.
+C, C++, and ARM64 Assembly code. Supports four themes: VC++ 6.0 (gray),
+Borland Delphi (beige), Visual Basic 6.0, and Turbo Pascal 7.0 (DOS navy).
 
 ## Layers
 
@@ -30,10 +30,13 @@ C, and C++ code. Supports three themes: VC++ 6.0 (gray), Borland Delphi
   View menu toggles the explorer/console and switches themes; the Help menu
   opens the About dialog (`About` / `Keyboard Shortcuts` / `System Info` tabs).
 - `retro_toolbar.dart` — 28px; New / Open / Save | Run / Debug / Stop, plus the
-  theme selector (short labels: `VC++ 6.0` / `Delphi` / `VB6`). The selector lives
+  theme selector (short labels: `VC++ 6.0` / `Delphi` / `VB6` / `Turbo Pascal`,
+  built from `ThemeType.values`). The selector lives
   in an `Expanded` + horizontal `SingleChildScrollView` so it can never overflow.
 - `panel_layout.dart` — file explorer (200px) + editor + bottom panel (150px),
-  toggleable from the View menu. The bottom panel switches between Console,
+  toggleable from the View menu. `PanelLayout` listens to the active debugger and
+  shows `DebuggerSidebar` only while a session is `running` or `paused` — a
+  gutter breakpoint alone no longer opens the panel. The bottom panel switches between Console,
   Diagnostics and Terminal via an internal retro tab strip.
 - `retro_status_bar.dart` — 24px; status text + analysis counts + LSP status +
   `Ln x, Col y`.
@@ -104,8 +107,9 @@ the shell never needs to know which languages exist. See
 | `base_debugger.dart` | Abstract surface: `state`, `breakpoints`, `variables`, `callStack`, `currentPausedLine`, and a broadcast `output` stream. Owns shared breakpoint bookkeeping (`clearBreakpointsForFile`) and the `@protected emitOutput` helper. |
 | `dart_debugger.dart` | Drives the real **Dart VM Service** through `VmServiceClient`. |
 | `python_debugger.dart` | Runs a generated `sys.settrace` tracer driver. |
+| `asm_debugger.dart` | ARM64 Assembly: assembles with `clang -g -arch arm64` and drives the same `lldb` driver, reporting `x0`..`x28`/`fp`/`lr`/`sp`/`pc`/`cpsr` as Variables plus a one-instruction disassembly. |
 | `c_debugger.dart` | Compiles with `clang -g -O0` and attaches `lldb`, injecting a helper stop-hook. |
-| `debugger_factory.dart` | Maps a `LanguageConfig` (extension) to its debugger; instances are reused so breakpoints survive tab/language switches. |
+| `debugger_factory.dart` | Maps a `LanguageConfig` (extension) to one of the four debuggers (Dart, Python, C/C++, ARM64); instances are reused so breakpoints survive tab/language switches. |
 | `debugger_manager.dart` | Keeps the active debugger in sync with the active tab. Stops a *running* session when the language changes; never clears breakpoints. |
 | `debugger_snapshot.dart` | One shared JSON decoder for the `@@BORLAND_SNAP` / `@@BORLAND_PAUSED` stop payloads. |
 | `debugger_environment.dart` | Test seam: short-circuits real process spawns while `FLUTTER_TEST` is set (`BORLAND_REAL_VM_TEST=1` opts back in). |
@@ -180,7 +184,8 @@ output and a session is never silent.
 | DartDebugger | 13/15 | ✅ | Dart debugging via the VM Service |
 | PythonDebugger | 15 | ✅ | Python debugging via `sys.settrace` |
 | CDebugger | 15 | ✅ | C/C++ debugging via `clang` + `lldb` |
-| DebuggerFactory | 15 | ✅ | Language → debugger dispatch |
+| AsmDebugger | 19 | ✅ | ARM64 Assembly debugging (registers + instruction stepping) |
+| DebuggerFactory | 15/19 | ✅ | Language → debugger dispatch (four engines) |
 | DebuggerManager | 15 | ✅ | Active debugger follows the active tab |
 | EditorSettingsService | 18 | ✅ | Font-size persistence + ChangeNotifier |
 | EditorMetrics | 18 | ✅ | Font-size driven line-height / gutter metrics |
@@ -271,11 +276,31 @@ Functions: #000000 (black)
 Preprocessor: #800080 (purple)
 Operators: #000000 (black)
 
+### Turbo Pascal 7.0 Theme (DOS navy desktop):
+UI Background: #0000A8 (DOS blue)
+UI Panel: #C0C0C0
+UI Border Dark: #404040
+UI Border Light: #FFFFFF
+UI Highlight: #A8A8A8
+UI Shadow: #808080
+UI Selection: #0000A8
+UI Text: #000000
+UI Error: #CC0000
+Menu Active: #00A8A8 / Menu Active Text: #000000
+Editor Background: #E8F1FF (soft blue)
+Editor Text: #000000
+Editor Selection: #000080 / Selection Text: #FFFFFF
+Editor Line-Number BG: #C8D0D8 / Text: #000080
+Editor Cursor: #000000
+Paused Line: #DCDCA8
+
 > NOTE: In every theme `Editor Background` is intentionally `#E8F1FF`
 > (soft blue), set in `ThemeService` — kept by design decision so the editor
-> reads clearly against each theme's chrome.
+> reads clearly against each theme's chrome. This is why Turbo Pascal keeps a
+> light editor surface even though its desktop is DOS blue: the syntax palette
+> is shared by all four themes and must stay readable.
 
-### Editor syntax palette (applies to all three themes)
+### Editor syntax palette (applies to all four themes)
 The editor surface does not read the per-theme `SyntaxColors` tables above; it
 loads `MultiLanguageHighlighter.getThemeStyles()`
 (`lib/utils/multi_language_highlighter.dart`) through `CodeThemeData`. Key
@@ -306,7 +331,13 @@ slots of that palette:
 - Button height: 22.0 (fixed) — 1px gap above/below inside the toolbar
 - Bar heights (px): menu bar 24, toolbar 28, status bar 24
 - Paused-line highlight: `ThemeService.colors.pausedLine` (#FFF0A0 VC6 /
-  #E9D9A5 Delphi / #DCDCA8 VB6)
+  #E9D9A5 Delphi / #DCDCA8 VB6 / #DCDCA8 Turbo Pascal)
+- Current-line band: `colors.selection` at alpha 0.14 fill + alpha 0.45 hairline
+  border, `height == lineHeight`, positioned from the wrap-aware gutter rows and
+  offset by the editor scroll position
+- Gutter row: line numbers on the left, marker slot on the right, 10px reserved
+  at the right edge for the platform scrollbar the desktop scroll behaviour adds
+  to the gutter's `ListView` (`gutterScrollbarInset`)
 
 ### Retro widget inventory (lib/ui/retro/)
 | Widget | Notes |
@@ -317,10 +348,10 @@ slots of that palette:
 | `RetroColors` | All getters delegate to `ThemeService.instance.colors.*` |
 | `SyntaxColors` | 8 syntax slots + `forTheme(ThemeType)` |
 | `RetroTheme` | `ThemeData(useMaterial3: false)` + global `TextTheme` |
-| `LanguageLogo` | Per-language icon: tries `assets/icons/{lang}.png`, falls back to a vector `CustomPainter` |
+| `LanguageLogo` | Per-language icon: tries `assets/icons/{lang}.png` (`dart` / `python` / `c` / `cpp` / `asm`), falls back to a vector `CustomPainter` |
 | `showRetroAboutDialog()` | Retro Help → About dialog (About & Developer / Shortcuts / System Info) |
 | `RetroWatchWindow` | Variables watch window (sunken panel bound to `DebugService`) |
 
 ### Theme persistence
 `ThemeService` writes the active theme to `.retro_theme_config.json` and
-restores it on launch. `enum ThemeType { vc6, delphi, vb6 }`.
+restores it on launch. `enum ThemeType { vc6, delphi, vb6, turboPascal }`.
