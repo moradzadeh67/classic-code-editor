@@ -24,15 +24,10 @@ const double editorFontSize = 13.0;
 /// Height of one rendered line of code, in logical pixels.
 ///
 /// Flutter rounds a paragraph's line height to the nearest **whole** logical
-/// pixel, so a nominal `13 * 1.45 = 18.85` actually paints as `19`. Driving the
-/// gutter with the nominal `18.85` made every gutter row 0.15px shorter than
-/// the code line beside it. That error accumulates — roughly 1.4px by line 10
-/// and 4.5px by line 30 — so on longer files the numbers visibly detached from
-/// their lines.
-///
-/// This must stay equal to what the editor really renders. If [editorFontSize]
-/// changes, re-check that `(editorFontSize * editorLineHeightFactor).round()`
-/// still equals this value.
+/// pixel, so a nominal `13 * 1.45 = 18.85` actually paints as `19`. Using the
+/// nominal value made every gutter row 0.15px shorter than the code line beside
+/// it, and the error accumulated (~1.4px by line 10, ~4.5px by line 30) until
+/// the numbers visibly detached from their lines.
 const double editorLineHeight = 19.0;
 
 /// Line-height multiplier passed to `TextStyle.height` / `StrutStyle.height`.
@@ -40,6 +35,38 @@ const double editorLineHeight = 19.0;
 /// Derived from [editorLineHeight] so the multiplier and the gutter's row
 /// height can never disagree.
 const double editorLineHeightFactor = editorLineHeight / editorFontSize;
+
+/// Letter spacing that the editor text really renders with.
+///
+/// [CodeField] merges its `textStyle` onto the ambient Material `bodyLarge`
+/// style, which contributes `letterSpacing: 0.5`. That extra half pixel per
+/// character is *not* part of a default `TextStyle`, so measuring wrap width
+/// with a bare `TextStyle(fontFamily: 'Menlo', fontSize: 13)` under-reported
+/// each character as 7.827px instead of the 8.327px the editor really paints.
+/// The gutter then believed ~92 characters fit on a line while the editor
+/// wrapped at ~87, so every long line gained an invisible extra row and pushed
+/// the numbering below it out of step. Pinned explicitly so the value cannot
+/// drift again and so the gutter can measure with it.
+const double editorLetterSpacing = 0.5;
+
+/// The one text style the code is measured *and* rendered with.
+///
+/// Both the gutter's wrap measurement and the editor field must use this, so
+/// the two can never disagree about how wide a character is.
+const TextStyle editorTextStyle = TextStyle(
+  fontFamily: 'Menlo',
+  fontSize: editorFontSize,
+  height: editorLineHeightFactor,
+  letterSpacing: editorLetterSpacing,
+);
+
+/// The strut that pins every line to exactly [editorLineHeight].
+const StrutStyle editorStrutStyle = StrutStyle(
+  fontFamily: 'Menlo',
+  fontSize: editorFontSize,
+  height: editorLineHeightFactor,
+  forceStrutHeight: true,
+);
 
 /// Gutter width and the gap between the gutter and the editor surface.
 const double gutterWidth = 52.0;
@@ -576,12 +603,9 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   }
 
   /// Text metrics shared with the editor. Wrapping must be measured with the
-  /// same font/size/height the field renders with, or the gutter drifts.
-  TextStyle get _editorTextStyle => const TextStyle(
-    fontFamily: 'Menlo',
-    fontSize: editorFontSize,
-    height: editorLineHeightFactor,
-  );
+  /// exact style the field renders with — including its letter spacing — or
+  /// the gutter predicts the wrong number of wrapped rows.
+  TextStyle get _editorTextStyle => editorTextStyle;
 
   /// Flat gutter rows: the logical line number for the first visual row of a
   /// line, and `0` for every continuation row produced by wrapping.
@@ -606,10 +630,11 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     TextPainter? painter;
 
     for (var i = 0; i < lines.length; i++) {
-      final line = lines[i];
+      // flutter_code_editor converts tabs to 2 spaces for display.
+      final line = lines[i].replaceAll('\t', '  ');
       var visualRows = 1;
 
-      if (line.length > unwrappedCharLimit || line.contains('\t')) {
+      if (line.length > unwrappedCharLimit) {
         painter ??= TextPainter(
           textDirection: TextDirection.ltr,
           textScaler: scaler,
@@ -859,21 +884,13 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
                                           maxLines: null,
                                           expands: true,
                                           // Pin every line to exactly
-                                          // [editorLineHeight]. Flutter rounds
-                                          // the paragraph's line height to a
-                                          // whole logical pixel, so the strut
-                                          // keeps the render and the gutter on
-                                          // the same grid.
-                                          strutStyle: const StrutStyle(
-                                            fontFamily: 'Menlo',
-                                            fontSize: editorFontSize,
-                                            height: editorLineHeightFactor,
-                                            forceStrutHeight: true,
-                                          ),
-                                          style: TextStyle(
-                                            fontFamily: 'Menlo',
-                                            fontSize: editorFontSize,
-                                            height: editorLineHeightFactor,
+                                          // [editorLineHeight]; Flutter rounds
+                                          // a paragraph's line height to a whole
+                                          // logical pixel, so the strut keeps
+                                          // the render and the gutter on the
+                                          // same grid.
+                                          strutStyle: editorStrutStyle,
+                                          style: editorTextStyle.copyWith(
                                             color: ThemeService
                                                 .instance
                                                 .colors
