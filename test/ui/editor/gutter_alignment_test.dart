@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:classic_code_editor/models/lsp_models.dart';
 import 'package:classic_code_editor/services/file_service.dart';
 import 'package:classic_code_editor/services/lsp_service.dart';
+import 'package:classic_code_editor/services/editor_settings_service.dart';
 import 'package:classic_code_editor/ui/editor/code_editor_panel.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -361,4 +362,99 @@ void main() {
       });
     }
   }
+
+  group('editor zoom sizes {8, 13, 20, 32}', () {
+    tearDown(() {
+      EditorSettingsService.instance.setFontSize(13);
+    });
+
+    for (final size in <int>[8, 13, 20, 32]) {
+      testWidgets('gutter stays aligned at font size $size', (tester) async {
+        EditorSettingsService.instance.setFontSize(size.toDouble());
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: SizedBox(
+                width: 900,
+                height: 700,
+                child: CodeEditorPanel(
+                  fileService: FileService()
+                    ..openFilePath(
+                      '/tmp/zoom.dart',
+                      'final value1 = 1;\nfinal value2 = 2;\n',
+                    ),
+                  lspService: _OfflineLspService(),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+      });
+    }
+
+    testWidgets('font size change 13 -> 24 keeps numbering aligned', (tester) async {
+      EditorSettingsService.instance.setFontSize(13);
+      final fileService = FileService();
+      addTearDown(fileService.dispose);
+      fileService.openFilePath('/tmp/zoom_change.dart', _fileContents);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SizedBox(
+              width: 900,
+              height: 700,
+              child: CodeEditorPanel(
+                fileService: fileService,
+                lspService: _OfflineLspService(),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Change size after initial render (simulates user zoom).
+      EditorSettingsService.instance.setFontSize(24);
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('1200-line file at all four sizes shows no RenderFlex overflow',
+        (tester) async {
+      final buffer = StringBuffer();
+      for (var i = 1; i <= 1200; i++) {
+        buffer.writeln('final value$i = $i;');
+      }
+      final longText = buffer.toString();
+
+      for (final size in <int>[8, 13, 20, 32]) {
+        EditorSettingsService.instance.setFontSize(size.toDouble());
+        final fileService = FileService();
+        addTearDown(fileService.dispose);
+        fileService.openFilePath('/tmp/long_1200.dart', longText);
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: SizedBox(
+                width: 900,
+                height: 700,
+                child: CodeEditorPanel(
+                  fileService: fileService,
+                  lspService: _OfflineLspService(),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull,
+            reason: 'no overflow at size $size for 1200 lines');
+      }
+    });
+  });
 }

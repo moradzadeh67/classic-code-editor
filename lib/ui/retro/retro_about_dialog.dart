@@ -308,6 +308,7 @@ class _RetroAboutDialogWidgetState extends State<_RetroAboutDialogWidget> {
       ('Escape', 'Dismiss Autocomplete / Tooltip'),
       ('Cmd + Z', 'Undo'),
       ('Cmd + Y', 'Redo'),
+      ('Cmd + / Cmd - / Cmd 0', 'Editor Font Size (Increase / Decrease / Reset)'),
     ];
 
     return Column(

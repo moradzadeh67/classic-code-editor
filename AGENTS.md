@@ -105,6 +105,7 @@ lib/
 │   │
 │   ├── editor/ ← Editor surface
 │   │   ├── code_editor_panel.dart   (editor + gutter: lines, breakpoints, ▶)
+│   │   ├── editor_metrics.dart      (font-size driven metrics)
 │   │   ├── tab_bar.dart             (multi-file tab strip)
 │   │   ├── autocomplete_popup.dart  (LSP + offline completion popup)
 │   │   └── hover_tooltip.dart       (LSP hover docs)
@@ -123,6 +124,7 @@ lib/
 │   ├── analyzer_service.dart        (static analysis fallback)
 │   ├── lsp_service.dart             (Dart language server over stdio)
 │   ├── terminal_service.dart        (shell commands)
+│   ├── editor_settings_service.dart (font-size persistence + ChangeNotifier)
 │   ├── debug_service.dart           (live variable watcher)
 │   ├── base_debugger.dart           (abstract debugger contract + output stream)
 │   ├── dart_debugger.dart           (Dart VM Service debugger)

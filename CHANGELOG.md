@@ -4,6 +4,22 @@ All notable changes to Classic Code Editor are documented here. The format follo
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [1.2.0] — 2026-10-18
+
+### Added
+- Editor zoom service (`EditorSettingsService`) with persistence (`editor_settings.json`) via `path_provider`.
+- `EditorMetrics` pure value class for font-size-driven line height, gutter width, marker sizes, and text/strut styles.
+- Dynamic editor panel (`code_editor_panel.dart`) that reacts to font-size changes with cache invalidation.
+- Gutter alignment regression tests across sizes {8, 13, 20, 32} (`gutter_alignment_test.dart`).
+- Editor zoom interaction tests (`editor_zoom_test.dart`): breakpoint toggle, paused-line arrow, and zoom-while-paused.
+- Keyboard zoom shortcuts (`Cmd +` / `Cmd -` / `Cmd 0`) wired through `app_shortcuts.dart` and `ide_shell.dart`.
+- View-menu font-size items (`font_increase`, `font_decrease`, `font_reset`) in `retro_menu_bar.dart`.
+- About-dialog shortcuts tab updated with zoom shortcuts (`retro_about_dialog.dart`).
+
+### Changed
+- Updated documentation (`README.md`, `ARCHITECTURE.md`, `TASKS.md`, `AGENTS.md`) for Phase 18 features.
+- `pubspec.yaml` version bumped to `1.2.0+4`.
+
 ## [1.1.0] — 2026-10-14
 
 ### Fixed

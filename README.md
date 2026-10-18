@@ -115,6 +115,7 @@ Switching between the three authentic themes — the same IDE shell, restyled to
   when the language server is unavailable
 - **Breakpoint Gutter:** Click line number to toggle breakpoints
 - **Tab Bar:** Multiple files with modified indicators
+- **Editor Zoom:** `Cmd +` / `Cmd -` / `Cmd 0` changes font size (8..32) with live gutter alignment
 
 ### 🐛 Real Multi-Language Debuggers
 - **Debug Controls:** Debug, Stop, Step Over, Step Into, Step Out, Continue

@@ -7,9 +7,11 @@ import 'package:flutter_code_editor/flutter_code_editor.dart';
 import '../../models/debugger_models.dart';
 import '../../models/language_config.dart';
 import '../../models/lsp_models.dart';
+import 'editor_metrics.dart';
 import '../../services/file_service.dart';
 import '../../services/lsp_service.dart';
 import '../../services/theme_service.dart';
+import '../../services/editor_settings_service.dart';
 import '../../services/base_debugger.dart';
 import '../../utils/completion_filter.dart';
 import '../../utils/multi_language_highlighter.dart';
@@ -19,6 +21,8 @@ import 'hover_tooltip.dart';
 /// Font size of the code editor's text.
 ///
 /// Shared with the gutter so its rows line up exactly with the code.
+/// Default-13px constants (kept untouched so existing tests reference them).
+/// Live values come from [EditorMetrics.forFontSize] via [EditorSettingsService].
 const double editorFontSize = 13.0;
 
 /// Height of one rendered line of code, in logical pixels.
@@ -81,8 +85,9 @@ class _GutterRowsCache {
   final double maxWidth;
   final TextScaler scaler;
   final List<int> rows;
+  final double fontSize;
 
-  const _GutterRowsCache(this.text, this.maxWidth, this.scaler, this.rows);
+  const _GutterRowsCache(this.text, this.maxWidth, this.scaler, this.rows, this.fontSize);
 }
 
 /// The main code-editor area.
@@ -132,6 +137,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   /// measured at. See `_charAdvance`.
   double? _charAdvanceCache;
   TextScaler? _charAdvanceScaler;
+  double? _charAdvanceFontSize;
 
   bool get _showAutocomplete => _completionItems.isNotEmpty;
   bool get _showHover => _hoverInfo != null;
@@ -153,6 +159,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     _editorScrollController.addListener(_syncGutterScroll);
     widget.fileService.addListener(_onFileServiceChanged);
     widget.debugger?.addListener(_onDebuggerChanged);
+    EditorSettingsService.instance.addListener(_onFontSizeChanged);
     _lastActiveTabIndex = widget.fileService.activeTabIndex;
   }
 
@@ -181,6 +188,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     _controller.removeListener(_onTextChanged);
     widget.fileService.removeListener(_onFileServiceChanged);
     widget.debugger?.removeListener(_onDebuggerChanged);
+    EditorSettingsService.instance.removeListener(_onFontSizeChanged);
     _editorScrollController.dispose();
     _gutterScrollController.dispose();
     _controller.dispose();
@@ -236,6 +244,19 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
 
   void _onDebuggerChanged() {
     if (mounted) setState(() {});
+  }
+
+  void _onFontSizeChanged() {
+    _charAdvanceCache = null;
+    _charAdvanceScaler = null;
+    _gutterRowsCache = null;
+    if (mounted) {
+      setState(() {});
+      // Schedule scroll sync after layout rebuild.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _syncGutterScroll();
+      });
+    }
   }
 
   void _onFileServiceChanged() {
@@ -319,7 +340,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
       final (lineNumber, _) = _offsetToLineColumn(text, offset);
 
       final Offset cursorPosition =
-          editorGlobalPosition + Offset(8, 8 + lineNumber * editorLineHeight);
+          editorGlobalPosition + Offset(8, 8 + lineNumber * _metrics.lineHeight);
 
       return cursorPosition + const Offset(0, 24);
     } catch (_) {
@@ -613,7 +634,10 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   /// Text metrics shared with the editor. Wrapping must be measured with the
   /// exact style the field renders with — including its letter spacing — or
   /// the gutter predicts the wrong number of wrapped rows.
-  TextStyle get _editorTextStyle => editorTextStyle;
+  EditorMetrics get _metrics =>
+      EditorMetrics.forFontSize(EditorSettingsService.instance.fontSize);
+
+  TextStyle get _editorTextStyle => _metrics.textStyle;
 
   /// Width the editor gives one character, measured with the exact style the
   /// code is rendered in (see [editorTextStyle]) instead of guessed.
@@ -629,19 +653,22 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
   /// Measuring keeps the gate exact even if the font, size or letter spacing
   /// change, because it uses the same style the editor does.
   double _charAdvance(TextScaler scaler) {
-    if (_charAdvanceCache != null && _charAdvanceScaler == scaler) {
+    if (_charAdvanceCache != null &&
+        _charAdvanceScaler == scaler &&
+        _charAdvanceFontSize == _metrics.fontSize) {
       return _charAdvanceCache!;
     }
     final painter = TextPainter(
       textDirection: TextDirection.ltr,
       textScaler: scaler,
     );
-    painter.text = const TextSpan(text: '0000000000', style: editorTextStyle);
+    painter.text = TextSpan(text: '0000000000', style: _metrics.textStyle);
     painter.layout();
     final advance = painter.width / 10;
     painter.dispose();
     _charAdvanceCache = advance;
     _charAdvanceScaler = scaler;
+    _charAdvanceFontSize = _metrics.fontSize;
     return advance;
   }
 
@@ -656,7 +683,8 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     if (cached != null &&
         cached.text == text &&
         cached.maxWidth == maxWidth &&
-        cached.scaler == scaler) {
+        cached.scaler == scaler &&
+        cached.fontSize == _metrics.fontSize) {
       return cached.rows;
     }
 
@@ -695,7 +723,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     }
     painter?.dispose();
 
-    _gutterRowsCache = _GutterRowsCache(text, maxWidth, scaler, rows);
+    _gutterRowsCache = _GutterRowsCache(text, maxWidth, scaler, rows, _metrics.fontSize);
     return rows;
   }
 
@@ -753,8 +781,9 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
                       builder: (context, constraints) {
                         // Measure how the editor really wraps at this width so
                         // every visual row gets a gutter row of its own.
+                        final metrics = _metrics;
                         final editorWidth =
-                            (constraints.maxWidth - gutterWidth - gutterGap)
+                            (constraints.maxWidth - metrics.gutterWidth - gutterGap)
                                 .clamp(1.0, double.infinity);
                         final gutterRows = _gutterRows(
                           _controller.text,
@@ -767,7 +796,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
                           children: [
                             // Gutter for breakpoints & line numbers
                             Container(
-                              width: gutterWidth,
+                              width: metrics.gutterWidth,
                               color: ThemeService
                                   .instance
                                   .colors
@@ -775,14 +804,14 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
                               child: ListView.builder(
                                 controller: _gutterScrollController,
                                 itemCount: gutterRows.length,
-                                itemExtent: editorLineHeight,
+                                itemExtent: _metrics.lineHeight,
                                 itemBuilder: (context, index) {
                                   final lineNumber = gutterRows[index];
                                   if (lineNumber == 0) {
                                     // Continuation row of a wrapped line: keep the
                                     // height so everything below stays aligned.
-                                    return const SizedBox(
-                                      height: editorLineHeight,
+                                    return SizedBox(
+                                      height: _metrics.lineHeight,
                                     );
                                   }
                                   final hasBp = _hasBreakpoint(lineNumber);
@@ -795,11 +824,11 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
                                       debugger.currentPausedLine ==
                                           lineNumber &&
                                       debugger.state != DebugState.inactive;
-                                  return GestureDetector(
-                                    onTap: () => _toggleBreakpoint(lineNumber),
-                                    behavior: HitTestBehavior.opaque,
-                                    child: Container(
-                                      height: editorLineHeight,
+                                    return GestureDetector(
+                                      onTap: () => _toggleBreakpoint(lineNumber),
+                                      behavior: HitTestBehavior.opaque,
+                                      child: Container(
+                                        height: _metrics.lineHeight,
                                       color: isPausedLine
                                           ? ThemeService
                                                 .instance
@@ -819,7 +848,7 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
                                             MainAxisAlignment.spaceBetween,
                                         children: [
                                           SizedBox(
-                                            width: 22,
+                                            width: _metrics.markerSlotWidth,
                                             child: Center(
                                               child: !isPausedLine && !hasBp
                                                   ? null
@@ -837,27 +866,27 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
                                                           // hides the fact that it
                                                           // is a breakpoint.
                                                           if (isPausedLine)
-                                                            Text(
-                                                              '▶',
-                                                              style: TextStyle(
-                                                                color: ThemeService
-                                                                    .instance
-                                                                    .colors
-                                                                    .selection,
-                                                                fontSize: 12,
-                                                              ),
+                                                             Text(
+                                                               '▶',
+                                                               style: TextStyle(
+                                                                 color: ThemeService
+                                                                     .instance
+                                                                     .colors
+                                                                     .selection,
+                                                                 fontSize: _metrics.markerFontSize,
+                                                               ),
                                                             ),
                                                           if (hasBp)
-                                                            Text(
-                                                              '●',
-                                                              style: TextStyle(
-                                                                color:
-                                                                    ThemeService
-                                                                        .instance
-                                                                        .colors
-                                                                        .error,
-                                                                fontSize: 12,
-                                                              ),
+                                                             Text(
+                                                               '●',
+                                                               style: TextStyle(
+                                                                 color:
+                                                                     ThemeService
+                                                                         .instance
+                                                                         .colors
+                                                                         .error,
+                                                                 fontSize: _metrics.markerFontSize,
+                                                               ),
                                                             ),
                                                         ],
                                                       ),
@@ -873,10 +902,10 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
                                             // construction. A bare `height`
                                             // only resizes the box and left the
                                             // digits ~1.8px above the code.
-                                            strutStyle: editorStrutStyle,
+                                            strutStyle: _metrics.strutStyle,
                                             style: TextStyle(
                                               fontFamily: 'Menlo',
-                                              fontSize: lineNumberFontSize,
+                                              fontSize: _metrics.lineNumberFontSize,
                                               color: ThemeService
                                                   .instance
                                                   .colors
@@ -942,8 +971,8 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
                                           // logical pixel, so the strut keeps
                                           // the render and the gutter on the
                                           // same grid.
-                                          strutStyle: editorStrutStyle,
-                                          style: editorTextStyle.copyWith(
+                                          strutStyle: _metrics.strutStyle,
+                                          style: _metrics.textStyle.copyWith(
                                             color: ThemeService
                                                 .instance
                                                 .colors

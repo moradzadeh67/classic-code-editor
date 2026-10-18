@@ -11,6 +11,8 @@ import '../../services/analyzer_service.dart';
 import '../../services/lsp_service.dart';
 import '../../services/terminal_service.dart';
 import '../../services/debugger_manager.dart';
+import '../../utils/app_shortcuts.dart';
+import '../../services/editor_settings_service.dart';
 import 'retro_menu_bar.dart';
 import 'retro_toolbar.dart';
 import 'retro_status_bar.dart';
@@ -177,6 +179,24 @@ class _IDEShellState extends State<IDEShell> {
           else if (event.logicalKey == LogicalKeyboardKey.keyZ &&
               isControlOrMeta) {
             _handleUndo();
+          }
+          // 6. Editor zoom (Cmd + / Cmd - / Cmd 0)
+          else if (isControlOrMeta) {
+            final zoom = zoomActionFor(event.logicalKey,
+                commandOrControl: isControlOrMeta);
+            if (zoom != null) {
+              switch (zoom) {
+                case EditorZoomAction.increase:
+                  EditorSettingsService.instance.increase();
+                  break;
+                case EditorZoomAction.decrease:
+                  EditorSettingsService.instance.decrease();
+                  break;
+                case EditorZoomAction.reset:
+                  EditorSettingsService.instance.reset();
+                  break;
+              }
+            }
           }
           // 5. Redo (Ctrl+Y / Cmd+Y)
           else if (event.logicalKey == LogicalKeyboardKey.keyY &&

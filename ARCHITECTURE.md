@@ -182,6 +182,11 @@ output and a session is never silent.
 | CDebugger | 15 | ✅ | C/C++ debugging via `clang` + `lldb` |
 | DebuggerFactory | 15 | ✅ | Language → debugger dispatch |
 | DebuggerManager | 15 | ✅ | Active debugger follows the active tab |
+| EditorSettingsService | 18 | ✅ | Font-size persistence + ChangeNotifier |
+| EditorMetrics | 18 | ✅ | Font-size driven line-height / gutter metrics |
+
+### Editor zoom data flow
+`EditorSettingsService.instance.fontSize` -> `EditorMetrics.forFontSize()` -> `metrics.textStyle/strutStyle/gutterWidth/lineHeight/markerFontSize/lineNumberFontSize`. `CodeEditorPanel` subscribes to the service, rebuilds with new metrics, invalidates `_charAdvance` and `_gutterRows` caches keyed by `metrics.fontSize`, and schedules `_syncGutterScroll()` post-frame.
 
 ## Retro Design Tokens
 

@@ -6,6 +6,7 @@ import '../../services/dart_runner_service.dart';
 import '../../services/file_service.dart';
 import '../../services/analyzer_service.dart';
 import '../../services/theme_service.dart';
+import '../../services/editor_settings_service.dart';
 import '../retro/retro_colors.dart';
 import '../retro/retro_border.dart';
 import '../retro/retro_about_dialog.dart';
@@ -245,6 +246,43 @@ class RetroMenuBar extends StatelessWidget {
                 ),
               ),
               const PopupMenuDivider(),
+              PopupMenuItem(
+                value: 'font_increase',
+                child: Text(
+                  'Increase Font Size  (Cmd +)',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    fontFamily: 'Arial',
+                    height: 1.2,
+                  ),
+                ),
+              ),
+              PopupMenuItem(
+                value: 'font_decrease',
+                child: Text(
+                  'Decrease Font Size  (Cmd -)',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    fontFamily: 'Arial',
+                    height: 1.2,
+                  ),
+                ),
+              ),
+              PopupMenuItem(
+                value: 'font_reset',
+                child: Text(
+                  'Reset Font Size  (Cmd 0)',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    fontFamily: 'Arial',
+                    height: 1.2,
+                  ),
+                ),
+              ),
+              const PopupMenuDivider(),
               const PopupMenuItem(
                 value: 'theme_vc6',
                 child: Text(
@@ -289,6 +327,12 @@ class RetroMenuBar extends StatelessWidget {
                 onToggleConsole?.call();
               } else if (value == 'toggle_diagnostics') {
                 onToggleDiagnostics?.call();
+              } else if (value == 'font_increase') {
+                EditorSettingsService.instance.increase();
+              } else if (value == 'font_decrease') {
+                EditorSettingsService.instance.decrease();
+              } else if (value == 'font_reset') {
+                EditorSettingsService.instance.reset();
               } else if (value == 'theme_vc6') {
                 ThemeService.instance.switchTheme(ThemeType.vc6);
               } else if (value == 'theme_delphi') {

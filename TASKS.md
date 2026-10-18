@@ -294,3 +294,48 @@
 - Updated `ARCHITECTURE.md`, `CHANGELOG.md`, and `TASKS.md`.
 - Verified: `flutter analyze` clean (0 issues) and full test suite passing (151 tests).
 
+
+### TASK-023: EditorSettingsService
+**Phase:** 18
+**Status:** ✅ DONE
+**Completed:** ChangeNotifier singleton with clamp/load/save JSON.
+
+### TASK-024: EditorMetrics
+**Phase:** 18
+**Status:** ✅ DONE
+**Completed:** Pure value class with formulas for line height, gutter, markers.
+
+### TASK-025: Editor Panel Dynamic
+**Phase:** 18
+**Status:** ✅ DONE
+**Completed:** Dynamic metrics + cache invalidation + listener in panel.
+
+### TASK-026: Gutter Alignment Tests Across Sizes
+**Phase:** 18
+**Status:** ✅ DONE
+**Completed:** Parametrized tests over {8, 13, 20, 32} with zoom change test.
+
+### TASK-027: Editor Zoom Interaction Tests
+**Phase:** 18
+**Status:** ✅ DONE
+**Completed:** Breakpoint and arrow tests at sizes 8/13/32; zoom-while-paused.
+
+### TASK-028: Zoom Shortcuts
+**Phase:** 18
+**Status:** ✅ DONE
+**Completed:** App shortcuts + keyboard listener branch + helper tests.
+
+### TASK-029: View Menu Items
+**Phase:** 18
+**Status:** ✅ DONE
+**Completed:** Three font-size PopupMenuItems in View menu.
+
+### TASK-030: About Dialog Shortcuts Tab
+**Phase:** 18
+**Status:** ✅ DONE
+**Completed:** Added zoom shortcuts rows; test updated.
+
+### TASK-031: Docs, Version, Release Gate
+**Phase:** 18
+**Status:** ✅ DONE
+**Completed:** README/CHANGELOG/ARCHITECTURE.md/AGENTS.md/TASKS.md updated; version 1.2.0+4; gate 01-04 PASS.

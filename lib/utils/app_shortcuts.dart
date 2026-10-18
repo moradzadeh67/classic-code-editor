@@ -1,6 +1,27 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+/// Actions triggered by keyboard zoom shortcuts.
+enum EditorZoomAction { increase, decrease, reset }
+
+/// Maps a key press (with optional command/control modifier) to a zoom action.
+EditorZoomAction? zoomActionFor(LogicalKeyboardKey key, {required bool commandOrControl}) {
+  // Ignore Shift, because Cmd + on a US Mac is Cmd+Shift+=.
+  if (!commandOrControl) return null;
+  if (key == LogicalKeyboardKey.equal ||
+      key == LogicalKeyboardKey.numpadAdd) {
+    return EditorZoomAction.increase;
+  }
+  if (key == LogicalKeyboardKey.minus ||
+      key == LogicalKeyboardKey.numpadSubtract) {
+    return EditorZoomAction.decrease;
+  }
+  if (key == LogicalKeyboardKey.digit0 || key == LogicalKeyboardKey.numpad0) {
+    return EditorZoomAction.reset;
+  }
+  return null;
+}
+
 // 1. Define Intents (What the user wants to do)
 class SaveIntent extends Intent {
   const SaveIntent();

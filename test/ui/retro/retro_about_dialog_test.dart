@@ -36,6 +36,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('⌨️ Keyboard Shortcuts'), findsOneWidget);
     expect(find.text('Run Active Code File'), findsOneWidget);
+    expect(find.text('Editor Font Size (Increase / Decrease / Reset)'), findsOneWidget);
 
     // Switch to System tab
     await tester.tap(find.text('System Info'));
