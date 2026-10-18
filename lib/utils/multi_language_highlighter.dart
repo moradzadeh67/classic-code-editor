@@ -12,14 +12,14 @@ void registerHighlightLanguages() {
 }
 
 class MultiLanguageHighlighter {
-  static const Color keywordColor = Color(0xFFF803FC);
+  static const Color keywordColor = Color(0xFFC842F5);
   static const Color preprocessorColor = Color(0xFF7B1FA2);
   static const Color typeColor = Color(0xFF00796B);
   static const Color stringColor = Color(0xFFC62828);
   static const Color methodColor = Color(0xFF0D47A1);
   static const Color numberColor = Color(0xFFE65100);
-  static const Color commentColor = Color(0xFF558B2F);
-  static const Color operatorColor = Color(0xFF0B6E00);
+  static const Color commentColor = Color(0xFF596E48);
+  static const Color operatorColor = Color(0xFF00BF69);
   static const Color bracketColor = Color(0xFF031CFC);
   static const Color variableColor = Color(0xFF1A237E);
 
@@ -106,7 +106,7 @@ class MultiLanguageHighlighter {
       relevance: 0,
     );
     final operators = Mode(
-      begin: r'[!@#\$%^&*+=\-~<>/|?:;.,]',
+      begin: r'[!@#\$%^&*+=\-~<>/|?:;.,\\`]',
       className: 'operator',
       relevance: 0,
     );

@@ -276,10 +276,10 @@ loads `MultiLanguageHighlighter.getThemeStyles()`
 (`lib/utils/multi_language_highlighter.dart`) through `CodeThemeData`. Key
 slots of that palette:
 
-- Keywords: `#F803FC` (bold) · Strings: `#C62828` · Comments: `#558B2F` (italic)
+- Keywords: `#C842F5` (bold) · Strings: `#C62828` · Comments: `#596E48` (italic)
 - Numbers: `#E65100` · Types / built-ins: `#00796B` · Functions: `#0D47A1`
-- **Operators** (`! @ # $ % ^ & * + = - ~ < > / | ? : ; , .` and `=>`):
-  **`#0B6E00`** (dark green, bold)
+- **Operators** (`! @ # $ % ^ & * + = - ~ < > / | ? : ; , . \ ` and `=>`):
+  **`#00BF69`** (emerald green, bold)
 - **Brackets** (`( ) { } [ ]`, tokenized as `punctuation`): **`#031CFC`**
   (blue, bold)
 

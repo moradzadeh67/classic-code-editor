@@ -279,3 +279,18 @@
 - Expanded test suite in `gutter_alignment_test.dart` to verify line number alignment across window widths (420px to 1600px) and target platforms (macOS/Android).
 - Verified: `flutter analyze` reports 0 issues, all 151 tests passing.
 
+---
+
+### TASK-020 & TASK-021 & TASK-022: Syntax Color Palette Refinement
+**Phase:** post-17 polish
+**Status:** ✅ DONE
+**Completed:**
+- Inspected and updated the multi-language editor syntax palette in `MultiLanguageHighlighter`:
+  - Keywords: `#C842F5` (purple/magenta, bold)
+  - Operators: `#00BF69` (emerald green, bold), matching `! @ # $ % ^ & * + = - ~ < > / | ? : ; , . \ ` and `=>`
+  - Comments: `#596E48` (muted green, italic)
+- Added `\` and `` ` `` to `patchSymbolModes()` while keeping identifier underscores (`_controller`, `my_var`), strings, comments, numbers, and `#include` preprocessor directives cleanly tokenized in their respective classes.
+- Added real-parse assertions for Dart, Python, C, and C++ verifying operator, comment, meta, and string tokenization.
+- Updated `ARCHITECTURE.md`, `CHANGELOG.md`, and `TASKS.md`.
+- Verified: `flutter analyze` clean (0 issues) and full test suite passing (151 tests).
+

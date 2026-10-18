@@ -20,6 +20,7 @@ All notable changes to Classic Code Editor are documented here. The format follo
 - Demo GIF in the README, captured from the running macOS app.
 
 ### Changed
+- Refined editor syntax palette across all themes and languages: keywords updated to `#C842F5` (bold), operators to `#00BF69` (bold), and comments to `#596E48` (italic). Added backslash (`\`) and backtick (`` ` ``) to operator symbol patching.
 - README restructured: "What is Classic Code Editor?", Demo, Key Dependencies, Privacy & Security,
   Build & Release, CI/CD, Known Limitations, FAQ and Requirements; badges upgraded and a CI badge added.
 - Leftover template bundle id for the test target fixed
