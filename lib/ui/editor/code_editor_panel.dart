@@ -75,16 +75,6 @@ const double gutterGap = 4.0;
 /// Font size of the gutter's line numbers.
 const double lineNumberFontSize = 11.0;
 
-/// Line-height multiplier that gives a line number the same *row height* as a
-/// line of code.
-///
-/// This is what keeps the digits on the code's baseline. A baseline is placed
-/// from the line box, not from the glyph size, so a smaller font with a
-/// matching box height lands on exactly the same baseline as the taller code
-/// beside it. Left at the font's default, an 11px number sat in a 13px box
-/// inside the 19px row and floated 1.7px above the code it labelled.
-const double lineNumberLineHeightFactor = editorLineHeight / lineNumberFontSize;
-
 /// Memoised wrap measurement for the gutter (see `_gutterRows`).
 class _GutterRowsCache {
   final String text;
@@ -876,18 +866,17 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
                                           ),
                                           Text(
                                             '$lineNumber',
+                                            // The very same strut the code uses:
+                                            // it fixes the row height AND the
+                                            // baseline position, so the digit
+                                            // sits on the code's baseline by
+                                            // construction. A bare `height`
+                                            // only resizes the box and left the
+                                            // digits ~1.8px above the code.
+                                            strutStyle: editorStrutStyle,
                                             style: TextStyle(
                                               fontFamily: 'Menlo',
                                               fontSize: lineNumberFontSize,
-                                              // Same row height as the code, so
-                                              // the digit sits on the code's
-                                              // baseline instead of floating
-                                              // above it (see
-                                              // [lineNumberLineHeightFactor]).
-                                              height:
-                                                  lineNumberLineHeightFactor,
-                                              leadingDistribution:
-                                                  TextLeadingDistribution.even,
                                               color: ThemeService
                                                   .instance
                                                   .colors

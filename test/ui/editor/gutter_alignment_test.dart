@@ -6,6 +6,7 @@ import 'package:classic_code_editor/services/lsp_service.dart';
 import 'package:classic_code_editor/ui/editor/code_editor_panel.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -204,6 +205,51 @@ void main() {
 
     painter.dispose();
   });
+
+  /// Boxes can match while the *glyphs* do not: a baseline is placed from the
+  /// line box and the strut, not from the box height. This measures the real
+  /// baseline of line 1's digit and of line 1's code, in screen space.
+  for (final platform in <TargetPlatform>[
+    TargetPlatform.macOS,
+    TargetPlatform.android,
+  ]) {
+    testWidgets('line number glyphs sit on the code baseline on $platform', (
+      tester,
+    ) async {
+      debugDefaultTargetPlatformOverride = platform;
+      try {
+        await _pumpSized(tester, 900);
+
+        final renderEditable = tester
+            .state<EditableTextState>(find.byType(EditableText))
+            .renderEditable;
+        final codeBaseline =
+            renderEditable.localToGlobal(Offset.zero).dy +
+            renderEditable.computeDistanceToActualBaseline(
+              TextBaseline.alphabetic,
+            );
+
+        final numberParagraph = tester.renderObject<RenderParagraph>(
+          find.text('1'),
+        );
+        final numberBaseline =
+            numberParagraph.localToGlobal(Offset.zero).dy +
+            numberParagraph.computeDistanceToActualBaseline(
+              TextBaseline.alphabetic,
+            );
+
+        expect(
+          numberBaseline,
+          closeTo(codeBaseline, 0.5),
+          reason:
+              'the digit baseline is ${numberBaseline.toStringAsFixed(2)} but '
+              'the code baseline is ${codeBaseline.toStringAsFixed(2)}.',
+        );
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    });
+  }
 
   /// The gutter once *guessed* the character advance as `fontSize * 0.62`
   /// (8.06px) while the editor really paints 8.33px, so a line that just
