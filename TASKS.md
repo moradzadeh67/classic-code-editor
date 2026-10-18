@@ -265,3 +265,17 @@
   (no new packages; strings/comments/numbers/`#include` keep their colors).
 - Verified: `flutter analyze` clean and `flutter test` green (109 tests,
   including a real-parse test that asserts the colored token classes).
+
+---
+
+### TASK-019: Gutter Line Number Alignment Fix
+**Phase:** post-17 polish
+**Status:** ✅ DONE
+**Completed:**
+- Resolved line number drift in code editor gutter on long files, wrapped lines, and narrow window widths:
+  - Accounted for `letterSpacing: 0.5` in character advance calculations.
+  - Replaced rough `fontSize * 0.62` estimate in `_gutterRows` with exact measured `_charAdvance`.
+  - Applied `editorStrutStyle` to line numbers so digits share the code's exact baseline and row height (19.0px).
+- Expanded test suite in `gutter_alignment_test.dart` to verify line number alignment across window widths (420px to 1600px) and target platforms (macOS/Android).
+- Verified: `flutter analyze` reports 0 issues, all 151 tests passing.
+

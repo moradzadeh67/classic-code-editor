@@ -6,6 +6,13 @@ All notable changes to Classic Code Editor are documented here. The format follo
 
 ## [1.1.0] — 2026-10-14
 
+### Fixed
+- Fixed code editor gutter line numbers drifting out of alignment with rendered code lines on wrapped lines, long files, and narrow window widths:
+  - Accounted for `letterSpacing: 0.5` inherited from Material `bodyLarge` / `titleMedium` in character advance measurements.
+  - Replaced the `fontSize * 0.62` character-width estimate in `_gutterRows` with exact, style-measured character advances (`_charAdvance`).
+  - Applied `editorStrutStyle` to gutter line numbers so digits sit precisely on the code's baseline across desktop and mobile typography.
+  - Added a comprehensive multi-width (420px–1600px) and multi-platform (macOS/Android) regression test suite verifying line number positioning against actual editor caret positions.
+
 ### Added
 - `docs/RELEASE.md`, `docs/PRIVACY.md`, `SECURITY.md` and this changelog.
 - CI workflow (`ci.yml`): `flutter analyze` + `flutter test` on every push and PR to `main`.

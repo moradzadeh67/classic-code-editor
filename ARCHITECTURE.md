@@ -296,8 +296,8 @@ slots of that palette:
 - UI font family: Arial
 - Font UI size: 12.0 (buttons/menus/labels), 11.0 (status bar)
 - Font code size: 13.0–14.0 (Menlo)
-- Editor line height: `editorFontSize` 13.0 × `editorLineHeightFactor` 1.45 = **18.85**
-  (shared by the editor text and the breakpoint gutter so rows never drift)
+- Editor line height: `editorFontSize` 13.0 × `editorLineHeightFactor` (19/13 = ~1.46) = **19.0px**
+  (shared by the editor text, strut style, and line number gutter so rows and baselines never drift)
 - Button height: 22.0 (fixed) — 1px gap above/below inside the toolbar
 - Bar heights (px): menu bar 24, toolbar 28, status bar 24
 - Paused-line highlight: `ThemeService.colors.pausedLine` (#FFF0A0 VC6 /
