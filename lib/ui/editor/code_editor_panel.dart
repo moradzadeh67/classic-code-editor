@@ -18,18 +18,28 @@ import 'hover_tooltip.dart';
 
 /// Font size of the code editor's text.
 ///
-/// Shared with the gutter so its rows line up exactly with the code. The gutter
-/// used to hardcode a row height of `19.0` while the editor renders
-/// `13 * 1.45 = 18.85` per line, which drifts about 0.15px per line (roughly
-/// 45px over a 300-line file) and makes the breakpoint bullets and the
-/// paused-line marker land on the wrong row.
+/// Shared with the gutter so its rows line up exactly with the code.
 const double editorFontSize = 13.0;
 
-/// Line-height multiplier applied to [editorFontSize].
-const double editorLineHeightFactor = 1.45;
+/// Height of one rendered line of code, in logical pixels.
+///
+/// Flutter rounds a paragraph's line height to the nearest **whole** logical
+/// pixel, so a nominal `13 * 1.45 = 18.85` actually paints as `19`. Driving the
+/// gutter with the nominal `18.85` made every gutter row 0.15px shorter than
+/// the code line beside it. That error accumulates — roughly 1.4px by line 10
+/// and 4.5px by line 30 — so on longer files the numbers visibly detached from
+/// their lines.
+///
+/// This must stay equal to what the editor really renders. If [editorFontSize]
+/// changes, re-check that `(editorFontSize * editorLineHeightFactor).round()`
+/// still equals this value.
+const double editorLineHeight = 19.0;
 
-/// Height of a single line of code, in logical pixels.
-const double editorLineHeight = editorFontSize * editorLineHeightFactor;
+/// Line-height multiplier passed to `TextStyle.height` / `StrutStyle.height`.
+///
+/// Derived from [editorLineHeight] so the multiplier and the gutter's row
+/// height can never disagree.
+const double editorLineHeightFactor = editorLineHeight / editorFontSize;
 
 /// Gutter width and the gap between the gutter and the editor surface.
 const double gutterWidth = 52.0;
@@ -849,12 +859,12 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
                                           maxLines: null,
                                           expands: true,
                                           // Pin every line to exactly
-                                          // [editorLineHeight]. Without a forced
-                                          // strut the paragraph renders slightly
-                                          // taller per line than the gutter, which
-                                          // accumulates into a visible drift on
-                                          // long files (measured: 19.0 vs 18.857).
-                                          strutStyle: StrutStyle(
+                                          // [editorLineHeight]. Flutter rounds
+                                          // the paragraph's line height to a
+                                          // whole logical pixel, so the strut
+                                          // keeps the render and the gutter on
+                                          // the same grid.
+                                          strutStyle: const StrutStyle(
                                             fontFamily: 'Menlo',
                                             fontSize: editorFontSize,
                                             height: editorLineHeightFactor,

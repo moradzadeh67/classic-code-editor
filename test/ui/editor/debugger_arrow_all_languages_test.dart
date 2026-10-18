@@ -228,9 +228,10 @@ void main() {
       await tester.pump();
       final twelfthY = tester.getCenter(find.text('▶')).dy;
 
-      // Regression guard: the gutter used to hardcode a 19.0 row height while
-      // the editor renders 13 * 1.45 = 18.85 per line, so the marker drifted
-      // ~0.15px per line and ended up on the wrong row in longer files.
+      // Regression guard: the gutter used to drive its row height from the
+      // nominal `13 * 1.45 = 18.85` while Flutter rounds a rendered line to
+      // 19.0. The 0.15px error compounded per line, so the marker slid off its
+      // row on longer files.
       expect(twelfthY - firstY, closeTo(10 * editorLineHeight, 0.5));
       expect(tester.takeException(), isNull);
     });
