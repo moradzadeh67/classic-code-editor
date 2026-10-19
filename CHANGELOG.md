@@ -6,6 +6,10 @@ All notable changes to Classic Code Editor are documented here. The format follo
 
 ## [Unreleased]
 
+### Added
+- Turbo Pascal + ARM64 Assembly screenshots (`assets/screenshots/tp-editor|tp-debugger|tp-terminal.png`)
+  in the README gallery, and refreshed architecture diagrams (SVG sources + PNG exports).
+
 ### Known issues (to fix in 1.3.1)
 - **Assembly debugging has no source-line mapping.** Apple's toolchain cannot emit a DWARF line table for a
   hand-written `.s` file (verified: `clang -g/-gdwarf-2/-gdwarf-4/-gline-tables-only/-Wa,-g`,

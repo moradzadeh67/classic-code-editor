@@ -90,6 +90,15 @@ Switching between the authentic themes — the same IDE shell, restyled to each 
 |:---:|:---:|:---:|
 | <img src="assets/screenshots/vb6-editor.png" width="280" /> | <img src="assets/screenshots/vb6-debugger.png" width="280" /> | <img src="assets/screenshots/vb6-terminal.png" width="280" /> |
 
+### Turbo Pascal 7.0 (ARM64 Assembly)
+
+DOS-blue desktop with Turbo Vision gray-cyan chrome and a cyan line-number column — here driving the
+ARM64 Assembly support: highlighting, Run, and the LLDB debugger with its register window.
+
+| Editor | Debugger | Terminal |
+|:---:|:---:|:---:|
+| <img src="assets/screenshots/tp-editor.png" width="280" /> | <img src="assets/screenshots/tp-debugger.png" width="280" /> | <img src="assets/screenshots/tp-terminal.png" width="280" /> |
+
 ## ✨ Features
 
 ### 🎨 Authentic Retro UI
