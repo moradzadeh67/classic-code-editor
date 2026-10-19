@@ -57,6 +57,12 @@ class FileService extends ChangeNotifier {
   /// Reuses an existing tab when the file is already open, otherwise appends
   /// a new one and makes it active. Exposed separately from [openFile] so it
   /// can be driven from tests without invoking the platform file picker.
+  /// Re-opens a file that was open in the previous session (no picker, no
+  /// dialog), reusing its tab when it is already open.
+  void restoreFile(String filePath, String content) {
+    openFilePath(filePath, content);
+  }
+
   @visibleForTesting
   void openFilePath(String filePath, String content) {
     final name = filePath.split('/').last;
@@ -105,7 +111,11 @@ class FileService extends ChangeNotifier {
 
     try {
       if (config.extension == '.dart') {
-        final process = await Process.start(Platform.resolvedExecutable, [
+        // `dart` from PATH, NOT Platform.resolvedExecutable: inside a packaged
+        // macOS app the latter is the app binary itself, so saving a .dart file
+        // launched a second copy of the IDE (the empty black window) and the
+        // formatted text came from a process that had never formatted anything.
+        final process = await Process.start('dart', [
           'format',
           '--output=show',
         ]);
@@ -153,12 +163,12 @@ class FileService extends ChangeNotifier {
     await saveFile(fileContent);
   }
 
-  Future<void> saveFile(String content) async {
+  /// Saves the active tab. Returns false when the user cancelled the Save As
+  /// dialog or the write failed, so callers can treat it as "not saved".
+  Future<bool> saveFile(String content) async {
     final tab = activeTab;
-    if (tab == null || tab.filePath == null) {
-      await saveFileAs(content);
-      return;
-    }
+    if (tab == null) return false;
+    if (tab.filePath == null) return saveFileAs(content);
 
     try {
       final formattedContent = await _formatCode(content, tab.filePath);
@@ -172,22 +182,62 @@ class FileService extends ChangeNotifier {
         content: formattedContent,
       );
       notifyListeners();
+      return true;
     } catch (e) {
       debugPrint('Error saving file: $e');
+      return false;
     }
   }
 
-  Future<void> saveFileAs(String content) async {
+  /// Saves tab [index] to its own path without changing the active tab.
+  ///
+  /// Untitled tabs fall back to Save As (which needs the native dialog and
+  /// therefore acts on the active tab). Used by the unsaved-changes guard.
+  Future<bool> saveTab(int index) async {
+    if (index < 0 || index >= _openTabs.length) return false;
+    final tab = _openTabs[index];
+    if (tab.filePath == null) {
+      switchTab(index);
+      return saveFileAs(tab.content);
+    }
+
     try {
+      final filePath = tab.filePath!;
+      final formattedContent = await _formatCode(tab.content, filePath);
+      await File(filePath).writeAsString(formattedContent);
+      _openTabs[index] = TabFile(
+        filePath: filePath,
+        fileName: tab.fileName,
+        content: formattedContent,
+      );
+      notifyListeners();
+      return true;
+    } catch (e) {
+      debugPrint('Error saving file: $e');
+      return false;
+    }
+  }
+
+  /// Returns false when the user cancelled the native save dialog.
+  Future<bool> saveFileAs(String content) async {
+    try {
+      // Let the current frame (and any dialog that is closing) finish before the
+      // native panel is shown: opening it mid-frame is what produced the empty
+      // black window on macOS.
+      await Future<void>.delayed(Duration.zero);
+
       // Show the native save dialog FIRST, before spawning any subprocess
       // (e.g. the formatter), so there is no black overlay on macOS.
+      //
+      // FileType.any (no allowedExtensions) on purpose: with a custom filter the
+      // macOS save panel opened its own un-themed window that rendered black.
+      // The suggested file name still carries the right extension.
       String? path = await FilePicker.platform.saveFile(
         dialogTitle: 'Save File As',
         fileName: activeTab?.fileName ?? 'main.dart',
-        allowedExtensions: ['dart', 'c', 'cpp', 'py', 's'],
-        type: FileType.custom,
+        type: FileType.any,
       );
-      if (path == null) return;
+      if (path == null) return false;
       // Only format/write once the user has chosen a destination.
       final formattedContent = await _formatCode(content, path);
       final fileName = path.split('/').last;
@@ -210,8 +260,10 @@ class FileService extends ChangeNotifier {
         _activeTabIndex = _openTabs.length - 1;
       }
       notifyListeners();
+      return true;
     } catch (e) {
       debugPrint('Error saving file as: $e');
+      return false;
     }
   }
 

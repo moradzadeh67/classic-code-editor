@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../services/file_service.dart';
+import '../shell/close_guard.dart';
 import '../../services/theme_service.dart';
 
 class TabBarWidget extends StatelessWidget {
@@ -86,7 +87,13 @@ class TabBarWidget extends StatelessWidget {
             ),
             const SizedBox(width: 8),
             GestureDetector(
-              onTap: () => fileService.closeTab(index),
+              // Going through the shared guard means a modified tab asks
+              // "Save changes to …?" instead of dropping silently.
+              onTap: () => TabCloseGuard.confirmClose(
+                context,
+                fileService: fileService,
+                index: index,
+              ),
               child: const SizedBox(
                 height: 12,
                 width: 12,

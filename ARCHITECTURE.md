@@ -26,6 +26,10 @@ Borland Delphi (beige), Visual Basic 6.0, and Turbo Pascal 7.0 (DOS navy).
 - `ide_shell.dart` — the app root: `RetroMenuBar` / `RetroToolbar` /
   `PanelLayout` / `RetroStatusBar`, wrapped in a `ListenableBuilder` on
   `ThemeService.instance` so a theme switch repaints the whole shell.
+- `close_guard.dart` — one helper (`TabCloseGuard.confirmClose` / `confirmExit`) used by the tab's ✕,
+  `Cmd + W`, File > Close Tab and the platform exit request.
+- `retro_menu_item.dart` — shared dropdown chrome: `RetroMenuItem` (22px rows, check gutter, shortcut
+  column, hover *and* keyboard highlight), `RetroMenuSeparator`, `RetroPopupShape`.
 - `retro_menu_bar.dart` — 24px; File / Edit / View / Run / Tools / Help. The
   View menu toggles the explorer/console and switches themes; the Help menu
   opens the About dialog (`About` / `Keyboard Shortcuts` / `System Info` tabs).
@@ -188,6 +192,7 @@ output and a session is never silent.
 | DebuggerFactory | 15/19 | ✅ | Language → debugger dispatch (four engines) |
 | DebuggerManager | 15 | ✅ | Active debugger follows the active tab |
 | EditorSettingsService | 18 | ✅ | Font-size persistence + ChangeNotifier |
+| SessionService | 20 | ✅ | Open tabs + 10-entry MRU in `session.json` |
 | EditorMetrics | 18 | ✅ | Font-size driven line-height / gutter metrics |
 
 ### Editor zoom data flow

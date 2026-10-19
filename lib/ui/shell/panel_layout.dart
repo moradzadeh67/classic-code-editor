@@ -34,6 +34,9 @@ class PanelLayout extends StatefulWidget {
   final BaseDebugger? debugger;
   final CodeController? codeEditorController;
 
+  /// Lets the shell drive the editor ("Go to Line").
+  final GlobalKey<CodeEditorPanelState>? editorKey;
+
   const PanelLayout({
     super.key,
     required this.showFileExplorer,
@@ -46,6 +49,7 @@ class PanelLayout extends StatefulWidget {
     required this.terminalService,
     this.debugger,
     this.codeEditorController,
+    this.editorKey,
   });
 
   @override
@@ -195,6 +199,7 @@ class _PanelLayoutState extends State<PanelLayout> {
                         TabBarWidget(fileService: widget.fileService),
                         Expanded(
                           child: CodeEditorPanel(
+                            key: widget.editorKey,
                             fileService: widget.fileService,
                             lspService: widget.lspService,
                             debugger: widget.debugger,

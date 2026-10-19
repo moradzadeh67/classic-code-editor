@@ -37,7 +37,10 @@ class EditorMetrics {
     final markerSlotW = (22 * fontSize / 13).roundToDouble();
     final markerSlotWidthValue = markerSlotW > 22 ? markerSlotW : 22.0;
     final markerFont = (12 * fontSize / 13).roundToDouble().clamp(10.0, 30.0);
-    final lineNumberFont = (11 * fontSize / 13).roundToDouble().clamp(8.0, 28.0);
+    final lineNumberFont = (11 * fontSize / 13).roundToDouble().clamp(
+      8.0,
+      28.0,
+    );
 
     final text = TextStyle(
       fontFamily: 'Menlo',

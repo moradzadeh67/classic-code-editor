@@ -19,8 +19,11 @@ void main() {
     test('lineHeight is whole number for every integer 8..32', () {
       for (int s = 8; s <= 32; s++) {
         final m = EditorMetrics.forFontSize(s.toDouble());
-        expect(m.lineHeight, equals(m.lineHeight.toInt().toDouble()),
-            reason: 'size $s lineHeight should be whole');
+        expect(
+          m.lineHeight,
+          equals(m.lineHeight.toInt().toDouble()),
+          reason: 'size $s lineHeight should be whole',
+        );
       }
     });
 
@@ -28,8 +31,11 @@ void main() {
       double prev = 0;
       for (int s = 8; s <= 32; s++) {
         final lh = EditorMetrics.forFontSize(s.toDouble()).lineHeight;
-        expect(lh, greaterThanOrEqualTo(prev),
-            reason: 'lineHeight must not decrease at size $s');
+        expect(
+          lh,
+          greaterThanOrEqualTo(prev),
+          reason: 'lineHeight must not decrease at size $s',
+        );
         prev = lh;
       }
     });
@@ -37,24 +43,23 @@ void main() {
     test('fontSize * factor approximates lineHeight within 1e-9', () {
       for (int s = 8; s <= 32; s++) {
         final m = EditorMetrics.forFontSize(s.toDouble());
-        expect((m.fontSize * m.lineHeightFactor - m.lineHeight).abs(),
-            lessThan(1e-9), reason: 'mismatch at size $s');
+        expect(
+          (m.fontSize * m.lineHeightFactor - m.lineHeight).abs(),
+          lessThan(1e-9),
+          reason: 'mismatch at size $s',
+        );
       }
     });
 
     test('lineHeight vectors match expected values', () {
-      final expectations = {
-        8: 12,
-        10: 15,
-        16: 23,
-        20: 29,
-        24: 35,
-        32: 47,
-      };
+      final expectations = {8: 12, 10: 15, 16: 23, 20: 29, 24: 35, 32: 47};
       for (final entry in expectations.entries) {
         final m = EditorMetrics.forFontSize(entry.key.toDouble());
-        expect(m.lineHeight, entry.value,
-            reason: 'lineHeight at size ${entry.key}');
+        expect(
+          m.lineHeight,
+          entry.value,
+          reason: 'lineHeight at size ${entry.key}',
+        );
       }
     });
 
@@ -87,15 +92,18 @@ void main() {
       expect(a == c, isFalse);
     });
 
-    test('textStyle and strutStyle share same family, size, height, spacing', () {
-      final m = EditorMetrics.forFontSize(13);
-      expect(m.textStyle.fontFamily, 'Menlo');
-      expect(m.strutStyle.fontFamily, 'Menlo');
-      expect(m.textStyle.fontSize, 13);
-      expect(m.strutStyle.fontSize, 13);
-      expect(m.textStyle.height, m.strutStyle.height);
-      expect(m.textStyle.letterSpacing, 0.5);
-      expect(m.strutStyle.forceStrutHeight, isTrue);
-    });
+    test(
+      'textStyle and strutStyle share same family, size, height, spacing',
+      () {
+        final m = EditorMetrics.forFontSize(13);
+        expect(m.textStyle.fontFamily, 'Menlo');
+        expect(m.strutStyle.fontFamily, 'Menlo');
+        expect(m.textStyle.fontSize, 13);
+        expect(m.strutStyle.fontSize, 13);
+        expect(m.textStyle.height, m.strutStyle.height);
+        expect(m.textStyle.letterSpacing, 0.5);
+        expect(m.strutStyle.forceStrutHeight, isTrue);
+      },
+    );
   });
 }

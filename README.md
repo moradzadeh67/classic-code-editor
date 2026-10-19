@@ -108,7 +108,8 @@ Switching between the authentic themes — the same IDE shell, restyled to each 
 - **Multi-Language Support:** Dart, Python, C, C++, ARM64 Assembly (`.s`,
   Apple Silicon)
 - **Syntax Highlighting:** Per-language syntax colors, IntelliJ-style —
-  operators dark green (`#0B6E00`), brackets blue (`#031CFC`)
+  keywords purple (`#C842F5`), operators emerald green (`#00BF69`),
+  comments olive (`#596E48`), brackets blue (`#031CFC`)
 - **Language Logos:** Real per-language icons in the panel header — including
   the `ASM` heptagon for ARM64 Assembly (with a vector fallback when an asset is
   missing)
@@ -122,7 +123,12 @@ Switching between the authentic themes — the same IDE shell, restyled to each 
 - **Current-Line Highlight:** the caret's row is tinted full-width with a
   hairline outline, and its line number is emphasised — clicking anywhere on a
   row, including the empty space past the last character, selects that row
-- **Tab Bar:** Multiple files with modified indicators
+- **Tab Bar:** Multiple files with modified indicators; closing a modified tab
+  (or quitting) asks **Save / Don't Save / Cancel**
+- **Session Restore:** the previous tabs and the recent-files list
+  (`File > Open Recent`, 10 entries) come back on launch
+- **Edit Menu:** Select All (`Cmd + A`), Go to Line (`Cmd + L`), Toggle Comment
+  (`Cmd + /`), Duplicate Line (`Cmd + Shift + D`), Open (`Cmd + O`), Close Tab (`Cmd + W`)
 - **Editor Zoom:** `Cmd +` / `Cmd -` / `Cmd 0` changes font size (8..32) with live gutter alignment
 
 ### 🐛 Real Multi-Language Debuggers
@@ -162,11 +168,22 @@ Switching between the authentic themes — the same IDE shell, restyled to each 
 ### ⌨️ Keyboard Shortcuts
 - `F5` — Run code
 - `Cmd+S` — Save & auto-format
+- `Cmd+Shift+S` — Save as
 - `Cmd+N` — New file
+- `Cmd+O` — Open file
+- `Cmd+W` — Close tab (asks Save / Don't Save / Cancel when modified)
 - `Cmd+Z` / `Cmd+Y` — Undo / Redo
+- `Cmd+A` — Select all
+- `Cmd+L` — Go to line
+- `Cmd+/` — Toggle line comment
+- `Cmd+Shift+D` — Duplicate line
+- `Cmd+` / `Cmd-` / `Cmd0` — Editor font size (increase / decrease / reset)
 - `↑` / `↓` — Navigate autocomplete
 - `Enter` — Accept autocomplete
 - `Esc` — Dismiss autocomplete
+
+> `Cmd+Q` is left to macOS: like every Mac app it terminates the app. Modified buffers are protected
+> when closing a *tab*; quitting with unsaved tabs is the user's call.
 
 ## 🛠️ Tech Stack
 
@@ -203,7 +220,7 @@ The suite runs fully offline — no language server, compiler or VM is spawned.
 # Static analysis must report zero issues
 flutter analyze
 
-# Unit + widget tests (204 tests; 1 opt-in integration test is skipped)
+# Unit + widget tests (230 tests; 1 opt-in integration test is skipped)
 flutter test
 
 # Opt-in: really spawn a Dart VM and attach over a real WebSocket
@@ -292,7 +309,8 @@ lib/
 │   ├── debugger_factory.dart        → Language → debugger dispatch
 │   ├── debugger_manager.dart        → Active debugger follows the active tab
 │   ├── debugger_snapshot.dart       → Shared stop-payload decoder
-│   ├── file_service.dart            → Open/Save files
+│   ├── file_service.dart            → Open/Save files, tabs, save guard helpers
+│   ├── session_service.dart         → Open tabs + recent files (session.json)
 │   ├── language_runner_service.dart → Execute Python/C/C++/ARM64
 │   ├── lsp_service.dart             → Language Server Protocol
 │   ├── python_debugger.dart         → Python debugger (sys.settrace tracer)
@@ -305,12 +323,14 @@ lib/
 │   ├── debugger/                    → Variables, call stack, breakpoints panels
 │   ├── editor/                      → Code editor, tabs, autocomplete, hover
 │   ├── explorer/                    → (placeholder - the file explorer lives in shell/panel_layout.dart)
-│   ├── retro/                       → Retro design system (+ about dialog, logos)
-│   ├── shell/                       → IDE shell (menu, toolbar, status)
+│   ├── retro/                       → Retro design system (+ about & confirm dialogs, logos)
+│   ├── shell/                       → IDE shell (menu, toolbar, status, close guard)
 │   └── terminal/                    → Integrated terminal
 │
 └── utils/                           → Helpers, constants
     ├── app_shortcuts.dart
+    ├── line_edit.dart               → Duplicate line (pure)
+    ├── toggle_comment.dart          → Toggle line comment (pure)
     ├── completion_filter.dart
     ├── dart_highlighter.dart
     ├── json_rpc_client.dart

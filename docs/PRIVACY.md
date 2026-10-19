@@ -13,6 +13,8 @@ backend.
 | Language server (LSP) | A local language server is spawned and spoken to over stdio | Your machine only |
 | Terminal panel | Runs shell commands you type, in the working directory you opened | Your machine only |
 | Theme preference | Written to a small JSON file (`.retro_theme_config.json`, in the app's working directory) | Your disk only |
+| Editor font size | `editor_settings.json` in the app's Application Support folder (`path_provider`) | Your disk only, never leaves the machine |
+| Session + recent files | `session.json` in the same Application Support folder: the **paths** of the open files, the active file and up to 10 recent paths. Buffer contents are **not** stored | Your disk only, never leaves the machine |
 
 ## What is **not** collected
 

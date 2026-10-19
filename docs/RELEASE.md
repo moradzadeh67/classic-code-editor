@@ -21,7 +21,7 @@ The release gate lives in `scripts/release_gate/` and runs the whole chain in or
 
 ```bash
 scripts/release_gate/01_analyze.sh      # flutter analyze (must be clean)
-scripts/release_gate/02_test.sh         # flutter test (offline; 204 tests, 1 opt-in skipped)
+scripts/release_gate/02_test.sh         # flutter test (offline; 230 tests, 1 opt-in skipped)
 scripts/release_gate/03_build_macos.sh  # flutter build macos --release
 scripts/release_gate/04_launch_smoke.sh # launches the built app as a smoke test
 scripts/release_gate/05_make_dmg.sh     # packages the .app into a DMG via hdiutil
@@ -39,7 +39,8 @@ scripts/release_gate/05_make_dmg.sh     # packages the .app into a DMG via hdiut
 4. `gh release create vX.Y.Z build/macos/Build/Products/Release/...dmg --target main` with notes that
    state the Gatekeeper step and the runtime requirements (`dart`, `python3`, `clang`, `lldb` on `PATH`).
 5. Optionally attach a `.sha256` of the DMG.
-6. `README.md` and `CHANGELOG.md` updated for the new version.
+6. `README.md` and `CHANGELOG.md` updated for the new version, and `docs/RELEASE_NOTES_<version>.md`
+   written (paste it as the GitHub release body).
 
 ## Outstanding
 

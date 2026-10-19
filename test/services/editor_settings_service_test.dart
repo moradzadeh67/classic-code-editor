@@ -134,22 +134,25 @@ void main() {
       expect(reloadedLow.fontSize, 8);
     });
 
-    test('load/save are no-ops under FLUTTER_TEST without directoryProvider', () async {
-      // When FLUTTER_TEST is set and no directoryProvider is injected,
-      // load/save must not throw and must leave fontSize unchanged.
-      // We simulate by creating the singleton directly (without provider)
-      // and calling load; it should return without error.
-      // Note: if running inside flutter test, the singleton may have been
-      // initialized already; we test the no-op behavior by injecting a
-      // provider and then simulating the guard condition explicitly.
-      // The simpler test: call load on a service with no provider under test.
-      // Because the singleton instance exists, we create forTesting without provider.
-      final noProvider = EditorSettingsService.forTesting(
-        directoryProvider: null,
-      );
-      // Under FLUTTER_TEST (this environment), load should be a no-op.
-      await noProvider.load();
-      expect(noProvider.fontSize, 13);
-    });
+    test(
+      'load/save are no-ops under FLUTTER_TEST without directoryProvider',
+      () async {
+        // When FLUTTER_TEST is set and no directoryProvider is injected,
+        // load/save must not throw and must leave fontSize unchanged.
+        // We simulate by creating the singleton directly (without provider)
+        // and calling load; it should return without error.
+        // Note: if running inside flutter test, the singleton may have been
+        // initialized already; we test the no-op behavior by injecting a
+        // provider and then simulating the guard condition explicitly.
+        // The simpler test: call load on a service with no provider under test.
+        // Because the singleton instance exists, we create forTesting without provider.
+        final noProvider = EditorSettingsService.forTesting(
+          directoryProvider: null,
+        );
+        // Under FLUTTER_TEST (this environment), load should be a no-op.
+        await noProvider.load();
+        expect(noProvider.fontSize, 13);
+      },
+    );
   });
 }

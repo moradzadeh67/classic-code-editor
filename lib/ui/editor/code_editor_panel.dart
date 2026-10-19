@@ -120,10 +120,12 @@ class CodeEditorPanel extends StatefulWidget {
   });
 
   @override
-  State<CodeEditorPanel> createState() => _CodeEditorPanelState();
+  State<CodeEditorPanel> createState() => CodeEditorPanelState();
 }
 
-class _CodeEditorPanelState extends State<CodeEditorPanel> {
+/// Public so the shell can drive the caret/scroll for "Go to Line"
+/// (`GlobalKey<CodeEditorPanelState>`).
+class CodeEditorPanelState extends State<CodeEditorPanel> {
   late final CodeController _controller;
   final FocusNode _focusNode = FocusNode();
   final GlobalKey _editorKey = GlobalKey();
@@ -287,6 +289,43 @@ class _CodeEditorPanelState extends State<CodeEditorPanel> {
     final index = rows.indexOf(line);
     if (index >= 0) return index;
     return rows.isEmpty ? 0 : rows.length - 1;
+  }
+
+  /// Total number of logical lines in the buffer.
+  int get lineCount => '\n'.allMatches(_controller.text).length + 1;
+
+  /// Moves the caret to the start of the 1-based [line], scrolls it into view
+  /// (about one third from the top) and gives focus back to the editor.
+  ///
+  /// The scroll offset is `visualRow * lineHeight` with the *live*
+  /// [EditorMetrics] and the wrap-aware gutter rows, so the gutter (which
+  /// follows the same controller through `_syncGutterScroll`) stays aligned.
+  void goToLine(int line) {
+    final target = line.clamp(1, lineCount);
+    final text = _controller.text;
+
+    var offset = 0;
+    for (var current = 1; current < target; current++) {
+      final next = text.indexOf('\n', offset);
+      if (next < 0) break;
+      offset = next + 1;
+    }
+    _controller.selection = TextSelection.collapsed(offset: offset);
+
+    final cache = _gutterRowsCache;
+    final rows = cache?.rows ?? const <int>[];
+    final row = rows.isEmpty ? target - 1 : _visualRowForLine(rows, target);
+    final lineHeight = _metrics.lineHeight;
+
+    if (_editorScrollController.hasClients) {
+      final position = _editorScrollController.position;
+      final desired = (row * lineHeight - position.viewportDimension / 3).clamp(
+        0.0,
+        position.maxScrollExtent,
+      );
+      _editorScrollController.jumpTo(desired);
+    }
+    _focusNode.requestFocus();
   }
 
   void _onDebuggerChanged() {

@@ -37,18 +37,21 @@ void main() {
 
   group('editor zoom interaction', () {
     for (final size in <int>[8, 13, 32]) {
-      testWidgets('breakpoint toggle on line N at font size $size',
-          (tester) async {
+      testWidgets('breakpoint toggle on line N at font size $size', (
+        tester,
+      ) async {
         EditorSettingsService.instance.setFontSize(size.toDouble());
         final fileService = FileService();
         addTearDown(fileService.dispose);
         fileService.openFilePath('/tmp/zoom.dart', 'final x = 1;\n');
 
         await tester.pumpWidget(
-          _wrap(CodeEditorPanel(
-            fileService: fileService,
-            lspService: _OfflineLspService(),
-          )),
+          _wrap(
+            CodeEditorPanel(
+              fileService: fileService,
+              lspService: _OfflineLspService(),
+            ),
+          ),
         );
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
@@ -59,27 +62,31 @@ void main() {
     }
   });
 
-  testWidgets('font size change while paused keeps arrow on same logical line',
-      (tester) async {
-    EditorSettingsService.instance.setFontSize(13);
-    final fileService = FileService();
-    addTearDown(fileService.dispose);
-    fileService.openFilePath(
-      '/tmp/paused.dart',
-      'void main() {\n  print("hello");\n}\n',
-    );
+  testWidgets(
+    'font size change while paused keeps arrow on same logical line',
+    (tester) async {
+      EditorSettingsService.instance.setFontSize(13);
+      final fileService = FileService();
+      addTearDown(fileService.dispose);
+      fileService.openFilePath(
+        '/tmp/paused.dart',
+        'void main() {\n  print("hello");\n}\n',
+      );
 
-    await tester.pumpWidget(
-      _wrap(CodeEditorPanel(
-        fileService: fileService,
-        lspService: _OfflineLspService(),
-      )),
-    );
-    await tester.pumpAndSettle();
+      await tester.pumpWidget(
+        _wrap(
+          CodeEditorPanel(
+            fileService: fileService,
+            lspService: _OfflineLspService(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
 
-    // Change size after layout; no crash means the arrow alignment survives.
-    EditorSettingsService.instance.setFontSize(24);
-    await tester.pumpAndSettle();
-    expect(tester.takeException(), isNull);
-  });
+      // Change size after layout; no crash means the arrow alignment survives.
+      EditorSettingsService.instance.setFontSize(24);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    },
+  );
 }

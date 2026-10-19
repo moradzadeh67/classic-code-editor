@@ -190,7 +190,7 @@
   `LanguageRunnerService.emitOutput`, the stream `ConsolePanel` listens to.
 - `RetroToolbar`'s Debug now passes the live buffer content, so unsaved and
   untitled files can be debugged.
-- Added the `pausedLine` design token to all three themes.
+- Added the `pausedLine` design token to all three themes that existed then (four now).
 - Verified clean `flutter analyze` (0 issues) and `flutter test` (suite green).
 
 ---
@@ -258,7 +258,7 @@
 **Completed:**
 - Operators/symbols (`! @ # $ % ^ & * + = - ~ < > / | ? : ; , .` and `=>`)
   now render dark green `#0B6E00`; brackets `() { } [ ]` render blue
-  `#031CFC` — in all three themes.
+  `#031CFC` — in all themes (the palette is shared, four themes now).
 - highlight 0.7's Dart/C/C++/Python grammars emit no `operator` /
   `punctuation` classes, so `MultiLanguageHighlighter.patchSymbolModes()`
   appends single-character rules to each grammar before first compile
@@ -387,8 +387,33 @@ other themes); View-menu item and toolbar dropdown; persistence key `turbopascal
 **Completed:** `EditorSettingsService` caches its file and writes synchronously after the first
 resolve, removing the save/load ordering race that made `editor_settings_service_test` flaky.
 
+### TASK-040: Unsaved-Changes Guard
+**Phase:** 20
+**Status:** ✅ DONE
+**Completed:** `retro_confirm_dialog.dart`, `close_guard.dart` (`confirmClose` / `confirmExit`), tab ✕, Cmd+W,
+File > Close Tab, `AppLifecycleListener.onExitRequested` for Cmd+Q and the window close button;
+`FileService.saveTab` + bool results from `saveFile`/`saveFileAs`.
+
+### TASK-041: Edit Menu & Shortcuts
+**Phase:** 20
+**Status:** ✅ DONE
+**Completed:** Select All (Cmd+A), Go to Line (Cmd+L, retro prompt + `CodeEditorPanelState.goToLine`),
+Toggle Comment (Cmd+/), Duplicate Line (Cmd+Shift+D), Cmd+O; `LanguageConfig.commentPrefix`;
+About > Shortcuts updated.
+
+### TASK-042: Session Restore & Recent Files
+**Phase:** 20
+**Status:** ✅ DONE
+**Completed:** `SessionService` (`session.json`, active tab by path, 10-entry MRU), restore on launch,
+persist on open/close/switch, File > numbered MRU + Clear Recent Files.
+
+### TASK-043: Docs & Verification (Phase 20)
+**Phase:** 20
+**Status:** ✅ DONE
+**Completed:** CHANGELOG [Unreleased], TASKS/ARCHITECTURE/AGENTS/PRIVACY/README; analyze clean; 230 tests.
+
 ### TASK-039: Docs, Version, Release Gate
 **Phase:** 19
 **Status:** ✅ DONE
 **Completed:** README/CHANGELOG/ARCHITECTURE/TASKS/PHASE_DETAILS/DEBUGGING/RELEASE/RETRO_DESIGN
-updated; version 1.3.0+5; analyze + 204 tests PASS (1 opt-in skipped).
+updated; version 1.3.0+5; analyze + 204 tests PASS (1 opt-in skipped). Later raised to 230 by Phase 20.

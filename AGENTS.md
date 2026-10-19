@@ -118,6 +118,7 @@ lib/
 │
 ├── services/ ← Business logic, SDK interaction
 │   ├── theme_service.dart           (4 themes + persistence)
+│   ├── session_service.dart         (open tabs + 10-entry MRU, session.json)
 │   ├── file_service.dart            (open/save, multi-tab, format-on-save)
 │   ├── dart_runner_service.dart     (execute Dart code)
 │   ├── language_runner_service.dart (run/compile Dart/Python/C/C++/ARM64 + output stream)
@@ -148,6 +149,8 @@ lib/
     ├── completion_filter.dart
     ├── dart_highlighter.dart
     ├── json_rpc_client.dart
+    ├── line_edit.dart               (pure: duplicate line / selection)
     ├── multi_language_highlighter.dart
+    ├── toggle_comment.dart          (pure: line comments per language)
     └── vm_service_client.dart
 ```

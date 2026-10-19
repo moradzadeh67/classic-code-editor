@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:ui' show AppExitResponse;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -12,7 +14,13 @@ import '../../services/lsp_service.dart';
 import '../../services/terminal_service.dart';
 import '../../services/debugger_manager.dart';
 import '../../utils/app_shortcuts.dart';
+import '../../utils/line_edit.dart';
+import '../../utils/toggle_comment.dart';
 import '../../services/editor_settings_service.dart';
+import '../../services/session_service.dart';
+import '../editor/code_editor_panel.dart';
+import '../editor/go_to_line_dialog.dart';
+import 'close_guard.dart';
 import 'retro_menu_bar.dart';
 import 'retro_toolbar.dart';
 import 'retro_status_bar.dart';
@@ -47,6 +55,16 @@ class _IDEShellState extends State<IDEShell> {
   final FocusNode _shellFocusNode = FocusNode();
   String? _lastAnalyzedPath;
 
+  /// Receives the platform's cancelable exit request (Cmd+Q / window close).
+  late final AppLifecycleListener _appLifecycle;
+
+  /// Lets the shell ask the editor to jump to a line (Cmd+L).
+  final GlobalKey<CodeEditorPanelState> _editorKey =
+      GlobalKey<CodeEditorPanelState>();
+
+  /// Last persisted tab set, so typing never rewrites `session.json`.
+  String? _lastSessionSignature;
+
   /// Path currently registered with the language server, plus the last content
   /// pushed to it, so we only emit `didOpen` / `didChange` when needed.
   String? _lspOpenPath;
@@ -66,10 +84,35 @@ class _IDEShellState extends State<IDEShell> {
     // Start the language server in the background so it is warming up while the
     // user is still opening their first file.
     unawaited(_lspService.startServer());
+    // macOS routes Cmd+Q and the red window button through the engine's
+    // cancelable exit request, so this is the single quit guard.
+    _appLifecycle = AppLifecycleListener(onExitRequested: _handleExitRequested);
+    unawaited(_restoreSession());
+  }
+
+  /// Asks about every modified tab before the app terminates.
+  Future<AppExitResponse> _handleExitRequested() async {
+    if (!mounted) return AppExitResponse.exit;
+    final canQuit = await TabCloseGuard.confirmExit(
+      context,
+      fileService: _fileService,
+    );
+    return canQuit ? AppExitResponse.exit : AppExitResponse.cancel;
+  }
+
+  Future<void> _handleCloseTab() async {
+    final index = _fileService.activeTabIndex;
+    if (index < 0) return;
+    await TabCloseGuard.confirmClose(
+      context,
+      fileService: _fileService,
+      index: index,
+    );
   }
 
   @override
   void dispose() {
+    _appLifecycle.dispose();
     _shellFocusNode.dispose();
     _fileService.removeListener(_onFileServiceChanged);
     _lspService.dispose();
@@ -111,6 +154,9 @@ class _IDEShellState extends State<IDEShell> {
       _lastAnalyzedPath = path;
       _analyzerService.analyzeFile(path);
     }
+
+    // Persist the tab set (open / close / switch) and the MRU list.
+    _persistSession();
   }
 
   void _toggleFileExplorer() {
@@ -147,6 +193,115 @@ class _IDEShellState extends State<IDEShell> {
     // Undo handled natively by platform/focused editor
   }
 
+  /// Opens a file picked from the "Open Recent" section.
+  Future<void> _openRecent(String path) async {
+    final file = File(path);
+    if (!file.existsSync()) {
+      // The file moved or was deleted since it entered the MRU list.
+      SessionService.instance.removeRecentFile(path);
+      return;
+    }
+    try {
+      _fileService.restoreFile(path, await file.readAsString());
+    } on FileSystemException catch (e) {
+      debugPrint('Could not open recent file $path: $e');
+    }
+  }
+
+  /// Cmd+/: comments or uncomments the selected lines.
+  void _handleToggleComment() {
+    final selection = _codeController.selection;
+    if (!selection.isValid) return;
+    final result = toggleComment(
+      text: _codeController.text,
+      selectionStart: selection.start,
+      selectionEnd: selection.end,
+      filePath: _fileService.currentFilePath,
+    );
+    _codeController.value = TextEditingValue(
+      text: result.text,
+      selection: TextSelection(
+        baseOffset: result.selectionStart,
+        extentOffset: result.selectionEnd,
+      ),
+    );
+  }
+
+  /// Cmd+Shift+D: duplicates the current line (or the selected lines).
+  void _handleDuplicateLine() {
+    final selection = _codeController.selection;
+    if (!selection.isValid) return;
+    final result = duplicateLines(
+      text: _codeController.text,
+      selectionStart: selection.start,
+      selectionEnd: selection.end,
+    );
+    _codeController.value = TextEditingValue(
+      text: result.text,
+      selection: TextSelection(
+        baseOffset: result.selectionStart,
+        extentOffset: result.selectionEnd,
+      ),
+    );
+  }
+
+  /// Restores the previous session: only files that still exist, and the active
+  /// tab by path. Untitled buffers are never restored.
+  Future<void> _restoreSession() async {
+    await SessionService.instance.load();
+    if (!mounted) return;
+
+    for (final path in SessionService.instance.openPaths) {
+      final file = File(path);
+      if (!file.existsSync()) continue;
+      try {
+        _fileService.restoreFile(path, await file.readAsString());
+      } on FileSystemException catch (e) {
+        debugPrint('Could not restore $path: $e');
+      }
+    }
+
+    final activePath = SessionService.instance.activePath;
+    if (activePath != null) {
+      final index = _fileService.openTabs.indexWhere(
+        (tab) => tab.filePath == activePath,
+      );
+      if (index >= 0) _fileService.switchTab(index);
+    }
+    _persistSession();
+  }
+
+  /// Stores the open paths + active path, and keeps the MRU list fresh.
+  ///
+  /// Only writes when the tab set actually changed, so typing never touches the
+  /// disk.
+  void _persistSession() {
+    final paths = [
+      for (final tab in _fileService.openTabs)
+        if (tab.filePath != null) tab.filePath!,
+    ];
+    final activePath = _fileService.currentFilePath;
+    final signature = '${paths.join('|')}#$activePath';
+    if (signature == _lastSessionSignature) return;
+    _lastSessionSignature = signature;
+
+    SessionService.instance.saveSession(
+      openPaths: paths,
+      activePath: activePath,
+    );
+    if (activePath != null) {
+      SessionService.instance.addRecentFile(activePath);
+    }
+  }
+
+  /// Cmd+L: asks for a line number and jumps there.
+  Future<void> _handleGoToLine() async {
+    final editor = _editorKey.currentState;
+    if (editor == null) return;
+    final line = await showGoToLineDialog(context, maxLines: editor.lineCount);
+    if (line != null) editor.goToLine(line);
+  }
+
   void _handleRedo() {
     // Redo handled natively by platform/focused editor
   }
@@ -175,6 +330,32 @@ class _IDEShellState extends State<IDEShell> {
           else if (event.logicalKey == LogicalKeyboardKey.f5) {
             _handleRun();
           }
+          // 2b. Close Tab (Cmd+W) — through the unsaved-changes guard.
+          else if (event.logicalKey == LogicalKeyboardKey.keyW &&
+              isControlOrMeta) {
+            unawaited(_handleCloseTab());
+          }
+          // 2c. Open File (Cmd+O).
+          else if (event.logicalKey == LogicalKeyboardKey.keyO &&
+              isControlOrMeta) {
+            unawaited(_fileService.openFile());
+          }
+          // 3b. Go to Line (Cmd+L).
+          else if (event.logicalKey == LogicalKeyboardKey.keyL &&
+              isControlOrMeta) {
+            unawaited(_handleGoToLine());
+          }
+          // 3c. Toggle Comment (Cmd+/).
+          else if (event.logicalKey == LogicalKeyboardKey.slash &&
+              isControlOrMeta) {
+            _handleToggleComment();
+          }
+          // 3d. Duplicate Line (Cmd+Shift+D).
+          else if (event.logicalKey == LogicalKeyboardKey.keyD &&
+              isControlOrMeta &&
+              HardwareKeyboard.instance.isShiftPressed) {
+            _handleDuplicateLine();
+          }
           // 4. Undo (Ctrl+Z / Cmd+Z)
           else if (event.logicalKey == LogicalKeyboardKey.keyZ &&
               isControlOrMeta) {
@@ -182,8 +363,10 @@ class _IDEShellState extends State<IDEShell> {
           }
           // 6. Editor zoom (Cmd + / Cmd - / Cmd 0)
           else if (isControlOrMeta) {
-            final zoom = zoomActionFor(event.logicalKey,
-                commandOrControl: isControlOrMeta);
+            final zoom = zoomActionFor(
+              event.logicalKey,
+              commandOrControl: isControlOrMeta,
+            );
             if (zoom != null) {
               switch (zoom) {
                 case EditorZoomAction.increase:
@@ -222,6 +405,9 @@ class _IDEShellState extends State<IDEShell> {
                     analyzerService: _analyzerService,
                     dartRunnerService: _dartRunnerService,
                     codeEditorController: _codeController,
+                    onCloseTab: () => unawaited(_handleCloseTab()),
+                    onGoToLine: () => unawaited(_handleGoToLine()),
+                    onOpenRecent: (path) => unawaited(_openRecent(path)),
                   ),
                   // NOTE: deliberately NOT `const` so their build() re-runs when
                   // the theme changes.
@@ -243,6 +429,7 @@ class _IDEShellState extends State<IDEShell> {
                       terminalService: _terminalService,
                       debugger: _debuggerManager.activeDebugger,
                       codeEditorController: _codeController,
+                      editorKey: _editorKey,
                     ),
                   ),
                   RetroStatusBar(

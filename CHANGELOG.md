@@ -4,6 +4,39 @@ All notable changes to Classic Code Editor are documented here. The format follo
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+- Saving a **Dart** file spawned a second copy of the IDE instead of the formatter: `_formatCode`
+  started `Platform.resolvedExecutable` (the app binary inside a packaged `.app`), which opened an
+  empty black "Classic Code Editor" window and left the file unformatted. It now runs `dart format`
+  from `PATH`, like `clang-format` and `black`.
+- Save As no longer opens the extra un-themed panel window (`FileType.any`, panel deferred to the next
+  frame).
+
+### Added
+- **Unsaved-changes guard** — closing a modified tab (the tab's ✕, `Cmd + W`, File > Close Tab) or
+  quitting (`Cmd + Q`, the red window button, File > Exit) asks `Save changes to <name>?` with
+  Save / Don't Save / Cancel. One shared helper (`lib/ui/shell/close_guard.dart`) drives all paths;
+  a cancelled or failed Save As counts as Cancel; only the active window's cancel aborts quitting.
+- **Edit menu + shortcuts** — Select All (`Cmd + A`), Go to Line (`Cmd + L`), Toggle Comment
+  (`Cmd + /`), Duplicate Line (`Cmd + Shift + D`), plus `Cmd + O` (Open) and `Cmd + W` (Close Tab).
+  Go to Line uses a retro number prompt, `EditorMetrics` line height and the wrap-aware visual row,
+  and gives focus back to the editor. Toggle Comment reads the language's `commentPrefix`
+  (`//` Dart/C/C++/ASM, `#` Python) and is a no-op for unknown languages.
+- **Session restore + recent files** — new `SessionService` writes `session.json` (open paths, active
+  path, 10 most recent files) in Application Support; tabs reopen on launch (missing files skipped,
+  untitled buffers never restored) and the File menu shows a numbered MRU block with
+  "Clear Recent Files".
+- **Retro menu chrome** — `RetroMenuItem` / `RetroMenuSeparator` / `RetroPopupShape`: 22px rows,
+  shortcut column sized from the real text, check mark on the active theme, etched separators,
+  full-width `menuActive` highlight for both hover and keyboard focus.
+- New tests: `retro_menu_bar_test.dart`, `unsaved_guard_test.dart`, `toggle_comment_test.dart`,
+  `session_service_test.dart`. Suite: **230 tests** (1 opt-in skipped).
+
+### Changed
+- README/ARCHITECTURE/AGENTS/PRIVACY document the session file and the new editor commands.
+
 ## [1.3.0] — 2026-10-19
 
 ### Added

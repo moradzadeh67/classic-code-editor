@@ -23,6 +23,10 @@
 | 14 | Multi-Language Support | ✅ DONE |
 | 15 | Multi-Language Debugging | ✅ DONE |
 | 16 | Debugger Hardening & Test Coverage | ✅ DONE |
+| 17 | Release Smoke Gate | ✅ DONE |
+| 18 | Editor Zoom & Gutter Metrics | ✅ DONE |
+| 19 | ARM64 Assembly, Turbo Pascal Theme & Editor UX | ✅ DONE |
+| 20 | Essential Editor Features (guard, Edit menu, session/MRU) | ✅ DONE |
 
 ## Rule
 - Phases are sequential
