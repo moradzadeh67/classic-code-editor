@@ -38,6 +38,11 @@ class DebuggerFactory {
       case '.cc':
       case '.cxx':
         return cDebugger;
+      // ARM64 assembly has its own engine (registers + instruction stepping).
+      // Without this case `.s` fell through to the Dart VM debugger, which tried
+      // to compile the assembler source as Dart.
+      case '.s':
+        return asmDebugger;
       default:
         return dartDebugger;
     }
@@ -58,10 +63,15 @@ class DebuggerFactory {
   );
 
   /// Every debugger owned by this factory, for iteration and teardown.
+  ///
+  /// `asmDebugger` MUST be listed: the shell pipes the output of every entry
+  /// here into the Console, so leaving it out made the assembly debugger mute
+  /// (no `[Debugging ARM64 Assembly…]`, no register disassembly line).
   List<BaseDebugger> get all => <BaseDebugger>[
     dartDebugger,
     pythonDebugger,
     cDebugger,
+    asmDebugger,
   ];
 
   /// Disposes every debugger, closing their output streams.

@@ -142,6 +142,10 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
   int _completionRequestId = 0;
   String? _programmaticText;
 
+  /// Last buffer contents seen by [_onTextChanged], so a selection-only change
+  /// (a mouse click) never opens the completion popup.
+  String? _lastCompletionText;
+
   /// Kept in sync with the editor so the gutter never scrolls out of step.
   final ScrollController _editorScrollController = ScrollController();
   final ScrollController _gutterScrollController = ScrollController();
@@ -241,6 +245,17 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
               bp.line > lineCount,
         );
       }
+    }
+
+    // A mouse click only changes the SELECTION, but the controller notifies on
+    // every value change — which used to pop the completion list wherever the
+    // caret landed. Only real text edits may trigger completion.
+    final text = _controller.text;
+    final textChanged = text != _lastCompletionText;
+    _lastCompletionText = text;
+    if (!textChanged) {
+      _dismissHover();
+      return;
     }
 
     setState(() {
@@ -436,6 +451,13 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
   }
 
   void _requestCompletion() async {
+    // Only suggest while the user is actually typing. Opening a file (or the
+    // first mouse move over the editor) must not pop the list on its own.
+    if (!_isTyping) {
+      _dismissCompletion();
+      return;
+    }
+
     final filePath = _filePath;
     final config = LanguageConfig.fromExtension(filePath);
     final language = config.highlightLanguage;
@@ -896,8 +918,14 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
                                   .instance
                                   .colors
                                   .editorLineNumberBg,
+                              // The gutter never scrolls on its own: it only
+                              // mirrors the editor. A user-scrollable gutter
+                              // used to slide the numbers while the code stayed
+                              // put, so scrolling is disabled here and the
+                              // editor owns the scroll.
                               child: ListView.builder(
                                 controller: _gutterScrollController,
+                                physics: const NeverScrollableScrollPhysics(),
                                 itemCount: gutterRows.length,
                                 itemExtent: _metrics.lineHeight,
                                 itemBuilder: (context, index) {

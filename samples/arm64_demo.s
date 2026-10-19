@@ -1,6 +1,9 @@
 // arm64_demo.s — macOS Apple Silicon.
 // A slightly richer ARM64 sample for the Borland IDE debugger: a loop, a real
 // function call (good for Step Into / Step Out) and formatted output.
+//
+// NOTE: on Apple arm64 the *variadic* arguments of printf live on the STACK
+// (not in x1..x7), so each value is pushed into a 16-byte-aligned slot first.
     .section __TEXT,__cstring,cstring_literals
 title:
     .asciz "ARM64 demo — Borland Classic Code Editor"
@@ -30,10 +33,13 @@ loop:
     cmp     x20, #11
     b.lt    loop
 
+    // printf(sum_fmt, x19) — value on the stack, 16-byte aligned.
+    sub     sp, sp, #16
+    str     x19, [sp]
     adrp    x0, sum_fmt@PAGE
     add     x0, x0, sum_fmt@PAGEOFF
-    mov     x1, x19
     bl      _printf
+    add     sp, sp, #16
 
     // w0 = add_three(7, 11, 100)
     mov     w0, #7
@@ -42,10 +48,13 @@ loop:
     bl      _add_three
     mov     w19, w0
 
+    // printf(add_fmt, w19)
+    sub     sp, sp, #16
+    str     x19, [sp]
     adrp    x0, add_fmt@PAGE
     add     x0, x0, add_fmt@PAGEOFF
-    mov     w1, w19
     bl      _printf
+    add     sp, sp, #16
 
     mov     w0, #0
     ldp     x19, x20, [sp, #16]

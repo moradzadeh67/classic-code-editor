@@ -150,6 +150,11 @@ class RetroToolbar extends StatelessWidget {
                         debugPrint('Nothing to debug: no file or empty buffer');
                         return;
                       }
+                      // Printed so the IDE log shows which engine handles the
+                      // file (AsmDebugger for .s, DartDebugger for .dart).
+                      debugPrint(
+                        'Debug button clicked: ${debugger.runtimeType} -> $path',
+                      );
                       debugger?.startDebugging(path, content: content);
                     },
                   )

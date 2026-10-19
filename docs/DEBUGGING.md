@@ -439,6 +439,19 @@ The breakpoint gutter and the editor text must share one line height, or the
 
 ## 12. Known limitations
 
+### ARM64 Assembly has no source-line information
+
+Verified on macOS: neither `clang -g` (with `-gdwarf-2/4`, `-gline-tables-only`, `-Wa,-g`), nor `as -g`
+with `.loc`, nor cpp line markers produce a `.debug_line` section for a hand-written `.s` file, and
+`llvm-mc` is not shipped with Xcode. Therefore:
+
+- line breakpoints inside `.s` never resolve (lldb reports “no locations”),
+- the pause is reported at the `_main` label, not at the exact instruction,
+- the register file comes from `register read --all` (parsed in Dart) rather than from a stop-hook snapshot.
+
+Instruction stepping (`thread step-inst`), the disassembly line and the `x0`..`x28`/`fp`/`lr`/`sp`/`pc`/`cpsr`
+values all work. Tracked for 1.3.1.
+
 - **C/C++ requires a native toolchain.** `clang`/`clang++`/`lldb` must be on
   `PATH`; without the Xcode Command Line Tools the engine cannot start.
 - **Python needs `python3` on `PATH`** and is a tracer, not a full debugger: it

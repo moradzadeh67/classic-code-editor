@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show debugPrint;
+
 import '../models/debugger_models.dart';
 import 'c_debugger.dart';
 import 'debugger_environment.dart';
@@ -26,7 +28,14 @@ class AsmDebugger extends CDebugger {
 
   @override
   Future<void> startDebugging(String filePath, {String? content}) async {
-    if (state != DebugState.inactive) return;
+    // A finished/stopped session may be restarted; only a live one may not.
+    // (The old `state != inactive` guard made the second Debug click a silent
+    // no-op, so nothing was logged and no arrow ever appeared.)
+    if (state == DebugState.running || state == DebugState.paused) {
+      debugPrint('AsmDebugger: already $state, ignoring start');
+      return;
+    }
+    debugPrint('AsmDebugger: start ($state) for $filePath');
 
     if (DebuggerEnvironment.shouldShortCircuit) {
       // Match CDebugger: in unit tests no real clang/lldb is spawned, so the
@@ -60,6 +69,7 @@ class AsmDebugger extends CDebugger {
         return;
       }
       compiledSource = source;
+      _entryLine = await _findEntryLine(source);
 
       final executable = await _compileAsm(source);
       if (executable == null) {
@@ -163,8 +173,75 @@ class AsmDebugger extends CDebugger {
     resumeWithLldb('thread step-out');
   }
 
+  /// Line of the `_main:` label, used as the pause marker.
+  ///
+  /// Reason: macOS cannot emit a DWARF line table for a hand-written `.s`
+  /// (verified against clang / as / llvm-mc), so LLDB has no source lines and
+  /// line breakpoints never resolve. Instruction stepping, registers and the
+  /// paused marker therefore come from our own bookkeeping instead.
+  int? _entryLine;
+
+  /// True while a `register read --all` block is being collected.
+  bool _collectingRegisters = false;
+
+  /// TODO(1.3.1): replace this whole mechanism once a toolchain can give us a
+  /// DWARF line table for `.s` files (then line breakpoints work again).
+  Future<int?> _findEntryLine(String sourcePath) async {
+    try {
+      final lines = await File(sourcePath).readAsLines();
+      for (var i = 0; i < lines.length; i++) {
+        final trimmed = lines[i].trim();
+        if (trimmed == '_main:' || trimmed == 'main:') return i + 1;
+      }
+    } on FileSystemException catch (e) {
+      debugPrint('AsmDebugger: cannot read $sourcePath: $e');
+    }
+    return null;
+  }
+
+  /// Marks the session paused and asks LLDB for the register file.
+  void _onStopReached() {
+    currentPausedLine = _entryLine;
+    if (state != DebugState.paused) state = DebugState.paused;
+    notifyListeners();
+    final process = lldbProcess;
+    if (process == null) return;
+    _collectingRegisters = true;
+    variables.clear();
+    process.stdin.writeln('register read --all');
+    process.stdin.writeln('script print("@@ASMREGS_END")');
+  }
+
+  static final RegExp _registerLine = RegExp(
+    r'^\s*(x\d+|w\d+|fp|lr|sp|pc|cpsr|d\d+|v\d+)\s*=\s*(.+?)\s*$',
+  );
+
   @override
   void handleStdoutLine(String line) {
+    final trimmed = line.trim();
+
+    // LLDB marks the stopped frame with `->  0x…`.
+    if (trimmed.startsWith('->')) {
+      _onStopReached();
+    } else if (_collectingRegisters) {
+      if (trimmed.contains('@@ASMREGS_END')) {
+        _collectingRegisters = false;
+        notifyListeners();
+        return;
+      }
+      final match = _registerLine.firstMatch(line);
+      if (match != null) {
+        variables.add(
+          Variable(
+            name: match.group(1)!,
+            value: match.group(2)!.trim(),
+            type: 'register',
+          ),
+        );
+        return;
+      }
+    }
+
     if (line.startsWith(CDebugger.snapshotMarker)) {
       final jsonPayload = line.substring(CDebugger.snapshotMarker.length);
       try {
@@ -188,16 +265,39 @@ class AsmDebugger extends CDebugger {
 const String _asmLldbHelperSource = r'''import json
 import sys
 
+def _path_of(entry):
+    # The FULL path matters: the editor compares it with the open document to
+    # decide which row gets the paused-line arrow. A bare file name never
+    # matched, so the "▶" marker never appeared for assembly.
+    spec = entry.GetFileSpec()
+    full = getattr(spec, "fullpath", None)
+    if not full:
+        directory = spec.GetDirectory() or ""
+        name = spec.GetFilename() or ""
+        full = f"{directory}/{name}" if directory else name
+    return full or ""
+
 def _location(entity):
     entry = entity.GetLineEntry() if entity else None
     if entry and entry.IsValid():
         return {
-            "file": entry.GetFileSpec().GetFilename() or "",
+            "file": _path_of(entry),
             "line": entry.GetLine(),
         }
     return {"file": "", "line": 0}
 
 def borland_snapshot(debugger, command, result, internal_dict):
+    # Any exception inside a stop-hook is otherwise swallowed by LLDB, which is
+    # why the register snapshot silently never reached the IDE. Report it on
+    # stdout so the Console shows what actually failed.
+    try:
+        _emit_snapshot(debugger)
+    except Exception as error:  # noqa: BLE001 - diagnostic path
+        sys.stdout.write(f"@@BORLAND_SNAP_ERR {error}\n")
+        sys.stdout.flush()
+
+
+def _emit_snapshot(debugger):
     target = debugger.GetSelectedTarget()
     process = target.GetProcess() if target else None
     if process is None:
@@ -239,7 +339,7 @@ def borland_snapshot(debugger, command, result, internal_dict):
         entry = item.GetLineEntry() if item else None
         stack.append({
             "name": (item.GetFunctionName() if item else None) or "<unknown>",
-            "file": entry.GetFileSpec().GetFilename() if entry and entry.IsValid() else "",
+            "file": _path_of(entry) if entry and entry.IsValid() else "",
             "line": entry.GetLine() if entry and entry.IsValid() else 0,
         })
 
@@ -252,6 +352,20 @@ def borland_snapshot(debugger, command, result, internal_dict):
         "stack": stack,
         "disasm": pc_disasm,
     }
-    sys.stdout.write("@@BORLAND_SNAP " + json.dumps(payload) + "\n")
-    sys.stdout.flush()
+    line = "@@BORLAND_SNAP " + json.dumps(payload)
+    # In prompt mode LLDB often swallows Python's sys.stdout, so the snapshot
+    # never reached the IDE even though the hook ran. Write to the debugger's
+    # own output file (the stream the IDE reads) and fall back to stdout.
+    written = False
+    try:
+        out = debugger.GetOutputFile() if debugger is not None else None
+        if out is not None and out.IsValid():
+            out.Write(line + "\n")
+            out.Flush()
+            written = True
+    except Exception:
+        written = False
+    if not written:
+        sys.stdout.write(line + "\n")
+        sys.stdout.flush()
 ''';

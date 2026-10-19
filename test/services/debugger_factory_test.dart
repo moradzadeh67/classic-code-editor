@@ -92,8 +92,11 @@ void main() {
     });
 
     test('all exposes each debugger exactly once', () {
-      expect(factory.all, hasLength(3));
-      expect(factory.all.toSet(), hasLength(3));
+      // The assembly engine must be in the list: the shell pipes every entry
+      // into the Console, so a missing entry makes that debugger mute.
+      expect(factory.all, contains(factory.asmDebugger));
+      expect(factory.all, hasLength(4));
+      expect(factory.all.toSet(), hasLength(4));
     });
   });
 
