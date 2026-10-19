@@ -205,27 +205,32 @@ class ThemeService extends ChangeNotifier {
         );
 
       case ThemeType.turboPascal:
-        // ۴. تم Turbo Pascal 7.0 (DOS): دسکتاپ آبی سرمه‌ای، پنل‌های خاکستری و
-        //    نوار آبی تیره در لبه‌ها. صفحهٔ ادیتور عمداً روشن می‌ماند تا پالت
-        //    سینتکس - که در چهار تم یکسان است - خوانا بماند.
+        // ۴. تم Turbo Pascal 7.0 / Turbo Vision (DOS):
+        //    دسکتاپ آبی خالص DOS و کرومی خاکستری-فیروزه‌ای (#8FB8B8) با
+        //    لبه‌های سه‌بعدی هم‌خانواده - نسخهٔ ملایم ترکیب بومی Turbo Vision.
+        //    ستون شماره‌خط کاملاً فیروزه‌ای می‌ماند تا از تم VB6 (گاتر خاکستری)
+        //    و Delphi (گاتر بژ) در یک نگاه قابل تشخیص باشد.
+        //    نوار انتخاب آبی تیره با متن سفید است تا روی فیروزه‌ای خوانا بماند،
+        //    و صفحهٔ ادیتور عمداً روشن می‌ماند چون پالت سینتکس بین چهار تم
+        //    مشترک است و باید خوانا بماند.
         return const ThemeColorsData(
           background: Color(0xFF0000A8),
-          panel: Color(0xFFC0C0C0),
-          borderDark: Color(0xFF404040),
-          borderLight: Color(0xFFFFFFFF),
-          highlight: Color(0xFFA8A8A8),
-          shadow: Color(0xFF808080),
-          selection: Color(0xFF0000A8),
+          panel: Color(0xFF8FB8B8),
+          borderDark: Color(0xFF4A6E6E),
+          borderLight: Color(0xFFD8EEEE),
+          highlight: Color(0xFFA8CECE),
+          shadow: Color(0xFF6B9090),
+          selection: Color(0xFF000080),
           text: Color(0xFF000000),
-          error: Color(0xFFCC0000),
-          menuActive: Color(0xFF00A8A8),
-          menuActiveText: Color(0xFF000000),
+          error: Color(0xFFA80000),
+          menuActive: Color(0xFF000080),
+          menuActiveText: Color(0xFFFFFFFF),
           editorBackground: Color(0xFFE8F1FF),
           editorText: Color(0xFF000000),
           editorSelection: Color(0xFF000080),
           editorSelectionText: Color(0xFFFFFFFF),
-          editorLineNumberBg: Color(0xFFC8D0D8),
-          editorLineNumberText: Color(0xFF000080),
+          editorLineNumberBg: Color(0xFF00A8A8),
+          editorLineNumberText: Color(0xFF000000),
           editorCursor: Color(0xFF000000),
           pausedLine: Color(0xFFDCDCA8),
         );
