@@ -93,6 +93,14 @@ class CDebugger extends BaseDebugger {
   set exitHandled(bool v) => _exitHandled = v;
 
   @protected
+  int? get entryBreakpointId => _entryBreakpointId;
+  @protected
+  set entryBreakpointId(int? v) => _entryBreakpointId = v;
+
+  @protected
+  List<int> get lldbBreakpointIds => _lldbBreakpointIds;
+
+  @protected
   bool get awaitingEntryBreakpointId => _awaitingEntryBreakpointId;
   @protected
   set awaitingEntryBreakpointId(bool v) => _awaitingEntryBreakpointId = v;
@@ -299,7 +307,7 @@ class CDebugger extends BaseDebugger {
     final exitCode = parseExitCode(line);
     if (exitCode != null) {
       emitOutput(line);
-      unawaited(_handleInferiorExit(exitCode));
+      unawaited(handleInferiorExit(exitCode));
       return;
     }
 
@@ -330,6 +338,7 @@ class CDebugger extends BaseDebugger {
   /// Parses the numeric id from an lldb `Breakpoint 3: ...` line.
   ///
   /// Returns `null` for any other line so the caller can keep forwarding output.
+  @protected
   @visibleForTesting
   static int? parseBreakpointId(String line) {
     final match = RegExp(r'^Breakpoint (\d+):').firstMatch(line.trim());
@@ -340,6 +349,7 @@ class CDebugger extends BaseDebugger {
   /// Parses the exit code from an lldb `exited with status = 0` line.
   ///
   /// Returns `null` when the line is not an inferior-exit notification.
+  @protected
   @visibleForTesting
   static int? parseExitCode(String line) {
     final match = RegExp(r'exited with status = (-?\d+)').firstMatch(line);
@@ -474,7 +484,7 @@ class CDebugger extends BaseDebugger {
     final path = _sourcePath;
     final lines =
         breakpoints
-            .where((bp) => path == null || _pathsMatch(bp.filePath, path))
+            .where((bp) => path == null || pathsMatch(bp.filePath, path))
             .map((bp) => bp.line)
             .toSet()
             .toList()
@@ -482,10 +492,11 @@ class CDebugger extends BaseDebugger {
     return lines;
   }
 
-  Future<void> _handleInferiorExit(int exitCode) async {
-    if (_exitHandled) return;
-    _exitHandled = true;
-    emitOutput('[${_isCpp ? 'C++' : 'C'} program exited with code $exitCode]');
+  @protected
+  Future<void> handleInferiorExit(int exitCode) async {
+    if (exitHandled) return;
+    exitHandled = true;
+    emitOutput('[${isCpp ? 'C++' : 'C'} program exited with code $exitCode]');
     await _finalize();
   }
 
@@ -569,7 +580,8 @@ class CDebugger extends BaseDebugger {
     super.dispose();
   }
 
-  static bool _pathsMatch(String a, String b) =>
+  @protected
+  static bool pathsMatch(String a, String b) =>
       a == b || a.endsWith(b) || b.endsWith(a);
 
   static String _basename(String path) {

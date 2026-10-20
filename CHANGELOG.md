@@ -7,17 +7,9 @@ All notable changes to Classic Code Editor are documented here. The format follo
 ## [Unreleased]
 
 ### Added
+- **ARM64 Assembly Address-to-Line Mapping (`Arm64AsmParser` / `AsmDebugger`)** — parses hand-written `.s` files into 4-byte instruction offset maps relative to `_main`/`main`, enabling precise line breakpoints via `breakpoint set -n main -R <offset>` and accurate pause tracking (`▶`) and register inspection on any line.
 - Turbo Pascal + ARM64 Assembly screenshots (`assets/screenshots/tp-editor|tp-debugger|tp-terminal.png`)
   in the README gallery, and refreshed architecture diagrams (SVG sources + PNG exports).
-
-### Known issues (to fix in 1.3.1)
-- **Assembly debugging has no source-line mapping.** Apple's toolchain cannot emit a DWARF line table for a
-  hand-written `.s` file (verified: `clang -g/-gdwarf-2/-gdwarf-4/-gline-tables-only/-Wa,-g`,
-  `as -g` with `.loc`, cpp line markers, and `llvm-mc` is not shipped). Consequences: lldb cannot resolve
-  line breakpoints in `.s`, and pauses are reported at the `_main` label instead of the exact instruction.
-  Workaround shipped: the paused marker is taken from the `_main` label and the register file is read with
-  `register read --all` after every stop. Instruction stepping works. Fix = either a toolchain that emits
-  line tables, or mapping addresses to lines ourselves in 1.3.1.
 
 ### Fixed
 - Saving a **Dart** file spawned a second copy of the IDE instead of the formatter: `_formatCode`

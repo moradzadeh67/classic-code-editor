@@ -416,14 +416,8 @@ persist on open/close/switch, File > numbered MRU + Clear Recent Files.
 
 ### TASK-044: Assembly source-line mapping / line breakpoints
 **Phase:** 21
-**Status:** 🔜 TODO
-**Why:** macOS cannot emit a DWARF line table for a hand-written `.s` (verified against
-`clang -g/-gdwarf-2/-gdwarf-4/-gline-tables-only/-Wa,-g`, `as -g` with `.loc`, cpp line markers;
-`llvm-mc` is not shipped). Today: no line breakpoints in `.s`, pause reported at the `_main` label,
-registers via `register read --all`.
-**Options:** (a) build our own address→line map while assembling and resolve breakpoints/lines from it;
-(b) `breakpoint set --address` from the same map; (c) revisit if a toolchain starts emitting line tables.
-**Done when:** clicking a `.s` line sets a breakpoint that actually stops there and `▶` lands on that line.
+**Status:** ✅ DONE
+**Completed:** `Arm64AsmParser` / `Arm64AsmMap` maps source lines (1-indexed) to 4-byte instruction offsets relative to `_main`/`main`. `AsmDebugger` resolves line breakpoints via `breakpoint set -n main -R <offset>` and maps paused `pc` load addresses back to exact source lines. Unit tests and release gates pass cleanly.
 
 ### TASK-045: ARM64-only release build
 **Phase:** 21

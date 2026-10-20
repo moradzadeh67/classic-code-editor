@@ -439,18 +439,13 @@ The breakpoint gutter and the editor text must share one line height, or the
 
 ## 12. Known limitations
 
-### ARM64 Assembly has no source-line information
+### ARM64 Assembly source-line mapping (TASK-044)
 
-Verified on macOS: neither `clang -g` (with `-gdwarf-2/4`, `-gline-tables-only`, `-Wa,-g`), nor `as -g`
-with `.loc`, nor cpp line markers produce a `.debug_line` section for a hand-written `.s` file, and
-`llvm-mc` is not shipped with Xcode. Therefore:
-
-- line breakpoints inside `.s` never resolve (lldb reports “no locations”),
-- the pause is reported at the `_main` label, not at the exact instruction,
-- the register file comes from `register read --all` (parsed in Dart) rather than from a stop-hook snapshot.
-
-Instruction stepping (`thread step-inst`), the disassembly line and the `x0`..`x28`/`fp`/`lr`/`sp`/`pc`/`cpsr`
-values all work. Tracked for 1.3.1.
+Although Apple's toolchain cannot emit a DWARF line table for a hand-written `.s` file,
+Classic Code Editor implements custom address-to-line mapping via `Arm64AsmParser` and `AsmDebugger`:
+- Parses `.s` files into 4-byte instruction offset maps relative to `_main`/`main`.
+- Line breakpoints are translated into LLDB address-slide breakpoints (`breakpoint set -n main -R <offset>`).
+- Pause load addresses (`pc`) are mapped back to exact source lines in the editor gutter (`▶`).
 
 - **C/C++ requires a native toolchain.** `clang`/`clang++`/`lldb` must be on
   `PATH`; without the Xcode Command Line Tools the engine cannot start.

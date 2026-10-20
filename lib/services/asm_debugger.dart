@@ -2,19 +2,33 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
 
 import '../models/debugger_models.dart';
+import 'arm64_asm_parser.dart';
 import 'c_debugger.dart';
 import 'debugger_environment.dart';
 
 /// A debugger implementation for ARM64 Assembly (`.s` files) on Apple Silicon macOS.
 ///
 /// Drives LLDB for Assembly code, extracting CPU registers (`x0`..`x28`, `fp`, `lr`,
-/// `sp`, `pc`, `cpsr`) and single-instruction disassembly at PC, and providing
-/// instruction-level stepping (`thread step-inst`, `thread step-inst-over`).
+/// `sp`, `pc`, `cpsr`) and single-instruction disassembly at PC, providing
+/// instruction-level stepping (`thread step-inst`, `thread step-inst-over`),
+/// and resolving line breakpoints and pause locations via source address mapping.
 class AsmDebugger extends CDebugger {
   AsmDebugger({super.clangPath = 'clang', super.lldbPath = 'lldb'});
+
+  Arm64AsmMap? _asmMap;
+  int? _mainAddress;
+  int? _entryLine;
+
+  /// Parsed address map for the active assembly source.
+  @visibleForTesting
+  Arm64AsmMap? get asmMap => _asmMap;
+
+  /// Base address of `_main` entry in the running process.
+  @visibleForTesting
+  int? get mainAddress => _mainAddress;
 
   bool _isAppleSiliconSync() {
     if (!Platform.isMacOS) return false;
@@ -28,19 +42,31 @@ class AsmDebugger extends CDebugger {
 
   @override
   Future<void> startDebugging(String filePath, {String? content}) async {
-    // A finished/stopped session may be restarted; only a live one may not.
-    // (The old `state != inactive` guard made the second Debug click a silent
-    // no-op, so nothing was logged and no arrow ever appeared.)
     if (state == DebugState.running || state == DebugState.paused) {
       debugPrint('AsmDebugger: already $state, ignoring start');
       return;
     }
     debugPrint('AsmDebugger: start ($state) for $filePath');
 
+    try {
+      sourcePath = filePath;
+      final source = await _prepareSourceAsm(filePath, content);
+      if (source != null) {
+        compiledSource = source;
+        try {
+          final fileContent = await File(source).readAsString();
+          _asmMap = Arm64AsmParser.parse(fileContent);
+          _entryLine = _asmMap!.entryLine;
+        } catch (e) {
+          debugPrint('AsmDebugger: error parsing asm source: $e');
+        }
+      }
+    } catch (e) {
+      debugPrint('AsmDebugger: error preparing source: $e');
+    }
+    _mainAddress = null;
+
     if (DebuggerEnvironment.shouldShortCircuit) {
-      // Match CDebugger: in unit tests no real clang/lldb is spawned, so the
-      // session is announced and left running rather than paused at a line the
-      // debugger never actually reached.
       currentPausedLine = null;
       state = DebugState.running;
       emitOutput('[Debugging ARM64 Assembly: ${_basename(filePath)}]');
@@ -58,8 +84,7 @@ class AsmDebugger extends CDebugger {
     }
 
     try {
-      sourcePath = filePath;
-      final source = await _prepareSourceAsm(filePath, content);
+      final source = compiledSource;
       if (source == null) {
         emitOutput(
           '[Assembly debugging failed: no source available for "$filePath"]',
@@ -68,8 +93,6 @@ class AsmDebugger extends CDebugger {
         notifyListeners();
         return;
       }
-      compiledSource = source;
-      _entryLine = await _findEntryLine(source);
 
       final executable = await _compileAsm(source);
       if (executable == null) {
@@ -159,6 +182,42 @@ class AsmDebugger extends CDebugger {
   }
 
   @override
+  void resyncBreakpoints() {
+    final lldb = lldbProcess;
+    if (lldb == null) return;
+
+    final entryId = entryBreakpointId;
+    for (final id in lldbBreakpointIds) {
+      if (id == entryId) continue;
+      writeLldb('breakpoint delete $id');
+    }
+    lldbBreakpointIds.clear();
+
+    final map = _asmMap;
+    final source = compiledSource;
+    if (map == null || source == null) return;
+
+    final path = sourcePath;
+    final lines =
+        breakpoints
+            .where(
+              (bp) => path == null || CDebugger.pathsMatch(bp.filePath, path),
+            )
+            .map((bp) => bp.line)
+            .toSet()
+            .toList()
+          ..sort();
+
+    for (final line in lines) {
+      final offset = map.lineToOffset(line);
+      if (offset != null) {
+        writeLldb('breakpoint set -n main -R $offset');
+        writeLldb('breakpoint set -n _main -R $offset');
+      }
+    }
+  }
+
+  @override
   Future<void> stepInto() async {
     resumeWithLldb('thread step-inst');
   }
@@ -173,86 +232,133 @@ class AsmDebugger extends CDebugger {
     resumeWithLldb('thread step-out');
   }
 
-  /// Line of the `_main:` label, used as the pause marker.
-  ///
-  /// Reason: macOS cannot emit a DWARF line table for a hand-written `.s`
-  /// (verified against clang / as / llvm-mc), so LLDB has no source lines and
-  /// line breakpoints never resolve. Instruction stepping, registers and the
-  /// paused marker therefore come from our own bookkeeping instead.
-  int? _entryLine;
-
-  /// True while a `register read --all` block is being collected.
-  bool _collectingRegisters = false;
-
-  /// TODO(1.3.1): replace this whole mechanism once a toolchain can give us a
-  /// DWARF line table for `.s` files (then line breakpoints work again).
-  Future<int?> _findEntryLine(String sourcePath) async {
-    try {
-      final lines = await File(sourcePath).readAsLines();
-      for (var i = 0; i < lines.length; i++) {
-        final trimmed = lines[i].trim();
-        if (trimmed == '_main:' || trimmed == 'main:') return i + 1;
-      }
-    } on FileSystemException catch (e) {
-      debugPrint('AsmDebugger: cannot read $sourcePath: $e');
-    }
-    return null;
-  }
-
-  /// Marks the session paused and asks LLDB for the register file.
-  void _onStopReached() {
-    currentPausedLine = _entryLine;
-    if (state != DebugState.paused) state = DebugState.paused;
-    notifyListeners();
-    final process = lldbProcess;
-    if (process == null) return;
-    _collectingRegisters = true;
-    variables.clear();
-    process.stdin.writeln('register read --all');
-    process.stdin.writeln('script print("@@ASMREGS_END")');
-  }
-
-  static final RegExp _registerLine = RegExp(
-    r'^\s*(x\d+|w\d+|fp|lr|sp|pc|cpsr|d\d+|v\d+)\s*=\s*(.+?)\s*$',
-  );
-
   @override
   void handleStdoutLine(String line) {
-    final trimmed = line.trim();
-
-    // LLDB marks the stopped frame with `->  0x…`.
-    if (trimmed.startsWith('->')) {
-      _onStopReached();
-    } else if (_collectingRegisters) {
-      if (trimmed.contains('@@ASMREGS_END')) {
-        _collectingRegisters = false;
-        notifyListeners();
-        return;
-      }
-      final match = _registerLine.firstMatch(line);
-      if (match != null) {
-        variables.add(
-          Variable(
-            name: match.group(1)!,
-            value: match.group(2)!.trim(),
-            type: 'register',
-          ),
-        );
-        return;
-      }
-    }
-
     if (line.startsWith(CDebugger.snapshotMarker)) {
       final jsonPayload = line.substring(CDebugger.snapshotMarker.length);
-      try {
-        final decoded = json.decode(jsonPayload) as Map<String, dynamic>;
-        final disasm = decoded['disasm'] as String?;
-        if (disasm != null && disasm.isNotEmpty) {
-          emitOutput(disasm);
-        }
-      } catch (_) {}
+      _handleAsmSnapshot(jsonPayload);
+      return;
     }
-    super.handleStdoutLine(line);
+
+    final breakpointId = CDebugger.parseBreakpointId(line);
+    if (breakpointId != null) {
+      if (awaitingEntryBreakpointId) {
+        entryBreakpointId = breakpointId;
+        awaitingEntryBreakpointId = false;
+      } else {
+        lldbBreakpointIds.add(breakpointId);
+      }
+      emitOutput(line);
+      return;
+    }
+
+    final exitCode = CDebugger.parseExitCode(line);
+    if (exitCode != null) {
+      emitOutput(line);
+      unawaited(_handleAsmExit(exitCode));
+      return;
+    }
+
+    if (line.trim().isEmpty) return;
+    if (_isLldbChatter(line)) return;
+    emitOutput(line);
+  }
+
+  static bool _isLldbChatter(String line) {
+    final trimmed = line.trimLeft();
+    if (trimmed.startsWith('(lldb)')) return true;
+    if (trimmed.startsWith('* thread #')) return true;
+    if (trimmed.startsWith('frame #')) return true;
+    if (RegExp(r'^\d+\s+\t').hasMatch(trimmed)) return true;
+    if (trimmed.startsWith('^')) return true;
+    if (RegExp(r'^Target \d+: \(.*\) stopped\.$').hasMatch(trimmed)) {
+      return true;
+    }
+    if (RegExp(r'^Process \d+ stopped$').hasMatch(trimmed)) return true;
+    return false;
+  }
+
+  void _handleAsmSnapshot(String jsonPayload) {
+    try {
+      final decoded = json.decode(jsonPayload) as Map<String, dynamic>;
+
+      final pcHex = decoded['pc'] as String? ?? '';
+      int? currentPc;
+      if (pcHex.isNotEmpty) {
+        final cleanHex = pcHex.toLowerCase().replaceAll('0x', '');
+        currentPc = int.tryParse(cleanHex, radix: 16);
+      }
+
+      if (currentPc != null) {
+        _mainAddress ??= currentPc;
+        final offset = currentPc - _mainAddress!;
+        final mappedLine = _asmMap?.offsetToLine(offset);
+        if (mappedLine != null && mappedLine > 0) {
+          currentPausedLine = mappedLine;
+        } else if (_entryLine != null) {
+          currentPausedLine = _entryLine;
+        }
+      } else if (decoded['line'] != null && (decoded['line'] as num) > 0) {
+        currentPausedLine = (decoded['line'] as num).toInt();
+      } else if (_entryLine != null) {
+        currentPausedLine = _entryLine;
+      }
+
+      final rawVars = decoded['vars'] as List<dynamic>? ?? const [];
+      variables
+        ..clear()
+        ..addAll(
+          rawVars.map((v) {
+            final m = v as Map<String, dynamic>;
+            return Variable(
+              name: m['name'] as String? ?? '',
+              value: m['value'] as String? ?? '',
+              type: m['type'] as String? ?? 'register',
+            );
+          }),
+        );
+
+      final rawStack = decoded['stack'] as List<dynamic>? ?? const [];
+      callStack
+        ..clear()
+        ..addAll(
+          rawStack.map((s) {
+            final m = s as Map<String, dynamic>;
+            return StackFrame(
+              name: m['name'] as String? ?? '<unknown>',
+              filePath: m['file'] as String? ?? '',
+              line: (m['line'] as num?)?.toInt() ?? 0,
+              column: 0,
+            );
+          }),
+        );
+
+      final disasm = decoded['disasm'] as String?;
+      if (disasm != null && disasm.isNotEmpty) {
+        emitOutput(disasm);
+      }
+
+      final reason = decoded['reason'] as String? ?? 'stop';
+      final file = decoded['file'] as String? ?? '';
+      final displayFile = file.isNotEmpty
+          ? _basename(file)
+          : (sourcePath != null ? _basename(sourcePath!) : 'main.s');
+      emitOutput('[Paused at $displayFile:$currentPausedLine ($reason)]');
+
+      state = DebugState.paused;
+      notifyListeners();
+    } catch (e) {
+      emitOutput(
+        '[ARM64 Assembly debugger received a malformed stop payload: $e]',
+      );
+    }
+  }
+
+  Future<void> _handleAsmExit(int exitCode) async {
+    if (exitHandled) return;
+    exitHandled = true;
+    emitOutput('[ARM64 Assembly program exited with code $exitCode]');
+    await stopDebugging();
   }
 
   static String _basename(String path) {
@@ -266,9 +372,6 @@ const String _asmLldbHelperSource = r'''import json
 import sys
 
 def _path_of(entry):
-    # The FULL path matters: the editor compares it with the open document to
-    # decide which row gets the paused-line arrow. A bare file name never
-    # matched, so the "▶" marker never appeared for assembly.
     spec = entry.GetFileSpec()
     full = getattr(spec, "fullpath", None)
     if not full:
@@ -287,9 +390,6 @@ def _location(entity):
     return {"file": "", "line": 0}
 
 def borland_snapshot(debugger, command, result, internal_dict):
-    # Any exception inside a stop-hook is otherwise swallowed by LLDB, which is
-    # why the register snapshot silently never reached the IDE. Report it on
-    # stdout so the Console shows what actually failed.
     try:
         _emit_snapshot(debugger)
     except Exception as error:  # noqa: BLE001 - diagnostic path
@@ -302,7 +402,7 @@ def _emit_snapshot(debugger):
     process = target.GetProcess() if target else None
     if process is None:
         return
-    thread = process.GetSelectedThread()
+    thread = process.get_selected_thread() if hasattr(process, "get_selected_thread") else process.GetSelectedThread()
     if thread is None:
         return
     frame = thread.GetSelectedFrame()
@@ -322,16 +422,18 @@ def _emit_snapshot(debugger):
                     })
 
     pc_disasm = ""
+    pc_hex = ""
     if frame is not None:
         addr = frame.GetPCAddress()
         if addr and addr.IsValid():
             load_addr = addr.GetLoadAddress(target)
+            pc_hex = f"0x{load_addr:x}"
             insts = target.ReadInstructions(addr, 1)
             if insts and len(insts) > 0:
                 ins = insts[0]
                 mnemonic = ins.GetMnemonic(target) or ""
                 operands = ins.GetOperands(target) or ""
-                pc_disasm = f"pc=0x{load_addr:x}  {mnemonic} {operands}".strip()
+                pc_disasm = f"pc={pc_hex}  {mnemonic} {operands}".strip()
 
     stack = []
     for index in range(thread.GetNumFrames()):
@@ -347,15 +449,13 @@ def _emit_snapshot(debugger):
     payload = {
         "file": location["file"],
         "line": location["line"],
+        "pc": pc_hex,
         "reason": str(thread.GetStopReason()),
         "vars": variables,
         "stack": stack,
         "disasm": pc_disasm,
     }
     line = "@@BORLAND_SNAP " + json.dumps(payload)
-    # In prompt mode LLDB often swallows Python's sys.stdout, so the snapshot
-    # never reached the IDE even though the hook ran. Write to the debugger's
-    # own output file (the stream the IDE reads) and fall back to stdout.
     written = False
     try:
         out = debugger.GetOutputFile() if debugger is not None else None
