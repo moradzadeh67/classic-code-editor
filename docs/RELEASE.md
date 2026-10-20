@@ -36,9 +36,10 @@ scripts/release_gate/05_make_dmg.sh     # packages the .app into a DMG via hdiut
 1. `flutter analyze` clean, `flutter test` green (or run `01`/`02`).
 2. Bump `version:` in `pubspec.yaml` (`+build` increases every release).
 3. Run the whole gate: `03` → `04` → `05`.
-4. `gh release create vX.Y.Z build/macos/Build/Products/Release/...dmg --target main` with notes that
-   state the Gatekeeper step and the runtime requirements (`dart`, `python3`, `clang`, `lldb` on `PATH`).
-5. Optionally attach a `.sha256` of the DMG.
+4. `gh release create vX.Y.Z "build/distributions/Classic Code Editor-<version>.dmg" --target main \
+   --notes-file docs/RELEASE_NOTES_<version>.md` — the DMG lands in `build/distributions/`, **not** in
+   `build/macos/Build/Products/Release/` (that folder only holds the `.app`).
+5. Optionally attach a `.sha256` of the DMG (`shasum -a 256 "build/distributions/…dmg"`).
 6. `README.md` and `CHANGELOG.md` updated for the new version, and `docs/RELEASE_NOTES_<version>.md`
    written (paste it as the GitHub release body).
 
