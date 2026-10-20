@@ -412,6 +412,26 @@ persist on open/close/switch, File > numbered MRU + Clear Recent Files.
 **Status:** ✅ DONE
 **Completed:** CHANGELOG [Unreleased], TASKS/ARCHITECTURE/AGENTS/PRIVACY/README; analyze clean; 230 tests.
 
+## Phase 21 — v1.3.1 (NEXT)
+
+### TASK-044: Assembly source-line mapping / line breakpoints
+**Phase:** 21
+**Status:** 🔜 TODO
+**Why:** macOS cannot emit a DWARF line table for a hand-written `.s` (verified against
+`clang -g/-gdwarf-2/-gdwarf-4/-gline-tables-only/-Wa,-g`, `as -g` with `.loc`, cpp line markers;
+`llvm-mc` is not shipped). Today: no line breakpoints in `.s`, pause reported at the `_main` label,
+registers via `register read --all`.
+**Options:** (a) build our own address→line map while assembling and resolve breakpoints/lines from it;
+(b) `breakpoint set --address` from the same map; (c) revisit if a toolchain starts emitting line tables.
+**Done when:** clicking a `.s` line sets a breakpoint that actually stops there and `▶` lands on that line.
+
+### TASK-045: ARM64-only release build
+**Phase:** 21
+**Status:** 🔜 TODO
+**Why:** Xcode 27 warns that `x86_64` support is no longer required and will become the default.
+**Done when:** `flutter config --enable-macos-arm64-only` (or the project setting) is applied, the DMG
+still passes gates 03–05, and `docs/RELEASE.md` mentions the ARM-only build.
+
 ### TASK-039: Docs, Version, Release Gate
 **Phase:** 19
 **Status:** ✅ DONE

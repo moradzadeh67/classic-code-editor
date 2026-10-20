@@ -27,6 +27,7 @@
 | 18 | Editor Zoom & Gutter Metrics | ✅ DONE |
 | 19 | ARM64 Assembly, Turbo Pascal Theme & Editor UX | ✅ DONE |
 | 20 | Essential Editor Features (guard, Edit menu, session/MRU) | ✅ DONE |
+| 21 | v1.3.1 — Assembly line mapping, ARM64-only build | 🔜 NEXT |
 
 ## Rule
 - Phases are sequential
