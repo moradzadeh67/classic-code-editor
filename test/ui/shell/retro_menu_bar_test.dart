@@ -22,6 +22,17 @@ Finder _title(String label) => find
     .descendant(of: find.byType(RetroMenuBar), matching: find.text(label))
     .first;
 
+/// Labels of the open menu's rows that are currently checked.
+///
+/// The View menu carries two independent check groups - the active theme and
+/// the active font - so a bare `RetroMenuCheck` count is no longer meaningful;
+/// what matters is that each group checks exactly one of its own rows.
+List<String> _checkedLabels(WidgetTester tester) => tester
+    .widgetList<RetroMenuItem<String>>(find.byType(RetroMenuItem<String>))
+    .where((row) => row.checked == true)
+    .map((row) => row.label)
+    .toList();
+
 /// The menu row that is currently drawn with the "menu active" background.
 Finder _activeRow() => find.byWidgetPredicate(
   (widget) =>
@@ -96,7 +107,7 @@ void main() {
     }
   });
 
-  testWidgets('View menu checks only the active theme, four entries', (
+  testWidgets('View menu checks one theme and one font, four + three', (
     tester,
   ) async {
     await tester.pumpWidget(_wrap());
@@ -106,17 +117,17 @@ void main() {
     expect(find.text('Theme: Borland Delphi'), findsOneWidget);
     expect(find.text('Theme: Visual Basic 6.0'), findsOneWidget);
     expect(find.text('Theme: Turbo Pascal'), findsOneWidget);
-    expect(find.byType(RetroMenuCheck), findsOneWidget);
+    expect(find.text('Font: Menlo'), findsOneWidget);
+    expect(find.text('Font: Monaco'), findsNothing);
+    expect(find.text('Font: Recursive Mono Casual'), findsOneWidget);
 
-    var checkedRow = tester.widget<RetroMenuItem<String>>(
-      find
-          .ancestor(
-            of: find.byType(RetroMenuCheck),
-            matching: find.byType(RetroMenuItem<String>),
-          )
-          .first,
-    );
-    expect(checkedRow.label, 'Theme: VC++ 6.0');
+    var checked = _checkedLabels(tester);
+    expect(checked.where((label) => label.startsWith('Theme: ')), [
+      'Theme: VC++ 6.0',
+    ], reason: 'exactly one theme row is checked');
+    expect(checked.where((label) => label.startsWith('Font: ')), [
+      'Font: Menlo',
+    ], reason: 'exactly one font row is checked, and it is the default');
 
     await closeMenu(tester);
 
@@ -125,16 +136,13 @@ void main() {
     await tester.pumpWidget(_wrap());
     await openMenu(tester, 'View');
 
-    expect(find.byType(RetroMenuCheck), findsOneWidget);
-    checkedRow = tester.widget<RetroMenuItem<String>>(
-      find
-          .ancestor(
-            of: find.byType(RetroMenuCheck),
-            matching: find.byType(RetroMenuItem<String>),
-          )
-          .first,
-    );
-    expect(checkedRow.label, 'Theme: Borland Delphi');
+    checked = _checkedLabels(tester);
+    expect(checked.where((label) => label.startsWith('Theme: ')), [
+      'Theme: Borland Delphi',
+    ]);
+    expect(checked.where((label) => label.startsWith('Font: ')), [
+      'Font: Menlo',
+    ], reason: 'a theme switch must not disturb the font choice');
   });
 
   testWidgets('shortcuts live in their own column, sized from the text', (

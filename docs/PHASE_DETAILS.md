@@ -107,3 +107,14 @@ Main window layout:
 - Debugger sidebar only while a session is running/paused
 - Fourth theme: Turbo Pascal 7.0 (DOS navy) with the shared syntax palette
 - Deterministic settings save (removed a save/load ordering race)
+
+## Phase 20/21: Multi-Language Hardening & Assembly Line Mapping
+- Debugger hardening per language; ARM64 asm line breakpoints relative to `_main`
+
+## Phase 22: Editor Fonts
+- `View > Font`: **Menlo** (default) and **Recursive Mono Casual** (bundled, SIL OFL 1.1)
+- Stable ids in `editor_settings.json`; unknown/retired ids (e.g. `monaco`) fall back to Menlo
+- Gutter advance + wrapped-row caches keyed by size **and** family; line numbers use the code font
+- Strut forced for every family (unforced rows follow the fallback font of a Persian glyph)
+- Removed: Monaco (synthesized bold/italic, fallback-dependent metrics)
+- Tooling: `tool/probe_font_drift.dart` measures the running app (flutter_tester has no system fonts)

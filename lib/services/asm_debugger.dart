@@ -15,20 +15,64 @@ import 'debugger_environment.dart';
 /// `sp`, `pc`, `cpsr`) and single-instruction disassembly at PC, providing
 /// instruction-level stepping (`thread step-inst`, `thread step-inst-over`),
 /// and resolving line breakpoints and pause locations via source address mapping.
+///
+/// # Why we map addresses ourselves
+///
+/// Apple's toolchain cannot emit a DWARF line table for a hand-written `.s`
+/// file, so LLDB has no source lines for it and `breakpoint set --line` never
+/// resolves. [Arm64AsmParser] therefore computes the byte offset of every
+/// instruction relative to the entry symbol (`_main`/`main`), and this class
+/// translates those offsets into absolute addresses once the program is
+/// running:
+///
+/// ```text
+/// entry stop (breakpoint on `main`)   ->  base = <load address of main>
+/// gutter breakpoint on line N         ->  breakpoint set -a <base + offset(N)>
+/// reached stop with pc                ->  line = offsetToLine(pc - base)
+/// ```
+///
+/// `-a` (absolute address) is used instead of `-R` (address slide) because
+/// `-R` only accepts an *unsigned* slide: a breakpoint on a helper assembled
+/// before `_main` needs a negative delta, which `-R` mangles into an unrelated
+/// address.
 class AsmDebugger extends CDebugger {
   AsmDebugger({super.clangPath = 'clang', super.lldbPath = 'lldb'});
 
   Arm64AsmMap? _asmMap;
-  int? _mainAddress;
+  int? _baseAddress;
   int? _entryLine;
+  int? _minOffset;
+  int? _maxOffset;
+
+  /// Source line -> lldb breakpoint id, for the breakpoints this session owns.
+  ///
+  /// Only these ids are ever deleted, so a resync can never hit lldb's
+  /// "No breakpoints exist to be deleted" path or remove the entry breakpoint.
+  final Map<int, int> _lineBreakpointIds = <int, int>{};
+
+  /// Lines whose `breakpoint set` reply has not arrived yet, in issue order.
+  final List<int> _pendingBreakpointLines = <int>[];
+
+  /// Absolute addresses the current gutter breakpoints resolve to.
+  ///
+  /// Exposed so a test can prove the offset base without driving lldb.
+  @visibleForTesting
+  final List<int> plannedBreakpointAddresses = <int>[];
 
   /// Parsed address map for the active assembly source.
   @visibleForTesting
   Arm64AsmMap? get asmMap => _asmMap;
 
-  /// Base address of `_main` entry in the running process.
+  /// Load address of `main` in the running process, known after the entry stop.
   @visibleForTesting
-  int? get mainAddress => _mainAddress;
+  int? get mainAddress => _baseAddress;
+
+  /// lldb id of the implicit entry breakpoint, null until lldb reports it.
+  @visibleForTesting
+  int? get entryBreakpointLldbId => entryBreakpointId;
+
+  @override
+  String get debuggerLabel => 'ARM64 Assembly';
 
   bool _isAppleSiliconSync() {
     if (!Platform.isMacOS) return false;
@@ -48,6 +92,8 @@ class AsmDebugger extends CDebugger {
     }
     debugPrint('AsmDebugger: start ($state) for $filePath');
 
+    _resetSessionBookkeeping();
+
     try {
       sourcePath = filePath;
       final source = await _prepareSourceAsm(filePath, content);
@@ -55,8 +101,7 @@ class AsmDebugger extends CDebugger {
         compiledSource = source;
         try {
           final fileContent = await File(source).readAsString();
-          _asmMap = Arm64AsmParser.parse(fileContent);
-          _entryLine = _asmMap!.entryLine;
+          _loadAsmMap(fileContent);
         } catch (e) {
           debugPrint('AsmDebugger: error parsing asm source: $e');
         }
@@ -64,7 +109,6 @@ class AsmDebugger extends CDebugger {
     } catch (e) {
       debugPrint('AsmDebugger: error preparing source: $e');
     }
-    _mainAddress = null;
 
     if (DebuggerEnvironment.shouldShortCircuit) {
       currentPausedLine = null;
@@ -116,6 +160,34 @@ class AsmDebugger extends CDebugger {
       emitOutput('[Failed to start ARM64 Assembly debug session: $e]');
       state = DebugState.stopped;
       notifyListeners();
+    }
+  }
+
+  /// Clears everything that describes a *previous* lldb process.
+  ///
+  /// Without this a second Debug session tries to delete the first session's
+  /// breakpoint ids, and lldb answers with one `error: No breakpoints exist to
+  /// be deleted.` per id.
+  void _resetSessionBookkeeping() {
+    _baseAddress = null;
+    _lineBreakpointIds.clear();
+    _pendingBreakpointLines.clear();
+    entryBreakpointId = null;
+    awaitingEntryBreakpointId = false;
+    lldbBreakpointIds.clear();
+  }
+
+  void _loadAsmMap(String source) {
+    final map = Arm64AsmParser.parse(source);
+    _asmMap = map;
+    _entryLine = map.entryLine;
+    if (map.offsetToLineMap.isEmpty) {
+      _minOffset = null;
+      _maxOffset = null;
+    } else {
+      final offsets = map.offsetToLineMap.keys;
+      _minOffset = offsets.reduce((a, b) => a < b ? a : b);
+      _maxOffset = offsets.reduce((a, b) => a > b ? a : b);
     }
   }
 
@@ -174,28 +246,49 @@ class AsmDebugger extends CDebugger {
       'command script add -f borland_lldb_asm.borland_snapshot borland_snapshot',
     );
     writeLldb('target stop-hook add -o borland_snapshot');
-    resyncBreakpoints();
+    // Only one entry breakpoint: lldb already knows the symbol as `main`, and a
+    // second `--name _main` breakpoint could only report "no locations".
     awaitingEntryBreakpointId = true;
-    writeLldb('breakpoint set --name _main');
     writeLldb('breakpoint set --name main');
     writeLldb('run');
   }
 
+  /// Re-installs every gutter breakpoint at its absolute address.
+  ///
+  /// Does nothing until the entry stop has told us where `main` was loaded;
+  /// [_handleAsmSnapshot] calls it again at that moment.
   @override
   void resyncBreakpoints() {
+    final plan = _planBreakpoints();
+    plannedBreakpointAddresses
+      ..clear()
+      ..addAll(plan.keys);
+
     final lldb = lldbProcess;
     if (lldb == null) return;
 
     final entryId = entryBreakpointId;
-    for (final id in lldbBreakpointIds) {
+    for (final id in _lineBreakpointIds.values) {
       if (id == entryId) continue;
       writeLldb('breakpoint delete $id');
     }
-    lldbBreakpointIds.clear();
+    _lineBreakpointIds.clear();
+    _pendingBreakpointLines.clear();
 
+    plan.forEach((address, line) {
+      _pendingBreakpointLines.add(line);
+      writeLldb('breakpoint set -a 0x${address.toRadixString(16)}');
+    });
+  }
+
+  /// Absolute address -> source line for every gutter breakpoint.
+  ///
+  /// Empty until the entry stop has reported where `main` was loaded, because
+  /// the address of an instruction can only be computed from that base.
+  Map<int, int> _planBreakpoints() {
+    final base = _baseAddress;
     final map = _asmMap;
-    final source = compiledSource;
-    if (map == null || source == null) return;
+    if (base == null || map == null) return const <int, int>{};
 
     final path = sourcePath;
     final lines =
@@ -208,13 +301,16 @@ class AsmDebugger extends CDebugger {
             .toList()
           ..sort();
 
+    // Several source lines can resolve to one instruction (a label plus the
+    // instruction on the same line, or a label followed by its body). Dedupe by
+    // address so a single location never gets two breakpoints.
+    final planned = <int, int>{};
     for (final line in lines) {
       final offset = map.lineToOffset(line);
-      if (offset != null) {
-        writeLldb('breakpoint set -n main -R $offset');
-        writeLldb('breakpoint set -n _main -R $offset');
-      }
+      if (offset == null) continue;
+      planned.putIfAbsent(base + offset, () => line);
     }
+    return planned;
   }
 
   @override
@@ -245,10 +341,13 @@ class AsmDebugger extends CDebugger {
       if (awaitingEntryBreakpointId) {
         entryBreakpointId = breakpointId;
         awaitingEntryBreakpointId = false;
-      } else {
-        lldbBreakpointIds.add(breakpointId);
+      } else if (_pendingBreakpointLines.isNotEmpty) {
+        final bpLine = _pendingBreakpointLines.removeAt(0);
+        _lineBreakpointIds[bpLine] = breakpointId;
       }
-      emitOutput(line);
+      // "no locations (pending)" and its WARNING are noise: the address is
+      // resolved by us, so a pending breakpoint can only be a mistake.
+      if (line.contains('where = ')) emitOutput(line);
       return;
     }
 
@@ -264,13 +363,31 @@ class AsmDebugger extends CDebugger {
     emitOutput(line);
   }
 
+  /// Commands this class feeds to lldb's stdin, as lldb echoes them back.
+  static final RegExp _commandEcho = RegExp(
+    r'^(breakpoint (set|delete)\s|thread step-inst|thread step-out|continue$|run$|quit$)',
+  );
+
   static bool _isLldbChatter(String line) {
     final trimmed = line.trimLeft();
     if (trimmed.startsWith('(lldb)')) return true;
     if (trimmed.startsWith('* thread #')) return true;
     if (trimmed.startsWith('frame #')) return true;
+    // lldb's own disassembly at the stop: "->  0x1000004d0 <+0>: stp ...",
+    // the following "0x1000004d4 <+4>: ..." lines and the "exe`main:" header.
+    // The stop-hook already prints a single `pc=0x…  <instruction>` line.
+    if (trimmed.startsWith('->')) return true;
+    if (RegExp(r'^0x[0-9a-fA-F]+\s').hasMatch(trimmed)) return true;
+    if (RegExp(r'^[\w.$]+`[\w.$]+:$').hasMatch(trimmed)) return true;
     if (RegExp(r'^\d+\s+\t').hasMatch(trimmed)) return true;
     if (trimmed.startsWith('^')) return true;
+    if (trimmed.toLowerCase().startsWith('warning:')) return true;
+    if (trimmed.contains('no locations')) return true;
+    // `breakpoint delete` acknowledgement produced by every resync.
+    if (RegExp(r'^\d+ breakpoints? deleted').hasMatch(trimmed)) return true;
+    // lldb echoes any command that arrives while the inferior is running, so a
+    // resync fired from a paused session would print `breakpoint set -a 0x…`.
+    if (_commandEcho.hasMatch(trimmed)) return true;
     if (RegExp(r'^Target \d+: \(.*\) stopped\.$').hasMatch(trimmed)) {
       return true;
     }
@@ -279,79 +396,120 @@ class AsmDebugger extends CDebugger {
   }
 
   void _handleAsmSnapshot(String jsonPayload) {
+    final int? pc;
+    final List<StackFrame> frames;
+    final List<Variable> registers;
+    final String disasm;
+    final String reason;
+    final String file;
+
     try {
       final decoded = json.decode(jsonPayload) as Map<String, dynamic>;
-
-      final pcHex = decoded['pc'] as String? ?? '';
-      int? currentPc;
-      if (pcHex.isNotEmpty) {
-        final cleanHex = pcHex.toLowerCase().replaceAll('0x', '');
-        currentPc = int.tryParse(cleanHex, radix: 16);
-      }
-
-      if (currentPc != null) {
-        _mainAddress ??= currentPc;
-        final offset = currentPc - _mainAddress!;
-        final mappedLine = _asmMap?.offsetToLine(offset);
-        if (mappedLine != null && mappedLine > 0) {
-          currentPausedLine = mappedLine;
-        } else if (_entryLine != null) {
-          currentPausedLine = _entryLine;
-        }
-      } else if (decoded['line'] != null && (decoded['line'] as num) > 0) {
-        currentPausedLine = (decoded['line'] as num).toInt();
-      } else if (_entryLine != null) {
-        currentPausedLine = _entryLine;
-      }
-
-      final rawVars = decoded['vars'] as List<dynamic>? ?? const [];
-      variables
-        ..clear()
-        ..addAll(
-          rawVars.map((v) {
-            final m = v as Map<String, dynamic>;
-            return Variable(
-              name: m['name'] as String? ?? '',
-              value: m['value'] as String? ?? '',
-              type: m['type'] as String? ?? 'register',
-            );
-          }),
+      pc = _parseHex(decoded['pc'] as String?);
+      frames = (decoded['stack'] as List<dynamic>? ?? const []).map((s) {
+        final m = s as Map<String, dynamic>;
+        return StackFrame(
+          name: m['name'] as String? ?? '<unknown>',
+          filePath: m['file'] as String? ?? '',
+          line: (m['line'] as num?)?.toInt() ?? 0,
+          column: 0,
         );
-
-      final rawStack = decoded['stack'] as List<dynamic>? ?? const [];
-      callStack
-        ..clear()
-        ..addAll(
-          rawStack.map((s) {
-            final m = s as Map<String, dynamic>;
-            return StackFrame(
-              name: m['name'] as String? ?? '<unknown>',
-              filePath: m['file'] as String? ?? '',
-              line: (m['line'] as num?)?.toInt() ?? 0,
-              column: 0,
-            );
-          }),
+      }).toList();
+      registers = (decoded['vars'] as List<dynamic>? ?? const []).map((v) {
+        final m = v as Map<String, dynamic>;
+        return Variable(
+          name: m['name'] as String? ?? '',
+          value: m['value'] as String? ?? '',
+          type: m['type'] as String? ?? 'register',
         );
-
-      final disasm = decoded['disasm'] as String?;
-      if (disasm != null && disasm.isNotEmpty) {
-        emitOutput(disasm);
-      }
-
-      final reason = decoded['reason'] as String? ?? 'stop';
-      final file = decoded['file'] as String? ?? '';
-      final displayFile = file.isNotEmpty
-          ? _basename(file)
-          : (sourcePath != null ? _basename(sourcePath!) : 'main.s');
-      emitOutput('[Paused at $displayFile:$currentPausedLine ($reason)]');
-
-      state = DebugState.paused;
-      notifyListeners();
+      }).toList();
+      disasm = decoded['disasm'] as String? ?? '';
+      reason = decoded['reason'] as String? ?? 'stop';
+      file = decoded['file'] as String? ?? '';
     } catch (e) {
       emitOutput(
         '[ARM64 Assembly debugger received a malformed stop payload: $e]',
       );
+      return;
     }
+
+    // Before `main` is located we only accept the entry stop. Every session
+    // first stops in the dynamic loader (`_dyld_start`, stop reason
+    // "signal SIGSTOP"); reporting it would flash the arrow onto line 1 and
+    // point the address base at an address that is not a symbol.
+    if (_baseAddress == null) {
+      if (pc == null || frames.isEmpty || !_isEntryFrame(frames.first.name)) {
+        return;
+      }
+      _baseAddress = pc;
+      // The slide is known now, so the gutter breakpoints can finally be
+      // translated into absolute addresses - still before the user continues.
+      resyncBreakpoints();
+    }
+
+    currentPausedLine = _lineForPc(pc);
+    state = DebugState.paused;
+
+    variables
+      ..clear()
+      ..addAll(registers);
+    callStack
+      ..clear()
+      ..addAll(frames);
+
+    if (disasm.isNotEmpty) emitOutput(disasm);
+
+    final displayFile = _displaySourceName(file);
+    final where = currentPausedLine == null
+        ? displayFile
+        : '$displayFile:$currentPausedLine';
+    emitOutput('[Paused at $where ($reason)]');
+
+    notifyListeners();
+  }
+
+  /// Maps a stopped program counter back to a 1-indexed source line.
+  int? _lineForPc(int? pc) {
+    final base = _baseAddress;
+    final map = _asmMap;
+    if (pc == null || base == null || map == null) return _entryLine;
+
+    final offset = pc - base;
+    // Stops outside the assembled unit (stepping into `printf`, a signal, the
+    // process epilogue) carry no source line; keep the arrow on the entry.
+    final min = _minOffset;
+    final max = _maxOffset;
+    if (min != null && max != null && (offset < min || offset > max)) {
+      return _entryLine;
+    }
+    return map.offsetToLine(offset) ?? _entryLine;
+  }
+
+  /// Console-facing file name for a stop.
+  ///
+  /// lldb reports no file for `.s` stops, so the source is named after the buffer
+  /// the user is editing. An unsaved buffer has a *label* as its path
+  /// ("Untitled"), which reads badly in the Console, so the temp copy that was
+  /// actually compiled ("main.s") is preferred in that case.
+  String _displaySourceName(String fromSnapshot) {
+    if (fromSnapshot.isNotEmpty) return _basename(fromSnapshot);
+    final path = sourcePath;
+    if (path != null && (path.contains('/') || path.contains(r'\'))) {
+      return _basename(path);
+    }
+    final compiled = compiledSource;
+    if (compiled != null) return _basename(compiled);
+    if (path != null && path.isNotEmpty) return _basename(path);
+    return 'main.s';
+  }
+
+  static bool _isEntryFrame(String name) => name == 'main' || name == '_main';
+
+  static int? _parseHex(String? value) {
+    if (value == null) return null;
+    final cleaned = value.trim().toLowerCase().replaceFirst('0x', '');
+    if (cleaned.isEmpty) return null;
+    return int.tryParse(cleaned, radix: 16);
   }
 
   Future<void> _handleAsmExit(int exitCode) async {
@@ -371,6 +529,11 @@ class AsmDebugger extends CDebugger {
 const String _asmLldbHelperSource = r'''import json
 import sys
 
+REGISTER_NAMES = set(
+    [f"x{i}" for i in range(29)] + ["fp", "lr", "sp", "pc", "cpsr"]
+)
+
+
 def _path_of(entry):
     spec = entry.GetFileSpec()
     full = getattr(spec, "fullpath", None)
@@ -379,6 +542,7 @@ def _path_of(entry):
         name = spec.GetFilename() or ""
         full = f"{directory}/{name}" if directory else name
     return full or ""
+
 
 def _location(entity):
     entry = entity.GetLineEntry() if entity else None
@@ -389,6 +553,7 @@ def _location(entity):
         }
     return {"file": "", "line": 0}
 
+
 def borland_snapshot(debugger, command, result, internal_dict):
     try:
         _emit_snapshot(debugger)
@@ -397,27 +562,36 @@ def borland_snapshot(debugger, command, result, internal_dict):
         sys.stdout.flush()
 
 
+def _stop_reason(thread):
+    """Human text for the stop, e.g. "breakpoint 1.1" or "instruction step"."""
+    try:
+        description = thread.GetStopDescription(256)
+    except Exception:  # noqa: BLE001 - older/newer SB API
+        description = None
+    if description:
+        return description
+    return f"stop reason {thread.GetStopReason()}"
+
+
 def _emit_snapshot(debugger):
     target = debugger.GetSelectedTarget()
     process = target.GetProcess() if target else None
     if process is None:
         return
-    thread = process.get_selected_thread() if hasattr(process, "get_selected_thread") else process.GetSelectedThread()
+    thread = process.GetSelectedThread()
     if thread is None:
         return
     frame = thread.GetSelectedFrame()
 
-    reg_names = set([f"x{i}" for i in range(29)] + ["fp", "lr", "sp", "pc", "cpsr"])
     variables = []
     if frame is not None:
         for reg_set in frame.GetRegisters():
             for reg in reg_set:
                 rname = reg.GetName()
-                if rname in reg_names:
-                    val = reg.GetValue() or ""
+                if rname in REGISTER_NAMES:
                     variables.append({
                         "name": rname,
-                        "value": val,
+                        "value": reg.GetValue() or "",
                         "type": "register",
                     })
 
@@ -426,8 +600,7 @@ def _emit_snapshot(debugger):
     if frame is not None:
         addr = frame.GetPCAddress()
         if addr and addr.IsValid():
-            load_addr = addr.GetLoadAddress(target)
-            pc_hex = f"0x{load_addr:x}"
+            pc_hex = f"0x{addr.GetLoadAddress(target):x}"
             insts = target.ReadInstructions(addr, 1)
             if insts and len(insts) > 0:
                 ins = insts[0]
@@ -450,7 +623,7 @@ def _emit_snapshot(debugger):
         "file": location["file"],
         "line": location["line"],
         "pc": pc_hex,
-        "reason": str(thread.GetStopReason()),
+        "reason": _stop_reason(thread),
         "vars": variables,
         "stack": stack,
         "disasm": pc_disasm,
@@ -463,7 +636,7 @@ def _emit_snapshot(debugger):
             out.Write(line + "\n")
             out.Flush()
             written = True
-    except Exception:
+    except Exception:  # noqa: BLE001 - fall back to stdout below
         written = False
     if not written:
         sys.stdout.write(line + "\n")

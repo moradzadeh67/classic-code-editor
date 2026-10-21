@@ -6,12 +6,149 @@ All notable changes to Classic Code Editor are documented here. The format follo
 
 ## [Unreleased]
 
+### Changed
+- **Monaco removed — `View > Font` now offers two faces: Menlo (default) and Recursive Mono Casual.**
+  Monaco ships no real bold or italic (macOS synthesizes both), and its metrics made the row height follow
+  the fallback font of a Persian glyph. `EditorFontFamily` lost the `monaco` value, the menu lost its row,
+  and a settings file that still says `"fontFamily": "monaco"` resolves to `menlo` through `fromId`'s
+  fallback - nobody is left without a font. All font tests, the probe and the docs were narrowed to two
+  families; `editor_font_settings_test` gained the migration case.
+
 ### Added
-- **ARM64 Assembly Address-to-Line Mapping (`Arm64AsmParser` / `AsmDebugger`)** — parses hand-written `.s` files into 4-byte instruction offset maps relative to `_main`/`main`, enabling precise line breakpoints via `breakpoint set -n main -R <offset>` and accurate pause tracking (`▶`) and register inspection on any line.
+- **Editor font choice (`View > Font`)** — **Menlo** (default, pixel-identical to before) or
+  **Recursive Mono Casual**, with a check mark on the active one. The choice is persisted next to `fontSize`
+  in `editor_settings.json` as a stable id (`menlo` | `recursive`); an unknown or corrupt value
+  falls back to Menlo, and older files without the key keep working. It applies to the code **and** the
+  gutter line numbers, while the rest of the UI stays on Arial: the glyph advance and the wrapped-row
+  measurement are now keyed by **both** size and family, so switching fonts cannot leave the gutter
+  carrying a stale cache (the TASK-019 drift). Ligatures are disabled for both.
+- **Recursive Mono Casual is bundled** (`assets/fonts/`, four static faces + `OFL.txt`, ~1.5 MB) and
+  declared in `pubspec.yaml` under the alias `RecursiveMonoCasual`, so the lookup never depends on a font
+  installed on the host. New `THIRD_PARTY_NOTICES.md`; README gained a *Fonts and licensing* section.
+- New tests: `editor_font_settings_test.dart`, `editor_font_metrics_test.dart`, `editor_font_gutter_test.dart`
+  (both families × sizes 8/13/32, arrow marker, cache invalidation), `view_menu_font_test.dart`, and
+  `editor_font_measure_test.dart`, which measures the **real** glyph advance and line height per family and
+  documents the strut finding below.
+- **ARM64 Assembly source-line debugging** — clicking the gutter of a hand-written `.s` file now sets a
+  breakpoint that stops on exactly that line, anywhere in the file, including code assembled *before*
+  `_main`. `Arm64AsmParser` maps every instruction to a 4-byte offset **relative to the entry symbol**
+  (negative before it, because Apple's toolchain ships no DWARF line table for `.s`), and `AsmDebugger`
+  installs the breakpoints with `breakpoint set -a <main + offset>` once the entry stop reveals the load
+  address. The `▶` marker, the register file (`x0`..`x28`, `fp`, `lr`, `sp`, `pc`, `cpsr`) and one
+  `pc=0x… <instruction>` Console line now appear at every stop, and Step Into/Step Over move both the
+  arrow and the registers by one instruction.
+- `samples/array_sum_arm64.s` — a helper function assembled before `_main`, `.data`/`__cstring` sections and
+  a real `bl _printf`, used as the fixture for the mapping tests and for the opt-in lldb test.
+- New tests: `arm64_asm_map_test.dart`, `asm_debugger_transcript_test.dart` (replayed real lldb transcript)
+  and `test/integration/arm64_asm_breakpoint_test.dart` (opt-in, real `clang`+`lldb`).
 - Turbo Pascal + ARM64 Assembly screenshots (`assets/screenshots/tp-editor|tp-debugger|tp-terminal.png`)
   in the README gallery, and refreshed architecture diagrams (SVG sources + PNG exports).
 
 ### Fixed
+- **First open with a big pasted, wrapping document numbered the rows wrong until a resize.** The exact row
+  model is measured from the renderer in a post-frame pass, and that pass used to **give up silently** when
+  the editable was not measurable yet (absent, or still `debugNeedsLayout`) - which is exactly the first frame
+  after the app opens with a large paste. The *predicted* rows then stayed in place, and only a resize threw
+  them away and re-measured. The pass now retries (bounded, requesting a frame) until the renderer is
+  measurable, and rejects a measurement that reports fewer rows than the document has logical lines (a line
+  can never occupy less than one row) - the signature of a layout that still belongs to the previous text.
+  Regression test: `editor_wrapped_gutter_test.dart` "a big paste at first open still numbers every row
+  correctly".
+- **A continuation row in the gutter created a breakpoint on line 0.** A wrapped line's second and later
+  rows have no line number (`0`), but the gutter row was still tappable and called `setBreakpoint(path, 0)` —
+  an entry every debugger rejects, and one that painted a bullet on a row that has no number. Continuation
+  rows are now inert, and `_toggleBreakpoint` ignores non-positive lines. Regression test:
+  `editor_wrapped_gutter_test.dart` (tap the continuation row → no breakpoint; tap the numbered row →
+  breakpoint on that line).
+- **The hover tooltip/autocomplete anchor was clobbered on mouse move.** `MouseRegion.onHover` overwrote
+  `_cursorScreenOffset` with `event.position + 24px` before the (debounced) hover request ran, so a hover that
+  found nothing left the popup anchored 24px below the pointer. The anchor now comes only from the caret.
+- **A wrapped line was highlighted on its first row only.** The current-line band was a fixed `lineHeight`
+  tall, so the second and third segments of a wrapped logical line stayed unhighlighted - unlike every
+  desktop editor, where the whole line is marked. The band now spans every visual row of the caret's logical
+  line (its height is `(caret(after the newline) - caret(line start)) / lineHeight` rows), and stays one row
+  for a normal line. Locked by `editor_wrapped_gutter_test.dart` (wrapped line → two rows tall and starting on
+  the gutter's number row; normal line → one row) and asserted per-click in `editor_click_line_test`.
+- **The current-line band sat 1px above the line numbers.** The band was positioned at the caret rect's
+  `top`; Flutter inflates that rect ~1px above its line box, so the highlight always started a pixel higher
+  than the number of the same row (measured in the running app: `numberRow - caretRow = +1` for Menlo and
+  Recursive at 8/13/32). The band now takes only the *row* from the renderer and draws at `row * lineHeight`,
+  the same grid the gutter uses. Verified in the app with `tool/probe_baseline.dart`
+  (`bandVsNumber = 0.0` for every font × size) and locked by `editor_click_line_test` (band top must equal the
+  number row within 0.01px).
+- **Wrapped rows broke the gutter.** Narrowing the editor made the numbers drift and the wrapped (second)
+  row of a long line look unselectable. The gutter *predicted* how many rows a line occupies: a monospace
+  character-count gate, then a `TextPainter` laid out at an assumed width. A prediction cannot be right - a
+  Persian string is set in the fallback font, where a glyph is wider than the measured advance, and the
+  painter's width is not the `TextField`'s width - so a line counted as one row rendered as two and every
+  number below it sat a row too high. The rows now come from the **renderer**: the row count is the caret
+  travel from the first to the last offset divided by `lineHeight`, and each logical line is placed at the row
+  its caret actually occupies. The `TextPainter` path survives only as a one-frame stopgap while the first
+  layout is still pending. Regression test: `editor_wrapped_gutter_test.dart` (both fonts, 520px and 400px
+  editors that provably wrap: numbers on their own row, blank continuation rows, clicking a wrapped row
+  selects its line).
+- **Gutter numbers sat a pixel or two above the code** (worst with Recursive Mono Casual). The digits were
+  laid out with the code's strut but with *their own* font size (11px), so their baseline depended on the
+  `height`/leading that the editor theme leaks into the gutter: the theme's `TextHeightBehavior` distributed
+  the leading evenly, which lifted the digit above the code's baseline, and the offset grew with the font
+  size. The number now sets `height: lineHeight / lineNumberFontSize` and an explicit **proportional**
+  `TextHeightBehavior`, so its baseline is `ascentRatio * lineHeight` - the same value the code's forced strut
+  uses. Note for future readers: `RenderEditable.computeDistanceToActualBaseline` reports ~1px **less** than
+  where a forced strut actually paints, which is how this stayed green in `gutter_alignment_test` while being
+  visible on screen; that test now derives the reference from the strut geometry instead.
+- **The current-line band could sit a few rows off the caret, and the status bar never showed the caret.**
+  The band was positioned from `_caretLine` + the gutter's wrap-aware row cache, and that value was
+  measured during `build` - before the field's own "scroll caret into view" (and, after an edit, before the
+  new layout existed). The result was the reported "I click line 400, line 396 gets selected": the band (and
+  the bold gutter number) were drawn a row per discrepancy above the caret while the numbers still looked
+  aligned. The band is now positioned from **the renderer's caret rect** (`getLocalRectForCaret`), measured
+  again in a post-frame pass so it uses the frame's final layout. The status bar's `Ln/Col` was never wired
+  either - `RetroStatusBar.positionText` kept its `'Ln 1, Col 1'` default - so the editor now reports the
+  caret through `CodeEditorPanel.onCaretChanged` and the shell passes `Ln n, Col m` to the status bar.
+  Regression tests: `editor_click_line_test.dart` (click → selection, reported position, band top and gutter
+  number must agree, in wrapped documents with Persian text; plus `goToLine` and an edit above the caret).
+- **Monaco drifted away from the gutter in the real app — fixed by forcing the strut for every family.**
+  The earlier Monaco "fix" (letting `height` alone set the row) was wrong: **without** `forceStrutHeight`
+  the row is set by the font of whichever glyph is on the line, so a line containing Persian text fell back
+  to another face and grew — Monaco's rows became 13/20/49px at sizes 8/13/32 instead of 12/19/47. Measured
+  in the running macOS app on a 1000-line document: the caret of line 400 sat **399px** (8/13) and **799px**
+  (32) below where the gutter had reserved space, i.e. ~4–8 rows of drift by line 400, plus wrong
+  click-to-line hits and a current-line band in the wrong place. Every family now forces the strut at the
+  plain `lineHeight / fontSize` factor, and the probe reports `d=0.0` for ASCII, Persian and mixed text at
+  8/13/32 over 1000 lines. Menlo is untouched (same style, same factor, pixel-identical); Monaco was later
+  removed entirely (see Changed).
+  Note for future readers: `TextPainter.height` floors the strut halves, so a painter can report a forced
+  row 1–3px short while the editor's `RenderEditable` rounds `fontSize × height` and renders it exactly.
+  Calibrating the factor for that painter number is what made the editor render 20px rows at size 13.
+- **`View > Font` kept its check mark on the previous font.** The rows were built in the menu bar's
+  `build()` and captured by `itemBuilder`, and the bar listens only to `SessionService`, so choosing a font
+  changed the editor but nothing rebuilt the bar: the next popup still showed the old row. The rows are now
+  built **when the popup opens**, which fixes the theme rows on the same path. Regression test:
+  `test/ui/shell/font_menu_live_check_test.dart` (choose → reopen → read the check, with no rebuild).
+- **Verification tooling:** `tool/probe_font_drift.dart`
+  (`flutter run -d macos -t tool/probe_font_drift.dart`) measures a real `TextField` in the running app for
+  every family × size × text kind over 1000 lines and prints `OK`/`DRIFT` per case — the instrument that
+  found both bugs, since `flutter_tester` has no CoreText and no system fonts.
+- **ARM64 Assembly: the Variables panel and the `▶` marker came back empty.** The lldb stdout stream was
+  wired to `CDebugger`'s private line handler, so `AsmDebugger`'s override never saw the `@@BORLAND_SNAP`
+  payload and the C-shaped snapshot parser silently dropped it (no `file`, no `line`). The stream now goes
+  through the virtual `handleStdoutLine`, and the loader's `_dyld_start` stop is ignored so the arrow never
+  flashes onto line 1 before `main`.
+- **ARM64 Assembly: breakpoints landed past the end of `main`.** Offsets were counted from the top of the
+  file instead of from `_main`, and they were applied with `-R` (address slide), which also rejects a
+  negative slide — `-n main -R -20` resolved to the unrelated address `0x2000004bc`. Offsets are now
+  entry-relative and applied as absolute addresses with `-a`.
+- **ARM64 Assembly: duplicate and pending breakpoints.** The second `breakpoint set --name _main` is gone
+  (lldb knows the symbol as `main`), and a breakpoint plan is deduped by address before it is issued.
+- **ARM64 Assembly: `error: No breakpoints exist to be deleted.` on every restart.** The ids of the
+  previous lldb session survived teardown, so the next session tried to delete them. They are cleared when
+  a session ends and when a new one starts, and only ids this session created are ever deleted.
+- **ARM64 Assembly: the Console said `[C debugging stopped]`.** `CDebugger` now exposes an overridable
+  `debuggerLabel`, so the engine announces itself as `ARM64 Assembly`.
+- **ARM64 Assembly: `.section __TEXT,__cstring,…` was parsed as code** because its *segment* name contains
+  `__TEXT`; the second comma-separated token now decides, so string literals no longer shift every offset.
+- Gutter breakpoints added or removed during a session were not re-synced for the Assembly engine: the
+  `setBreakpoint`/`removeBreakpoint` overrides called the private resync instead of the virtual one.
 - Saving a **Dart** file spawned a second copy of the IDE instead of the formatter: `_formatCode`
   started `Platform.resolvedExecutable` (the app binary inside a packaged `.app`), which opened an
   empty black "Classic Code Editor" window and left the file unformatted. It now runs `dart format`

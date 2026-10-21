@@ -6,7 +6,51 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 
-/// Service that manages editor font-size settings with persistence.
+/// The editor fonts offered by View > Font.
+///
+/// [id] is what `editor_settings.json` stores, so renaming a label (or even the
+/// Flutter family) can never invalidate a user's saved choice. [fontFamily] is
+/// the name Flutter resolves: Menlo is a macOS system font used by its real
+/// family name, while the bundled Recursive faces live under our own alias so
+/// the lookup never depends on a family installed on the host.
+///
+/// Measured line heights (see `test/ui/editor/editor_font_measure_test.dart`)
+/// are 12/19/47 px at sizes 8/13/32 for both, which is exactly what
+/// `EditorMetrics.lineHeight` predicts.
+///
+/// Monaco is **not** offered: it has no real bold/italic (both are synthesized),
+/// and its metrics made the row height depend on the fallback font of a Persian
+/// glyph. A file that still says `"fontFamily": "monaco"` resolves to [menlo]
+/// through [fromId]'s fallback, so no user is left without a font.
+enum EditorFontFamily {
+  menlo('menlo', 'Menlo', 'Menlo'),
+  recursive('recursive', 'Recursive Mono Casual', 'RecursiveMonoCasual');
+
+  const EditorFontFamily(this.id, this.label, this.fontFamily);
+
+  /// Stable id persisted in `editor_settings.json`.
+  final String id;
+
+  /// Label shown in the View menu.
+  final String label;
+
+  /// Family name Flutter resolves to a real font.
+  final String fontFamily;
+
+  /// Resolves a persisted [id].
+  ///
+  /// Anything unknown - a corrupt file, a font removed in a later version (e.g.
+  /// the retired `monaco`), an old file with no key at all - falls back to
+  /// [menlo], the default the editor has always used.
+  static EditorFontFamily fromId(Object? id) {
+    for (final family in values) {
+      if (family.id == id) return family;
+    }
+    return menlo;
+  }
+}
+
+/// Service that manages editor font size and family with persistence.
 class EditorSettingsService extends ChangeNotifier {
   static const double minFontSize = 8;
   static const double maxFontSize = 32;
@@ -34,8 +78,12 @@ class EditorSettingsService extends ChangeNotifier {
 
   final Future<Directory> Function()? _directoryProvider;
   double _fontSize = defaultFontSize;
+  EditorFontFamily _fontFamily = EditorFontFamily.menlo;
 
   double get fontSize => _fontSize;
+
+  /// The editor font selected in View > Font.
+  EditorFontFamily get fontFamily => _fontFamily;
 
   bool get canIncrease => _fontSize < maxFontSize;
 
@@ -51,6 +99,13 @@ class EditorSettingsService extends ChangeNotifier {
     final clamped = v.clamp(minFontSize, maxFontSize);
     if (_fontSize == clamped) return; // notify ONLY on change
     _fontSize = clamped;
+    notifyListeners();
+    _save();
+  }
+
+  void setFontFamily(EditorFontFamily v) {
+    if (_fontFamily == v) return; // notify ONLY on change
+    _fontFamily = v;
     notifyListeners();
     _save();
   }
@@ -104,6 +159,14 @@ class EditorSettingsService extends ChangeNotifier {
           notifyListeners();
         }
       }
+
+      // An old file has no `fontFamily` key at all, and a corrupt or unknown
+      // value must never leave the editor without a font: both land on Menlo.
+      final family = EditorFontFamily.fromId(data['fontFamily']);
+      if (_fontFamily != family) {
+        _fontFamily = family;
+        notifyListeners();
+      }
     } catch (e) {
       debugPrint('EditorSettingsService load error: $e');
       // Never throws; corrupt/missing JSON falls back to default.
@@ -115,7 +178,10 @@ class EditorSettingsService extends ChangeNotifier {
     if (isTest && _directoryProvider == null) return;
 
     try {
-      final content = jsonEncode({'fontSize': _fontSize});
+      final content = jsonEncode({
+        'fontSize': _fontSize,
+        'fontFamily': _fontFamily.id,
+      });
       final cached = _cachedFile;
       if (cached != null) {
         // The path is already known (load() or an earlier save resolved it), so

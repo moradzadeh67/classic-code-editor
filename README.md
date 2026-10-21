@@ -139,6 +139,8 @@ ARM64 Assembly support: highlighting, Run, and the LLDB debugger with its regist
 - **Edit Menu:** Select All (`Cmd + A`), Go to Line (`Cmd + L`), Toggle Comment
   (`Cmd + /`), Duplicate Line (`Cmd + Shift + D`), Open (`Cmd + O`), Close Tab (`Cmd + W`)
 - **Editor Zoom:** `Cmd +` / `Cmd -` / `Cmd 0` changes font size (8..32) with live gutter alignment
+- **Editor Font:** `View > Font` picks **Menlo** (default) or **Recursive Mono Casual**;
+  the choice is remembered and applies to the code *and* the gutter line numbers
 
 ### 🐛 Real Multi-Language Debuggers
 - **Debug Controls:** Debug, Stop, Step Over, Step Into, Step Out, Continue
@@ -367,7 +369,8 @@ lib/
 - **2px borders** for 3D raised/sunken effects
 - **No gradients, no transparency**
 - **Dense spacing** (4-8px padding)
-- **Fonts:** Arial for UI, Menlo for code
+- **Fonts:** Arial for UI; code uses Menlo (default) or Recursive Mono Casual — see
+  [Fonts and licensing](#-fonts-and-licensing)
 - **Button height:** 22px (fixed)
 - **Colors come from ThemeService** — never hardcoded
 
@@ -479,6 +482,15 @@ Use the **Theme ▾** button in the toolbar (or the View menu). The choice is sa
 `.retro_theme_config.json` next to where you launched the app.
 </details>
 
+<details>
+<summary><b>6. How do I change the editor font?</b></summary>
+
+**View → Font** offers Menlo (default) and Recursive Mono Casual; the choice is saved in
+`editor_settings.json` and applies to the code and the gutter line numbers. If a settings file from an
+older build still names Monaco, the editor falls back to Menlo. See
+[Fonts and licensing](#-fonts-and-licensing).
+</details>
+
 ## 💻 Development Environment
 
 This project is actively developed and tested using:
@@ -556,6 +568,31 @@ Contributions, issues, and feature requests are welcome! Feel free to check the
 Security problems: please **do not** open a public issue — see [SECURITY.md](SECURITY.md).
 Release history: [CHANGELOG.md](CHANGELOG.md).
 
+## 🔤 Fonts and licensing
+
+The editor offers two faces (`View > Font`). Both are monospace, so the gutter
+measures one character advance and stays aligned with the code.
+
+| Font | Source | License |
+|---|---|---|
+| **Menlo** (default) | macOS system font | Bundled with macOS, not redistributed by this app |
+| **Recursive Mono Casual** | Bundled in `assets/fonts/` (static faces) | SIL Open Font License 1.1 |
+
+Monaco is deliberately **not** offered: it ships no real bold or italic (macOS
+synthesizes both), and its metrics let the row height follow the fallback font of
+a Persian glyph. A settings file that still asks for it falls back to Menlo.
+
+The four bundled Recursive faces (`RecursiveMonoCslSt-{Regular,Bold,Italic,
+BdItalic}.ttf`, Mono Casual Static) are declared under the family alias
+`RecursiveMonoCasual`, so the lookup never depends on a font installed on the
+host. The full license text ships with them as
+[`assets/fonts/OFL.txt`](assets/fonts/OFL.txt) and in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+Recursive is © 2020 The Recursive Project Authors
+(<https://github.com/arrowtype/recursive>), licensed under the SIL Open Font
+License, Version 1.1.
+
 ## 🙏 Credits & Attribution
 
 Built on top of [Flutter](https://flutter.dev), 
@@ -564,6 +601,8 @@ Built on top of [Flutter](https://flutter.dev),
 the [Dart Language Server](https://github.com/dart-lang/sdk/tree/main/pkg/analysis_server), 
 the [Dart VM Service](https://github.com/dart-lang/sdk/tree/main/pkg/vm_service), 
 and [LLDB](https://lldb.llvm.org/). 
+Editor fonts: [Recursive](https://github.com/arrowtype/recursive) (SIL OFL 1.1),
+plus the macOS system face Menlo.
 Design inspired by Visual C++ 6.0, Borland Delphi, and Visual Basic 6.0.
 
 ## 📄 License

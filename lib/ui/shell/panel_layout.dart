@@ -37,6 +37,10 @@ class PanelLayout extends StatefulWidget {
   /// Lets the shell drive the editor ("Go to Line").
   final GlobalKey<CodeEditorPanelState>? editorKey;
 
+  /// Forwarded to [CodeEditorPanel] so the status bar can show the caret
+  /// position.
+  final void Function(int line, int column)? onCaretChanged;
+
   const PanelLayout({
     super.key,
     required this.showFileExplorer,
@@ -50,6 +54,7 @@ class PanelLayout extends StatefulWidget {
     this.debugger,
     this.codeEditorController,
     this.editorKey,
+    this.onCaretChanged,
   });
 
   @override
@@ -204,6 +209,7 @@ class _PanelLayoutState extends State<PanelLayout> {
                             lspService: widget.lspService,
                             debugger: widget.debugger,
                             controller: widget.codeEditorController,
+                            onCaretChanged: widget.onCaretChanged,
                           ),
                         ),
                       ],

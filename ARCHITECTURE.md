@@ -191,12 +191,16 @@ output and a session is never silent.
 | AsmDebugger | 19 | ✅ | ARM64 Assembly debugging (registers + instruction stepping) |
 | DebuggerFactory | 15/19 | ✅ | Language → debugger dispatch (four engines) |
 | DebuggerManager | 15 | ✅ | Active debugger follows the active tab |
-| EditorSettingsService | 18 | ✅ | Font-size persistence + ChangeNotifier |
+| EditorSettingsService | 18/22 | ✅ | Font size + font family persistence + ChangeNotifier |
 | SessionService | 20 | ✅ | Open tabs + 10-entry MRU in `session.json` |
-| EditorMetrics | 18 | ✅ | Font-size driven line-height / gutter metrics |
+| EditorMetrics | 18/22 | ✅ | Font-size + family driven line-height / gutter metrics |
 
-### Editor zoom data flow
-`EditorSettingsService.instance.fontSize` -> `EditorMetrics.forFontSize()` -> `metrics.textStyle/strutStyle/gutterWidth/lineHeight/markerFontSize/lineNumberFontSize`. `CodeEditorPanel` subscribes to the service, rebuilds with new metrics, invalidates `_charAdvance` and `_gutterRows` caches keyed by `metrics.fontSize`, and schedules `_syncGutterScroll()` post-frame.
+### Editor zoom and font data flow
+`EditorSettingsService.instance.fontSize` + `.fontFamily` -> `EditorMetrics.forFontSize(size, family:)` -> `metrics.textStyle/strutStyle/fontFamily/gutterWidth/lineHeight/markerFontSize/lineNumberFontSize`. `CodeEditorPanel` subscribes to the service, rebuilds with new metrics, invalidates `_charAdvance` and `_gutterRows` caches keyed by **both** `metrics.fontSize` and `metrics.fontFamily` (a new family changes the glyph advance at the same size), and schedules `_syncGutterScroll()` post-frame.
+
+`EditorFontFamily` (in `editor_settings_service.dart`) maps a stable persisted id (`menlo` | `recursive`) to the Flutter family name. Menlo is a macOS system family used by name; Recursive ships as four static faces under the alias `RecursiveMonoCasual` (`pubspec.yaml` `fonts:`), with `fontFamilyFallback: ['Menlo']`. Ligatures (`calt`/`liga`) are disabled for both. An unknown id - including the retired `monaco` - resolves to `menlo`.
+
+The strut is **forced for every family** at the plain `lineHeight / fontSize` factor. Unforced, the row height follows the font of whichever glyph is on the line, so a line with Persian text (fallback font) grew the row by 1-2px while the gutter still reserved `lineHeight` - the code drifted away from the numbers over a long file. Do not "calibrate" the factor per family: `TextPainter.height` floors the strut halves and looks short, while the editor's `RenderEditable` rounds and renders exactly; the invariant is asserted on a real `EditableText` in `test/ui/editor/editor_font_fallback_drift_test.dart`, and `tool/probe_font_drift.dart` measures the running app.
 
 ## Retro Design Tokens
 

@@ -68,7 +68,7 @@ class RetroMenuBar extends StatelessWidget {
             _buildMenuHeader(
               context: context,
               label: 'File',
-              items: _fileMenuItems(),
+              items: _fileMenuItems,
               onSelected: (value) {
                 if (value == 'open') {
                   fileService?.openFile();
@@ -106,7 +106,7 @@ class RetroMenuBar extends StatelessWidget {
             _buildMenuHeader(
               context: context,
               label: 'Edit',
-              items: const <PopupMenuEntry<String>>[
+              items: () => const <PopupMenuEntry<String>>[
                 RetroMenuItem<String>(
                   value: 'undo',
                   label: 'Undo',
@@ -168,7 +168,7 @@ class RetroMenuBar extends StatelessWidget {
             _buildMenuHeader(
               context: context,
               label: 'View',
-              items: <PopupMenuEntry<String>>[
+              items: () => <PopupMenuEntry<String>>[
                 const RetroMenuItem<String>(
                   value: 'toggle_explorer',
                   label: 'Toggle File Explorer',
@@ -196,6 +196,23 @@ class RetroMenuBar extends StatelessWidget {
                   value: 'font_reset',
                   label: 'Reset Font Size',
                   shortcut: 'Cmd 0',
+                ),
+                const RetroMenuSeparator<String>(),
+                // Rule 8: the check mark depends on the live font choice, so
+                // these rows are intentionally not const.
+                RetroMenuItem<String>(
+                  value: 'font_menlo',
+                  label: 'Font: Menlo',
+                  checked:
+                      EditorSettingsService.instance.fontFamily ==
+                      EditorFontFamily.menlo,
+                ),
+                RetroMenuItem<String>(
+                  value: 'font_recursive',
+                  label: 'Font: Recursive Mono Casual',
+                  checked:
+                      EditorSettingsService.instance.fontFamily ==
+                      EditorFontFamily.recursive,
                 ),
                 const RetroMenuSeparator<String>(),
                 // Rule 8: the check mark depends on the live theme, so these rows
@@ -237,6 +254,14 @@ class RetroMenuBar extends StatelessWidget {
                   EditorSettingsService.instance.decrease();
                 } else if (value == 'font_reset') {
                   EditorSettingsService.instance.reset();
+                } else if (value == 'font_menlo') {
+                  EditorSettingsService.instance.setFontFamily(
+                    EditorFontFamily.menlo,
+                  );
+                } else if (value == 'font_recursive') {
+                  EditorSettingsService.instance.setFontFamily(
+                    EditorFontFamily.recursive,
+                  );
                 } else if (value == 'theme_vc6') {
                   ThemeService.instance.switchTheme(ThemeType.vc6);
                 } else if (value == 'theme_delphi') {
@@ -251,7 +276,7 @@ class RetroMenuBar extends StatelessWidget {
             _buildMenuHeader(
               context: context,
               label: 'Run',
-              items: const <PopupMenuEntry<String>>[
+              items: () => const <PopupMenuEntry<String>>[
                 RetroMenuItem<String>(
                   value: 'run',
                   label: 'Run',
@@ -285,7 +310,7 @@ class RetroMenuBar extends StatelessWidget {
             _buildMenuHeader(
               context: context,
               label: 'Tools',
-              items: const <PopupMenuEntry<String>>[
+              items: () => const <PopupMenuEntry<String>>[
                 RetroMenuItem<String>(
                   value: 'run_analysis',
                   label: 'Run Analysis',
@@ -303,7 +328,7 @@ class RetroMenuBar extends StatelessWidget {
             _buildMenuHeader(
               context: context,
               label: 'Help',
-              items: const <PopupMenuEntry<String>>[
+              items: () => const <PopupMenuEntry<String>>[
                 RetroMenuItem<String>(
                   value: 'about',
                   label: 'About Classic Code Editor',
@@ -506,40 +531,46 @@ class RetroMenuBar extends StatelessWidget {
 
   /// Builds one dropdown with the shared retro look.
   ///
-  /// All rows get the same shortcut-column width (measured from the real text)
-  /// so labels and shortcuts line up across the whole menu.
+  /// [items] is a **builder**, not a list: the rows are constructed when the
+  /// popup opens, because their `checked` flag reflects live state (the active
+  /// theme, the active font). Building them in `build()` froze the check marks
+  /// at the last rebuild of this bar - which only listens to [SessionService] -
+  /// so choosing a font updated the editor but left the check on the previous
+  /// row. All rows also get the same shortcut-column width (measured from the
+  /// real text) so labels and shortcuts line up across the whole menu.
   Widget _buildMenuHeader({
     required BuildContext context,
     required String label,
-    required List<PopupMenuEntry<String>> items,
+    required List<PopupMenuEntry<String>> Function() items,
     required PopupMenuItemSelected<String> onSelected,
   }) {
-    final rows = items.whereType<RetroMenuItem<String>>().toList(
-      growable: false,
-    );
-    final shortcutColumn = RetroMenuMetrics.shortcutColumnWidth(
-      rows.map((row) => row.shortcut).whereType<String>(),
-    );
-    // One measured width for the whole dropdown, so labels and the shortcut
-    // column line up and no row can ever overflow.
-    final rowWidth = RetroMenuMetrics.menuWidth(
-      rows.map((row) => row.label),
-      rows.any((row) => row.shortcut != null) ? shortcutColumn : 0,
-    );
-    final sizedItems = items
-        .map(
-          (item) => item is RetroMenuItem<String>
-              ? item.withMetrics(
-                  rowWidth: rowWidth,
-                  shortcutColumnWidth: shortcutColumn,
-                )
-              : item,
-        )
-        .toList(growable: false);
-
     return PopupMenuButton<String>(
       onSelected: onSelected,
-      itemBuilder: (context) => sizedItems,
+      itemBuilder: (context) {
+        final built = items();
+        final rows = built.whereType<RetroMenuItem<String>>().toList(
+          growable: false,
+        );
+        final shortcutColumn = RetroMenuMetrics.shortcutColumnWidth(
+          rows.map((row) => row.shortcut).whereType<String>(),
+        );
+        // One measured width for the whole dropdown, so labels and the
+        // shortcut column line up and no row can ever overflow.
+        final rowWidth = RetroMenuMetrics.menuWidth(
+          rows.map((row) => row.label),
+          rows.any((row) => row.shortcut != null) ? shortcutColumn : 0,
+        );
+        return built
+            .map(
+              (item) => item is RetroMenuItem<String>
+                  ? item.withMetrics(
+                      rowWidth: rowWidth,
+                      shortcutColumnWidth: shortcutColumn,
+                    )
+                  : item,
+            )
+            .toList(growable: false);
+      },
       offset: const Offset(0, 22),
       color: RetroColors.panel,
       elevation: 0,

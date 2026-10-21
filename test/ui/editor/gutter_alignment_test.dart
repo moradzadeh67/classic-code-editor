@@ -5,6 +5,7 @@ import 'package:classic_code_editor/services/file_service.dart';
 import 'package:classic_code_editor/services/lsp_service.dart';
 import 'package:classic_code_editor/services/editor_settings_service.dart';
 import 'package:classic_code_editor/ui/editor/code_editor_panel.dart';
+import 'package:classic_code_editor/ui/editor/editor_metrics.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -224,11 +225,27 @@ void main() {
         final renderEditable = tester
             .state<EditableTextState>(find.byType(EditableText))
             .renderEditable;
+        // The code's baseline is the *strut's* ascent: with
+        // `forceStrutHeight` the line box is `lineHeight` tall and its ascent
+        // is `ascentRatio * lineHeight`. Do NOT use
+        // `RenderEditable.computeDistanceToActualBaseline` here - under a
+        // forced strut it reports ~1px less than where the glyphs are painted,
+        // which is exactly how a digit that visibly floats above the code kept
+        // this test green.
+        final metrics = EditorMetrics.forFontSize(
+          EditorSettingsService.instance.fontSize,
+        );
+        final codePainter = TextPainter(
+          textDirection: TextDirection.ltr,
+          strutStyle: metrics.strutStyle,
+        )..text = TextSpan(text: 'line 1', style: metrics.textStyle);
+        codePainter.layout();
         final codeBaseline =
             renderEditable.localToGlobal(Offset.zero).dy +
-            renderEditable.computeDistanceToActualBaseline(
+            codePainter.computeDistanceToActualBaseline(
               TextBaseline.alphabetic,
             );
+        codePainter.dispose();
 
         final numberParagraph = tester.renderObject<RenderParagraph>(
           find.text('1'),

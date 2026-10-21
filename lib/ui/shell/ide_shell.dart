@@ -62,6 +62,19 @@ class _IDEShellState extends State<IDEShell> {
   final GlobalKey<CodeEditorPanelState> _editorKey =
       GlobalKey<CodeEditorPanelState>();
 
+  /// Caret position shown in the status bar (`Ln 12, Col 5`). The editor
+  /// reports it on every move; the shell only rebuilds when it really changes.
+  int _caretLine = 1;
+  int _caretColumn = 1;
+
+  void _onCaretChanged(int line, int column) {
+    if (line == _caretLine && column == _caretColumn) return;
+    setState(() {
+      _caretLine = line;
+      _caretColumn = column;
+    });
+  }
+
   /// Last persisted tab set, so typing never rewrites `session.json`.
   String? _lastSessionSignature;
 
@@ -430,9 +443,11 @@ class _IDEShellState extends State<IDEShell> {
                       debugger: _debuggerManager.activeDebugger,
                       codeEditorController: _codeController,
                       editorKey: _editorKey,
+                      onCaretChanged: _onCaretChanged,
                     ),
                   ),
                   RetroStatusBar(
+                    positionText: 'Ln $_caretLine, Col $_caretColumn',
                     analyzerService: _analyzerService,
                     lspService: _lspService,
                   ),

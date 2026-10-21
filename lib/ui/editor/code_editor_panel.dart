@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_code_editor/flutter_code_editor.dart';
 
@@ -88,12 +89,22 @@ const double gutterScrollbarInset = 10.0;
 const double lineNumberFontSize = 11.0;
 
 /// Memoised wrap measurement for the gutter (see `_gutterRows`).
+///
+/// The font family is part of the key: two families at the same size measure a
+/// different character advance, so a family switch that kept the cached rows
+/// would leave the gutter predicting the wrong number of wrapped rows.
 class _GutterRowsCache {
   final String text;
   final double maxWidth;
   final TextScaler scaler;
   final List<int> rows;
   final double fontSize;
+  final String fontFamily;
+
+  /// True when [rows] came from the renderer's own line metrics. A cache built
+  /// by the first-frame prediction is replaced as soon as the renderer can be
+  /// measured (see `_queueGutterRowsRebuild`).
+  final bool fromRenderer;
 
   const _GutterRowsCache(
     this.text,
@@ -101,7 +112,9 @@ class _GutterRowsCache {
     this.scaler,
     this.rows,
     this.fontSize,
-  );
+    this.fontFamily, {
+    this.fromRenderer = false,
+  });
 }
 
 /// The main code-editor area.
@@ -111,12 +124,17 @@ class CodeEditorPanel extends StatefulWidget {
   final BaseDebugger? debugger;
   final CodeController? controller;
 
+  /// Called with the 1-based logical line and column whenever the caret moves,
+  /// so the shell can show `Ln 12, Col 5` in the status bar.
+  final void Function(int line, int column)? onCaretChanged;
+
   const CodeEditorPanel({
     super.key,
     required this.fileService,
     required this.lspService,
     this.debugger,
     this.controller,
+    this.onCaretChanged,
   });
 
   @override
@@ -153,11 +171,12 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
   /// Memoised result of the last gutter wrap measurement.
   _GutterRowsCache? _gutterRowsCache;
 
-  /// Measured advance of one monospace character, and the scale it was
-  /// measured at. See `_charAdvance`.
+  /// Measured advance of one monospace character, and the size/family/scale it
+  /// was measured at. See `_charAdvance`.
   double? _charAdvanceCache;
   TextScaler? _charAdvanceScaler;
   double? _charAdvanceFontSize;
+  String? _charAdvanceFontFamily;
 
   /// 1-based logical line the caret currently sits on, used to paint the
   /// "current line" band behind the code.
@@ -181,10 +200,12 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
         );
     _controller.addListener(_onTextChanged);
     _controller.addListener(_onCaretMoved);
+    _controller.addListener(_queueBandUpdate);
     _editorScrollController.addListener(_syncGutterScroll);
+    _editorScrollController.addListener(_queueBandUpdate);
     widget.fileService.addListener(_onFileServiceChanged);
     widget.debugger?.addListener(_onDebuggerChanged);
-    EditorSettingsService.instance.addListener(_onFontSizeChanged);
+    EditorSettingsService.instance.addListener(_onEditorSettingsChanged);
     _lastActiveTabIndex = widget.fileService.activeTabIndex;
   }
 
@@ -214,7 +235,7 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
     _controller.removeListener(_onCaretMoved);
     widget.fileService.removeListener(_onFileServiceChanged);
     widget.debugger?.removeListener(_onDebuggerChanged);
-    EditorSettingsService.instance.removeListener(_onFontSizeChanged);
+    EditorSettingsService.instance.removeListener(_onEditorSettingsChanged);
     _editorScrollController.dispose();
     _gutterScrollController.dispose();
     _controller.dispose();
@@ -261,6 +282,9 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
     setState(() {
       _isTyping = true;
     });
+    // The text changed, so the wrap model must be re-measured from the renderer
+    // (a new long line can re-wrap every row below it).
+    _queueGutterRowsRebuild();
 
     _typingTimer?.cancel();
     _typingTimer = Timer(const Duration(milliseconds: 300), () {
@@ -288,12 +312,134 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
     final text = _controller.text;
     final offset = selection.extentOffset.clamp(0, text.length);
     var line = 1;
+    var lineStart = 0;
     for (var i = 0; i < offset; i++) {
-      if (text.codeUnitAt(i) == 0x0A) line++;
+      if (text.codeUnitAt(i) == 0x0A) {
+        line++;
+        lineStart = i + 1;
+      }
     }
     if (line != _caretLine) {
       setState(() => _caretLine = line);
     }
+    widget.onCaretChanged?.call(line, offset - lineStart + 1);
+    _queueBandUpdate();
+  }
+
+  /// Offset of the first character of the logical line containing [offset].
+  int _lineStartOffset(int offset) {
+    final text = _controller.text;
+    final clamped = offset.clamp(0, text.length);
+    var start = clamped;
+    while (start > 0 && text.codeUnitAt(start - 1) != 0x0A) {
+      start--;
+    }
+    return start;
+  }
+
+  /// Recomputes the band position in a post-frame callback.
+  ///
+  /// The position must come from the frame's **final** layout: when a click or
+  /// an edit makes the field reveal the caret (`scrollPadding`), the internal
+  /// scroll offset changes after `build`, so a value measured during build is a
+  /// row off - the band then sits below/above the caret it is highlighting.
+  void _queueBandUpdate() {
+    if (_bandUpdateQueued) return;
+    _bandUpdateQueued = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _bandUpdateQueued = false;
+      if (!mounted) return;
+      final rect = _bandRectForCaret(_metrics.lineHeight);
+      final sameTop =
+          (rect.top - (_bandTop ?? double.negativeInfinity)).abs() < 0.01;
+      final sameHeight =
+          (rect.height - (_bandHeight ?? double.negativeInfinity)).abs() < 0.01;
+      if (sameTop && sameHeight) return;
+      setState(() {
+        _bandTop = rect.top;
+        _bandHeight = rect.height;
+      });
+    });
+  }
+
+  bool _bandUpdateQueued = false;
+  double? _bandTop;
+  double? _bandHeight;
+
+  /// Geometry of the current-line band, in the editor Stack's local coords.
+  ///
+  /// * The **row** comes from the renderer (so a stale row cache can never move
+  ///   the band), but the position is snapped to the row grid
+  ///   (`row * lineHeight`) instead of using the caret rect's own `top`:
+  ///   Flutter inflates that rect ~1px above its line box, so a band built from
+  ///   it sat one pixel higher than the gutter numbers of the very same row
+  ///   (measured in the app: `numberRow - caretRow = +1` at 8/13/32, both fonts).
+  /// * The **height** covers every visual row of the logical line, the way
+  ///   desktop editors highlight a wrapped line as a whole instead of marking
+  ///   only its first segment.
+  ({double top, double height}) _bandRectForCaret(double lineHeight) {
+    if (lineHeight <= 0) return (top: 0, height: 0);
+    final editable = _renderEditable();
+    final selection = _controller.selection;
+    var row = -1;
+    var span = 1;
+    if (editable != null &&
+        editable.hasSize &&
+        !editable.debugNeedsLayout &&
+        selection.isValid) {
+      final text = _controller.text;
+      Rect caretAt(int offset) => editable.getLocalRectForCaret(
+        TextPosition(offset: offset.clamp(0, text.length)),
+      );
+
+      final first = caretAt(0);
+      final lineStart = _lineStartOffset(selection.extentOffset);
+      final start = caretAt(lineStart);
+      // The caret inflation is identical on every rect, so both differences are
+      // true pixel distances between rows.
+      row = ((start.top - first.top) / lineHeight).round();
+
+      // The first character *after* this line's newline: its caret sits on the
+      // first row below the whole line, wrapped rows included. (The offset of
+      // the `\n` itself belongs to the line's last row.)
+      final newline = text.indexOf('\n', lineStart);
+      final end = newline < 0 ? caretAt(text.length) : caretAt(newline + 1);
+      span = ((end.top - start.top) / lineHeight).round().clamp(1, 1000);
+    }
+    if (row < 0) {
+      // Before the first layout: the wrap-aware rows of the gutter cache.
+      final rows = _gutterRowsCache?.rows ?? const <int>[];
+      row = _visualRowForLine(rows, _caretLine);
+      var i = row + 1;
+      span = 1;
+      while (i < rows.length && rows[i] == 0) {
+        span++;
+        i++;
+      }
+    }
+    final scrollOffset = _editorScrollController.hasClients
+        ? _editorScrollController.offset
+        : 0.0;
+    return (top: row * lineHeight - scrollOffset, height: span * lineHeight);
+  }
+
+  /// The live [RenderEditable] of the editor, used to position the
+  /// current-line band from the caret the renderer actually painted.
+  RenderEditable? _renderEditable() {
+    final root = _editorKey.currentContext?.findRenderObject();
+    if (root == null) return null;
+    RenderEditable? found;
+    void walk(RenderObject node) {
+      if (found != null) return;
+      if (node is RenderEditable) {
+        found = node;
+        return;
+      }
+      node.visitChildren(walk);
+    }
+
+    walk(root);
+    return found;
   }
 
   /// Visual row of [line] in the wrap-aware [rows] produced by `_gutterRows`.
@@ -347,15 +493,26 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
     if (mounted) setState(() {});
   }
 
-  void _onFontSizeChanged() {
+  /// Fires for **both** settings that change the metrics: the size and the font
+  /// family.
+  ///
+  /// Every cache is dropped unconditionally rather than compared, because a
+  /// stale advance or row list is invisible until the gutter has drifted a few
+  /// lines down the file - the exact failure TASK-019 had to chase.
+  void _onEditorSettingsChanged() {
     _charAdvanceCache = null;
     _charAdvanceScaler = null;
+    _charAdvanceFontSize = null;
+    _charAdvanceFontFamily = null;
     _gutterRowsCache = null;
     if (mounted) {
       setState(() {});
-      // Schedule scroll sync after layout rebuild.
+      // Schedule scroll sync after layout rebuild, then re-measure the wrap
+      // model at the new metrics.
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _syncGutterScroll();
+        if (!mounted) return;
+        _syncGutterScroll();
+        _queueGutterRowsRebuild();
       });
     }
   }
@@ -410,6 +567,9 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
   }
 
   void _toggleBreakpoint(int line) {
+    // A wrapped line's continuation row carries no line number (`0`); tapping
+    // it used to set a breakpoint on line 0 - an entry every debugger rejects.
+    if (line <= 0) return;
     final path = _filePath;
     if (widget.debugger == null) return;
     if (_hasBreakpoint(line)) {
@@ -743,8 +903,10 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
   /// Text metrics shared with the editor. Wrapping must be measured with the
   /// exact style the field renders with — including its letter spacing — or
   /// the gutter predicts the wrong number of wrapped rows.
-  EditorMetrics get _metrics =>
-      EditorMetrics.forFontSize(EditorSettingsService.instance.fontSize);
+  EditorMetrics get _metrics => EditorMetrics.forFontSize(
+    EditorSettingsService.instance.fontSize,
+    family: EditorSettingsService.instance.fontFamily,
+  );
 
   TextStyle get _editorTextStyle => _metrics.textStyle;
 
@@ -764,7 +926,8 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
   double _charAdvance(TextScaler scaler) {
     if (_charAdvanceCache != null &&
         _charAdvanceScaler == scaler &&
-        _charAdvanceFontSize == _metrics.fontSize) {
+        _charAdvanceFontSize == _metrics.fontSize &&
+        _charAdvanceFontFamily == _metrics.fontFamily) {
       return _charAdvanceCache!;
     }
     final painter = TextPainter(
@@ -778,6 +941,7 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
     _charAdvanceCache = advance;
     _charAdvanceScaler = scaler;
     _charAdvanceFontSize = _metrics.fontSize;
+    _charAdvanceFontFamily = _metrics.fontFamily;
     return advance;
   }
 
@@ -793,10 +957,174 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
         cached.text == text &&
         cached.maxWidth == maxWidth &&
         cached.scaler == scaler &&
-        cached.fontSize == _metrics.fontSize) {
+        cached.fontSize == _metrics.fontSize &&
+        cached.fontFamily == _metrics.fontFamily) {
+      // A cache filled by the renderer is authoritative; one filled by the
+      // fallback below is only a stopgap until the next post-frame pass.
+      if (cached.fromRenderer) return cached.rows;
       return cached.rows;
     }
 
+    return _predictedGutterRows(text, maxWidth, scaler);
+  }
+
+  /// Queues an exact rebuild of the gutter rows from the renderer.
+  ///
+  /// The rows used to be *predicted* here (character advance × line length,
+  /// then a `TextPainter` for the long lines). A prediction cannot be exact:
+  /// Persian text is set in the fallback font, where a glyph is wider than the
+  /// measured monospace advance, and the painter's width is not the TextField's
+  /// real text width, so a line predicted as one row could render as two - and
+  /// every number below it then sat one row too high. The renderer already knows
+  /// the answer: `computeLineMetrics()` returns one entry per visual row, and
+  /// each entry says whether it ended in a hard (`\n`) or a soft (wrap) break.
+  void _queueGutterRowsRebuild() {
+    if (_gutterRebuildQueued) return;
+    _gutterRebuildQueued = true;
+    _gutterRebuildAttempts = 0;
+    _runGutterRowsRebuild();
+  }
+
+  /// One post-frame attempt; retries (bounded) while the renderer cannot be
+  /// measured yet.
+  ///
+  /// The retry is the whole point: on the very first frame after the app opens
+  /// with a large pasted document the editable is either absent or still
+  /// `debugNeedsLayout`, and returning without rescheduling used to freeze the
+  /// *predicted* rows - the numbers stayed a row off until any resize threw them
+  /// away. Nothing else would ever have rebuilt them.
+  void _runGutterRowsRebuild() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        _gutterRebuildQueued = false;
+        return;
+      }
+      final editable = _renderEditable();
+      final ready =
+          editable != null && editable.hasSize && !editable.debugNeedsLayout;
+      final rows = ready ? _rowsFromRenderer(editable) : const <int>[];
+      if (rows.isEmpty) {
+        if (_gutterRebuildAttempts++ < 5) {
+          // Ask for another frame, otherwise the callback would never fire.
+          WidgetsBinding.instance.ensureVisualUpdate();
+          _runGutterRowsRebuild();
+          return;
+        }
+        _gutterRebuildQueued = false;
+        return;
+      }
+      _gutterRebuildQueued = false;
+      // The editor's own width is the wrap width, so it doubles as the key.
+      final text = _controller.text;
+      final scaler = _textScalerFor(_editorKey.currentContext);
+      final maxWidth = editable!.size.width;
+      final cache = _gutterRowsCache;
+      if (cache != null &&
+          cache.text == text &&
+          cache.maxWidth == maxWidth &&
+          cache.scaler == scaler &&
+          cache.fontSize == _metrics.fontSize &&
+          cache.fontFamily == _metrics.fontFamily &&
+          cache.fromRenderer &&
+          _sameRows(cache.rows, rows)) {
+        return;
+      }
+      setState(() {
+        _gutterRowsCache = _GutterRowsCache(
+          text,
+          maxWidth,
+          scaler,
+          rows,
+          _metrics.fontSize,
+          _metrics.fontFamily,
+          fromRenderer: true,
+        );
+      });
+    });
+  }
+
+  bool _gutterRebuildQueued = false;
+  int _gutterRebuildAttempts = 0;
+
+  static TextScaler _textScalerFor(BuildContext? context) {
+    if (context == null) return TextScaler.noScaling;
+    return MediaQuery.maybeTextScalerOf(context) ?? TextScaler.noScaling;
+  }
+
+  static bool _sameRows(List<int> a, List<int> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+
+  /// The gutter rows exactly as the editor laid them out.
+  ///
+  /// One entry per visual row: the 1-based logical line number on the first row
+  /// of a line, `0` on every continuation row produced by wrapping.
+  ///
+  /// Both halves come from the renderer, never from a prediction:
+  /// * the row *count* is the caret travel from the first to the last offset
+  ///   divided by the (uniform) line height;
+  /// * the row of each logical line is where that line's caret actually is.
+  List<int> _rowsFromRenderer(RenderEditable editable) {
+    final text = _controller.text;
+    final lineHeight = _metrics.lineHeight;
+    if (lineHeight <= 0) return const <int>[1];
+
+    // `getLocalRectForCaret` is in the editor's viewport space, so add the
+    // scroll offset back to land in content space (row 0 = first line).
+    final scrollOffset = _editorScrollController.hasClients
+        ? _editorScrollController.offset
+        : 0.0;
+    double contentTop(int offset) =>
+        editable
+            .getLocalRectForCaret(
+              TextPosition(offset: offset.clamp(0, text.length)),
+            )
+            .top +
+        scrollOffset;
+
+    final firstTop = contentTop(0);
+    final lastTop = contentTop(text.length);
+    final totalRows = (((lastTop - firstTop) / lineHeight).round() + 1).clamp(
+      1,
+      1000000,
+    );
+    // Sanity check against a stale layout: a line can never occupy less than one
+    // row, so fewer rows than logical lines means the renderer is still showing
+    // the *previous* text and the caller must retry (see
+    // `_runGutterRowsRebuild`).
+    final logicalLines = '\n'.allMatches(text).length + 1;
+    if (totalRows < logicalLines) return const <int>[];
+    final rows = List<int>.filled(totalRows, 0);
+
+    var line = 1;
+    var offset = 0;
+    while (true) {
+      final row = ((contentTop(offset) - firstTop) / lineHeight).round().clamp(
+        0,
+        totalRows - 1,
+      );
+      rows[row] = line;
+      final next = text.indexOf('\n', offset);
+      if (next < 0) break;
+      offset = next + 1;
+      line++;
+    }
+    return rows;
+  }
+
+  /// First-frame stopgap only: approximate the wrap count with a `TextPainter`.
+  ///
+  /// `_queueGutterRowsRebuild` replaces this with the renderer's own model on
+  /// the next frame.
+  List<int> _predictedGutterRows(
+    String text,
+    double maxWidth,
+    TextScaler scaler,
+  ) {
     final lines = text.split('\n');
     final rows = <int>[];
     // Menlo is monospace, so a line can only wrap once its character count
@@ -838,6 +1166,7 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
       scaler,
       rows,
       _metrics.fontSize,
+      _metrics.fontFamily,
     );
     return rows;
   }
@@ -894,19 +1223,38 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
                     padding: const EdgeInsets.all(8.0),
                     child: LayoutBuilder(
                       builder: (context, constraints) {
-                        // Measure how the editor really wraps at this width so
-                        // every visual row gets a gutter row of its own.
+                        // How the editor really wraps at this width, so every
+                        // visual row gets a gutter row of its own.
                         final metrics = _metrics;
                         final editorWidth =
                             (constraints.maxWidth -
                                     metrics.gutterWidth -
                                     gutterGap)
                                 .clamp(1.0, double.infinity);
+                        // Once the renderer has been measured its width is the
+                        // key, so the exact rows survive rebuilds; before that
+                        // (first frame) the computed width is the best guess.
+                        final measured = _gutterRowsCache;
+                        final keyWidth =
+                            measured != null && measured.fromRenderer
+                            ? measured.maxWidth
+                            : editorWidth;
                         final gutterRows = _gutterRows(
                           _controller.text,
-                          editorWidth,
+                          keyWidth,
                           MediaQuery.textScalerOf(context),
                         );
+                        // The exact rows come from the renderer's own line
+                        // metrics; schedule that pass for every width/text
+                        // change (the value above is a one-frame stopgap).
+                        //
+                        // It is queued on *every* build, not just on text/width
+                        // changes: on first open a big paste could be measured
+                        // against the width the editor had before the panel
+                        // settled, and the retry in `_runGutterRowsRebuild`
+                        // plus this unconditional queue is what makes the model
+                        // converge without the user resizing the window.
+                        _queueGutterRowsRebuild();
 
                         return Row(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -937,13 +1285,19 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
                                       height: _metrics.lineHeight,
                                     );
                                   }
-                                  final hasBp = _hasBreakpoint(lineNumber);
+                                  // `lineNumber` is `0` on the continuation rows
+                                  // of a wrapped line: they carry no number, no
+                                  // breakpoint and can never be the paused line.
+                                  final hasBp =
+                                      lineNumber > 0 &&
+                                      _hasBreakpoint(lineNumber);
                                   final debugger = widget.debugger;
                                   // Keep the marker while the debugger owns a
                                   // paused line and has not been torn down, so it
                                   // also survives a plain `running` step.
                                   final isPausedLine =
                                       debugger != null &&
+                                      lineNumber > 0 &&
                                       debugger.currentPausedLine ==
                                           lineNumber &&
                                       debugger.state != DebugState.inactive;
@@ -963,7 +1317,9 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
                                             .withValues(alpha: 0.10)
                                       : null;
                                   return GestureDetector(
-                                    onTap: () => _toggleBreakpoint(lineNumber),
+                                    onTap: lineNumber > 0
+                                        ? () => _toggleBreakpoint(lineNumber)
+                                        : null,
                                     behavior: HitTestBehavior.opaque,
                                     child: Container(
                                       height: _metrics.lineHeight,
@@ -990,16 +1346,33 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
                                             // it fixes the row height AND the
                                             // baseline position, so the digit
                                             // sits on the code's baseline by
-                                            // construction. A bare `height`
-                                            // only resizes the box and left the
-                                            // digits ~1.8px above the code.
+                                            // construction.
                                             strutStyle: _metrics.strutStyle,
+                                            // Proportional leading, set
+                                            // explicitly so the ambient
+                                            // `TextHeightBehavior` cannot move
+                                            // the digit off the code's baseline.
+                                            textHeightBehavior:
+                                                const TextHeightBehavior(
+                                                  leadingDistribution:
+                                                      TextLeadingDistribution
+                                                          .proportional,
+                                                ),
                                             // The caret's line is emphasised in
                                             // the gutter too, the way Xcode and
                                             // VS Code show the active line.
                                             style: TextStyle(
-                                              fontFamily: 'Menlo',
+                                              // Same family as the code, so a
+                                              // number never looks foreign
+                                              // beside the text it labels.
+                                              fontFamily: _metrics.fontFamily,
+                                              fontFamilyFallback: const [
+                                                EditorMetrics.fallbackFamily,
+                                              ],
                                               fontSize:
+                                                  _metrics.lineNumberFontSize,
+                                              height:
+                                                  _metrics.lineHeight /
                                                   _metrics.lineNumberFontSize,
                                               fontWeight:
                                                   lineNumber == _caretLine
@@ -1102,24 +1475,32 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
                                       // that line, and this paints the whole row
                                       // behind the code so the selection is
                                       // visible across the full editor width.
+                                      //
+                                      // The row comes from the renderer's own
+                                      // caret rect, not from the gutter's wrap
+                                      // model: if the cached rows ever lag behind
+                                      // the text (an edit, a resize, a paste) the
+                                      // band used to be painted a few rows above
+                                      // the caret while the numbers still looked
+                                      // aligned. Reading the caret rect makes that
+                                      // disagreement impossible. Its height spans
+                                      // every row of the logical line, so a
+                                      // wrapped line is highlighted as a whole.
                                       Positioned.fill(
                                         child: IgnorePointer(
-                                          child: ListenableBuilder(
-                                            listenable: _editorScrollController,
-                                            builder: (context, _) {
-                                              final scrollOffset =
-                                                  _editorScrollController
-                                                      .hasClients
-                                                  ? _editorScrollController
-                                                        .offset
-                                                  : 0.0;
+                                          child: Builder(
+                                            builder: (context) {
                                               final accent = ThemeService
                                                   .instance
                                                   .colors
                                                   .selection;
-                                              final row = _visualRowForLine(
-                                                gutterRows,
-                                                _caretLine,
+                                              // Measured here for an instant
+                                              // response; a post-frame pass
+                                              // corrects it when the field
+                                              // scrolled after build (see
+                                              // _queueBandUpdate).
+                                              final band = _bandRectForCaret(
+                                                metrics.lineHeight,
                                               );
                                               return Stack(
                                                 clipBehavior: Clip.hardEdge,
@@ -1127,11 +1508,8 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
                                                   Positioned(
                                                     left: 0,
                                                     right: 0,
-                                                    top:
-                                                        row *
-                                                            metrics.lineHeight -
-                                                        scrollOffset,
-                                                    height: metrics.lineHeight,
+                                                    top: band.top,
+                                                    height: band.height,
                                                     // Fill plus a hairline
                                                     // outline, the equivalent
                                                     // of VS Code's
@@ -1161,9 +1539,14 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
                                       ),
                                       MouseRegion(
                                         onHover: (event) {
-                                          _cursorScreenOffset =
-                                              event.position +
-                                              const Offset(0, 24);
+                                          // No manual offset here:
+                                          // `_requestHover` derives the popup
+                                          // anchor from the caret, and this
+                                          // handler used to clobber it with
+                                          // `event.position + 24` before that
+                                          // ran, so a hover that found nothing
+                                          // left the tooltip/autocomplete
+                                          // anchored 24px below the mouse.
                                           _requestHover();
                                         },
                                         onExit: (event) {

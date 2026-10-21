@@ -412,12 +412,68 @@ persist on open/close/switch, File > numbered MRU + Clear Recent Files.
 **Status:** ✅ DONE
 **Completed:** CHANGELOG [Unreleased], TASKS/ARCHITECTURE/AGENTS/PRIVACY/README; analyze clean; 230 tests.
 
+## Phase 22 — Editor fonts (unreleased)
+
+### TASK-046: Editor font choice, two faces
+**Phase:** 22
+**Status:** ✅ DONE
+**Completed:** `View > Font` offers **Menlo** (default, pixel-identical to before) and **Recursive Mono
+Casual**, persisted as a stable id in `editor_settings.json` next to `fontSize`; unknown/corrupt/retired ids
+resolve to Menlo. The bundled Recursive faces live under the alias `RecursiveMonoCasual` in `pubspec.yaml`
+with `OFL.txt` and `THIRD_PARTY_NOTICES.md`. Glyph advance and wrapped-row caches are keyed by **both** size
+and family, and the line-number style follows the code font.
+
+### TASK-046a: Real-app font defects (row drift, stale check mark)
+**Phase:** 22
+**Status:** ✅ DONE
+**Fixed:** two defects that the green `flutter_tester` suite could not see:
+- **E1** Monaco's code rows drifted away from the gutter (~4 rows by line 400; gutter numbers between code
+  rows; click on 304 selected 302). **Cause:** the row was left to the *fallback* font, so a Persian line grew
+  it (13/20/49 px instead of 12/19/47 at sizes 8/13/32). **Fix:** the strut is now forced for every family at
+  the plain `lineHeight / fontSize` factor. Measured in the running app over 1000 lines: `d=0.0` for
+  ASCII/Persian/mixed at 8/13/32.
+- **E2** `View > Font` applied the new font but kept the check mark on the previous one. **Cause:** the rows
+  were built in `RetroMenuBar.build()` and captured by `itemBuilder`, and the bar listens only to
+  `SessionService`. **Fix:** build the rows when the popup opens (also fixes the theme rows).
+- **Trap recorded:** `TextPainter.height` floors the strut halves (a forced Monaco *looks* 1-3 px short) while
+  `RenderEditable` rounds `fontSize * height` and renders exactly; tuning the factor for the painter produced
+  20 px rows at size 13. The invariant is asserted on a real `EditableText`
+  (`editor_font_fallback_drift_test.dart`) and measured in the app with `tool/probe_font_drift.dart`.
+**Verified:** analyze clean; **306 tests pass, 2 opt-in skipped**.
+
+### TASK-046b: Monaco removed
+**Phase:** 22
+**Status:** ✅ DONE
+**Why:** no real bold/italic (both synthesized) and metrics that depend on the fallback font.
+**Done:** `EditorFontFamily.monaco` and its menu row are gone; a saved `"monaco"` id migrates to `menlo`;
+tests, probe and docs narrowed to the two remaining faces.
+
 ## Phase 21 — v1.3.1 (NEXT)
 
 ### TASK-044: Assembly source-line mapping / line breakpoints
 **Phase:** 21
 **Status:** ✅ DONE
-**Completed:** `Arm64AsmParser` / `Arm64AsmMap` maps source lines (1-indexed) to 4-byte instruction offsets relative to `_main`/`main`. `AsmDebugger` resolves line breakpoints via `breakpoint set -n main -R <offset>` and maps paused `pc` load addresses back to exact source lines. Unit tests and release gates pass cleanly.
+**Completed:** `Arm64AsmParser` / `Arm64AsmMap` maps source lines (1-indexed) to 4-byte instruction offsets relative to `_main`/`main`. `AsmDebugger` maps paused `pc` load addresses back to exact source lines. Unit tests and release gates pass cleanly.
+
+### TASK-044b: Phase 21 WIP fixes (ARM64 asm breakpoints, registers, entry arrow)
+**Phase:** 21
+**Status:** ✅ DONE
+**Fixed:** six defects found in a real run on `samples/array_sum_arm64.s`:
+- **E1** parser counted offsets from the top of the file, so a helper assembled before `_main` shifted every
+  breakpoint. Offsets are now relative to the entry symbol (negative before it).
+- **E2** the duplicate `breakpoint set --name _main` is gone (lldb knows the symbol as `main`).
+- **E3** the stop snapshot never reached `AsmDebugger`: `_watchStreams` subscribed to `CDebugger`'s private
+  `_onStdoutLine`, so the override was bypassed and the C-shaped parser dropped the asm payload. The stream
+  now goes through the virtual `handleStdoutLine`, so registers, `pc=…` and `▶` come back.
+- **E4** `_finalize` kept the dead breakpoint ids, so a second session deleted them and lldb answered
+  `error: No breakpoints exist to be deleted.` nine times. Ids are cleared on teardown and at session start.
+- **E5** the Console said `[C debugging stopped]`; `CDebugger` now exposes an overridable `debuggerLabel`.
+- **E6** `.section __TEXT,__cstring,…` was treated as code because the *segment* name contains `__TEXT`;
+  the second comma-separated token decides now.
+**Also:** `-R` (address slide) rejects a negative slide (`-R -20` becomes `0x2000004bc`), so gutter
+breakpoints are installed as `breakpoint set -a <main + offset>` once the entry stop reveals the base.
+**Verified:** `BORLAND_REAL_ASM_TEST=1` runs clang+lldb on `samples/array_sum_arm64.s`; a breakpoint on
+`add x2, x2, x3` stops 5× with `x2=0,10,30,60,100`, `x3=10,20,30,40,50`, `▶` on line 33 each time.
 
 ### TASK-045: ARM64-only release build
 **Phase:** 21

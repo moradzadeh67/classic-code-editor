@@ -63,7 +63,22 @@
 - Wrap such subtree roots in `ListenableBuilder(listenable: ThemeService.instance)`
   and keep their children NON-const
 
-### Rule 9: Debugger Architecture
+### Rule 9: Editor rows are pinned by the strut
+- Every line must render exactly `EditorMetrics.lineHeight`; the gutter
+  `itemExtent`, the current-line band, scrolling and click-to-line mapping all
+  assume it
+- Keep `forceStrutHeight: true` for **every** font. Unforced, the row height
+  follows the fallback font of whichever glyph is on the line (a Persian string
+  literal grows it by 1-2 px) and the code drifts away from the numbers
+- Never "calibrate" the strut factor per font: `TextPainter.height` floors the
+  strut halves while `RenderEditable` rounds `fontSize * height`. Assert on a
+  real `EditableText` (`editor_font_fallback_drift_test.dart`) and verify in the
+  running app with `flutter run -d macos -t tool/probe_font_drift.dart` —
+  `flutter_tester` has no system fonts, so a green suite proves nothing here
+- `View > Font` rows must be built when the popup opens (not in `build()`),
+  or the check mark goes stale
+
+### Rule 10: Debugger Architecture
 - Debugger classes extend `BaseDebugger` and NEVER touch the UI or the runner
   directly
 - All debugging activity is surfaced through the broadcast `output` stream;
@@ -153,4 +168,20 @@ lib/
     ├── multi_language_highlighter.dart
     ├── toggle_comment.dart          (pure: line comments per language)
     └── vm_service_client.dart
+
+assets/
+├── icons/                           (toolbar + file-type icons)
+├── branding/                        (app mark)
+└── fonts/                           (bundled editor fonts, see below)
+    ├── RecursiveMonoCslSt-{Regular,Bold,Italic,BdItalic}.ttf
+    └── OFL.txt                      (SIL OFL 1.1 — ship with the fonts)
 ```
+
+`assets/fonts/` holds the four static Recursive Mono Casual faces declared in
+`pubspec.yaml` under the family alias `RecursiveMonoCasual` (OFL 1.1; never
+redistribute a face without `OFL.txt`). Menlo is a macOS system font and is
+**not** bundled. `EditorFontFamily` offers exactly two faces (`menlo`,
+`recursive`); adding a third means updating the enum, the View > Font rows, the
+font tests and this file. Details: `THIRD_PARTY_NOTICES.md`, README > Fonts and
+licensing. Font drift is measured on the real app with
+`flutter run -d macos -t tool/probe_font_drift.dart`.

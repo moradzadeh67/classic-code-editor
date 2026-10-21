@@ -115,6 +115,10 @@ class CDebugger extends BaseDebugger {
   @protected
   set sourcePath(String? v) => _sourcePath = v;
 
+  /// Human-readable name of this engine, used in Console messages.
+  @protected
+  String get debuggerLabel => isCpp ? 'C++' : 'C';
+
   @protected
   void writeLldb(String command) => _write(command);
 
@@ -264,7 +268,10 @@ class CDebugger extends BaseDebugger {
         .transform(const Utf8Decoder(allowMalformed: true))
         .transform(const LineSplitter())
         .listen(
-          _onStdoutLine,
+          // Route through the virtual [handleStdoutLine] so a subclass can take
+          // over the stop protocol. For this class it is a plain delegate to
+          // [_onStdoutLine], so the C/C++ behaviour is unchanged.
+          handleStdoutLine,
           onError: (Object error) =>
               debugPrint('[CDebugger] stdout error: $error'),
         );
@@ -459,25 +466,25 @@ class CDebugger extends BaseDebugger {
   @override
   void setBreakpoint(String filePath, int line) {
     super.setBreakpoint(filePath, line);
-    _resyncBreakpoints();
+    resyncBreakpoints();
   }
 
   @override
   void removeBreakpoint(String filePath, int line) {
     super.removeBreakpoint(filePath, line);
-    _resyncBreakpoints();
+    resyncBreakpoints();
   }
 
   @override
   void clearBreakpoints() {
     super.clearBreakpoints();
-    _resyncBreakpoints();
+    resyncBreakpoints();
   }
 
   @override
   void clearBreakpointsForFile(String filePath) {
     super.clearBreakpointsForFile(filePath);
-    _resyncBreakpoints();
+    resyncBreakpoints();
   }
 
   List<int> _linesFor(String source) {
@@ -496,7 +503,7 @@ class CDebugger extends BaseDebugger {
   Future<void> handleInferiorExit(int exitCode) async {
     if (exitHandled) return;
     exitHandled = true;
-    emitOutput('[${isCpp ? 'C++' : 'C'} program exited with code $exitCode]');
+    emitOutput('[$debuggerLabel program exited with code $exitCode]');
     await _finalize();
   }
 
@@ -515,7 +522,7 @@ class CDebugger extends BaseDebugger {
     final wasActive = state != DebugState.inactive;
     await _finalize();
     if (wasActive) {
-      emitOutput('[${_isCpp ? 'C++' : 'C'} debugging stopped]');
+      emitOutput('[$debuggerLabel debugging stopped]');
     }
   }
 
@@ -544,6 +551,10 @@ class CDebugger extends BaseDebugger {
     callStack.clear();
     _entryBreakpointId = null;
     _awaitingEntryBreakpointId = false;
+    // Drop the ids of the session that just ended: they belong to an lldb
+    // process that is gone, so a later `breakpoint delete <id>` on a fresh
+    // session only produces "No breakpoints exist to be deleted".
+    _lldbBreakpointIds.clear();
     if (!_disposed) notifyListeners();
   }
 

@@ -320,10 +320,13 @@ Where `CDebugger` reports variables, `AsmDebugger` writes its own helper
 command script import "<temp>/borland_lldb_asm.py"
 command script add -f borland_lldb_asm.borland_snapshot borland_snapshot
 target stop-hook add -o borland_snapshot
-breakpoint set --name _main
 breakpoint set --name main
 run
 ```
+
+Exactly one entry breakpoint: lldb already knows the symbol as `main`, so a
+second `--name _main` breakpoint could only answer `no locations (pending)` plus
+a warning.
 
 At every stop it prints one `@@BORLAND_SNAP {json}` line containing:
 
@@ -346,12 +349,36 @@ needs no special case: it renders `x19 (register): 0x000000000000000f` on its ow
 | Step Over | `thread step-inst-over` |
 | Step Out | `thread step-out` |
 
+### Source lines without a DWARF line table
+
+`clang` cannot emit a line table for a hand-written `.s` file, so LLDB has no
+source lines for it and `breakpoint set --line` never resolves. `AsmDebugger`
+supplies the mapping itself:
+
+1. **`Arm64AsmParser`** walks the source and gives every instruction a 4-byte
+   offset **relative to the entry symbol** (`_main:`/`main:`), so a helper
+   assembled *before* `_main` gets a **negative** offset. Only the `__text`
+   section counts — `.section __TEXT,__cstring,…` is data, even though its
+   *segment* is also called `__TEXT`.
+2. **The entry stop supplies the base.** Every session first stops in the
+   dynamic loader (`_dyld_start`, `signal SIGSTOP`); that snapshot is ignored.
+   The first stop whose frame is `main` sets `base = pc`.
+3. **Gutter breakpoints** are then installed as absolute addresses:
+   `breakpoint set -a <base + offset>`. `-a` is used instead of `-R` because
+   `-R` takes an *unsigned* slide — `-n main -R -20` silently becomes
+   `0x2000004bc` and never resolves.
+4. **A stop maps back** with `line = offsetToLine(pc - base)`, which is why the
+   `▶` lands on the executed instruction, including inside `sum_loop`.
+
+A bare label (`loop:`) maps to the instruction that follows it, and a
+comment/blank line snaps forward up to 10 lines, so clicking almost anywhere in
+the gutter does something sensible.
+
 ### Requirements
 
-Apple Silicon (arm64) macOS with `clang` and `lldb` on `PATH`. Stops that carry no
-source line (`line <= 0` / `0xFFFFFFFF`, i.e. the dynamic-loader entry) are
-ignored, exactly like the C/C++ engine, so the gutter is never asked to
-highlight a line that does not exist.
+Apple Silicon (arm64) macOS with `clang` and `lldb` on `PATH`. Stops whose `pc`
+falls outside the assembled unit (stepping into `printf`, a signal, the process
+epilogue) keep the arrow on the entry line instead of guessing.
 
 ---
 
@@ -381,8 +408,8 @@ shouldShortCircuit == !allowRealProcesses && FLUTTER_TEST is set
 
 - Under a plain `flutter test`, `FLUTTER_TEST` is set and `allowRealProcesses`
   is `false`, so every debugger returns early instead of spawning a process.
-- `allowRealProcesses` is `true` only when the environment variable
-  **`BORLAND_REAL_VM_TEST=1`** is present.
+- `allowRealProcesses` is `true` only when **`BORLAND_REAL_VM_TEST=1`** (Dart)
+  or **`BORLAND_REAL_ASM_TEST=1`** (ARM64 Assembly) is present.
 
 This keeps CI deterministic and headless-safe.
 
@@ -390,10 +417,13 @@ This keeps CI deterministic and headless-safe.
 
 ```bash
 flutter analyze                 # must report "No issues found!"
-flutter test                    # 119 tests; 1 opt-in integration test skipped
+flutter test                    # 310 tests; 2 opt-in integration tests skipped
 
 # Opt-in: really spawn a Dart VM and attach over a real WebSocket
 BORLAND_REAL_VM_TEST=1 flutter test test/integration/dart_vm_pause_test.dart
+
+# Opt-in: really compile + lldb samples/array_sum_arm64.s
+BORLAND_REAL_ASM_TEST=1 flutter test test/integration/arm64_asm_breakpoint_test.dart
 ```
 
 ### What the tests cover
@@ -409,7 +439,18 @@ BORLAND_REAL_VM_TEST=1 flutter test test/integration/dart_vm_pause_test.dart
 | `debugger_gutter_test` | Gutter row alignment with the editor. |
 | `debugger_language_switch_test` | `DebuggerManager` tab/language switching. |
 | `debugger_arrow_all_languages_test` | The `▶` marker shows for every language. |
+| `arm64_asm_parser_test` | Line ⇄ offset mapping, labels, comments, data sections. |
+| `arm64_asm_map_test` | Offsets relative to `_main` (negative before it), `__cstring` vs `__text`. |
+| `asm_debugger_test` | Snapshot parsing, registers, address→line mapping. |
+| `asm_debugger_transcript_test` | Replayed real lldb transcript: entry stop, breakpoint hit, restart, noise. |
+| `editor_font_settings_test` | Font id persistence, notify-on-change, retired/unknown id → Menlo. |
+| `editor_font_metrics_test` | Family plumbing, forced strut, canonical factor, equality. |
+| `editor_font_gutter_test` | Gutter/code alignment for both fonts × sizes 8/13/32, `▶`, cache invalidation. |
+| `editor_font_fallback_drift_test` | **Authoritative** row-height check on a real `EditableText`: 1000 lines, ASCII/Persian/mixed, wrapped docs. |
+| `editor_click_line_test` | Click → selected line, reported `Ln/Col`, band top and gutter number must all agree (wrapped, Persian). |
+| `view_menu_font_test` / `font_menu_live_check_test` | `View > Font` rows, live check mark (choose → reopen, no rebuild), theme switch. |
 | `test/integration/dart_vm_pause_test.dart` | End-to-end real VM attach (opt-in). |
+| `test/integration/arm64_asm_breakpoint_test.dart` | Real `clang`+`lldb`: breakpoint on `add x2, x2, x3` hits 5× with `x2=0,10,30,60,100` (opt-in). |
 
 ### Manual probe scripts (`tool/`)
 
@@ -417,35 +458,145 @@ BORLAND_REAL_VM_TEST=1 flutter test test/integration/dart_vm_pause_test.dart
 - `tool/probe_lsp_completion.dart` — inspects LSP completion responses.
 - `tool/verify_completion_filter.dart` — checks completion filtering/ranking.
 - `tool/verify_ux_fixes.dart` — regression checks for the UX fixes.
+- `tool/probe_click_line.dart` — clicks a row of a generated wrapped document with a synthetic pointer in
+  the running app and prints the selected line, the bold gutter number and the caret rows (the instrument
+  for "the click selected the wrong line").
+- `tool/probe_font_drift.dart` — **run it in the real app**, not under `flutter test`:
+  `flutter run -d macos -t tool/probe_font_drift.dart`. It prints a painter table
+  (diagnostic only) and then a widget-phase table that measures caret rects of a
+  real `TextField` for every font × size × text kind over 1000 lines, one
+  `OK` / `WRAP` / `DRIFT` line each. `flutter_tester` cannot answer font
+  questions at all: it has no system fonts and no CoreText.
 
 ---
 
 ## 11. Gutter and editor alignment
 
 The breakpoint gutter and the editor text must share one line height, or the
-`●` / `▶` markers drift away from their lines as you scroll.
+`●` / `▶` markers, the current-line band and click-to-line mapping all drift
+away from their lines.
 
-- `code_editor_panel.dart` defines `editorFontSize = 13.0` and
-  `editorLineHeightFactor = 1.45`, giving `editorLineHeight = 18.85`.
-- Both the editor rows and the gutter rows use that same value — never a
-  hardcoded `19.0`.
+- `editor_metrics.dart` derives **one** number per size:
+  `lineHeight = (fontSize * 19 / 13).roundToDouble()` and
+  `lineHeightFactor = lineHeight / fontSize`. At the default 13 px that is
+  **19.0 / 1.4615** — not the old `1.45`/`18.85`, which rounded to 19 in the
+  renderer and drifted 0.15 px per line (TASK-019).
+- The gutter's `itemExtent`, the band, the scroll math and the hit-testing all
+  use that same `lineHeight` — never a hardcoded `19.0`.
+- **The gutter's row model comes from the renderer, never from a prediction.**
+  `_rowsFromRenderer()` takes the row *count* from the caret travel
+  (`caret(last).top - caret(first).top) / lineHeight + 1`) and places each
+  logical line at the row its caret occupies, adding `0` for continuation rows
+  produced by wrapping. `_predictedGutterRows()` (character advance × length,
+  then a `TextPainter`) is only a one-frame stopgap while the first layout is
+  pending — it used to be the real model, and it broke as soon as the editor
+  wrapped: a Persian line is set in the fallback font, where a glyph is wider
+  than the measured monospace advance, so a line counted as one row rendered as
+  two, every number below it sat one row high, and the wrapped row had no number.
+  Locked by `test/ui/editor/editor_wrapped_gutter_test.dart` (both fonts, 520px
+  and 400px editors that provably wrap).
+- **That measurement must never give up silently.** `_runGutterRowsRebuild()` runs one post-frame attempt and
+  **retries** (bounded, with `ensureVisualUpdate()`) while the editable is absent or still
+  `debugNeedsLayout`; returning without rescheduling froze the predicted rows on the first frame after the app
+  opened with a large pasted, wrapping document, and only a window resize corrected the numbers.
+  `_rowsFromRenderer()` also returns empty when it measures *fewer* rows than the document has logical lines -
+  a line can never occupy less than one row, so that is a stale layout, not an answer.
+- **Gutter digits must sit on the code's baseline, not merely inside the row.**
+  The number is an 11 px font in a `lineHeight`-tall row while the code is the
+  editor size with a forced strut, so the digit's baseline is set by
+  `height: lineHeight / lineNumberFontSize` **plus** an explicit
+  `TextHeightBehavior(leadingDistribution: proportional)`. Leaving the leading
+  to the ambient editor theme (`even`) lifts the digit above the code, and the
+  gap grows with the font size — the user-visible "numbers are not level with
+  the code", worst with Recursive. Do **not** use
+  `RenderEditable.computeDistanceToActualBaseline` as the reference: under a
+  forced strut it reports ~1 px less than where the glyphs are painted, which is
+  why the old baseline assertion stayed green while the screen disagreed.
+  Reference geometry for both: baseline = `ascentRatio × lineHeight`. Locked by
+  `test/ui/editor/editor_gutter_baseline_test.dart` (both fonts × 8/13/32).
+- The strut is **forced for every font** (`forceStrutHeight: true`) at that same
+  factor. Unforced, a line whose glyphs come from the fallback font (e.g. a
+  Persian string literal) is taller than `lineHeight`, and over ~400 lines the
+  code visibly separates from the numbers.
+- **Do not "calibrate" the strut factor per font.** `TextPainter.height` floors
+  the strut's ascent and descent halves and can report a row 1–3 px shorter than
+  `lineHeight`, while the editor's `RenderEditable` rounds `fontSize * height`
+  and renders it exactly. Tuning for the painter once produced 20 px rows at
+  size 13 — the very drift it meant to cure. Assert on a real `EditableText`
+  (`editor_font_fallback_drift_test.dart`), and confirm in the running app with
+  `flutter run -d macos -t tool/probe_font_drift.dart`, which prints
+  `OK`/`WRAP`/`DRIFT` for every font × size × text kind over 1000 lines.
+- `_charAdvance` and `_gutterRows` are cached by **both** size and font family,
+  so switching fonts cannot leave a stale advance behind.
 - Markers: `'▶'` marks the current paused line and is shown when
   `debugger.currentPausedLine == lineNumber && debugger.state != DebugState.inactive`;
   `'●'` marks a breakpoint. A line can be both paused and a breakpoint, so the
   two markers are drawn so that one never hides the other.
+- **Continuation rows (`rows[i] == 0`) must be inert.** They have no number, so they must not show a
+  bullet, never match `currentPausedLine`, and never toggle a breakpoint — each of those used to happen for
+  line `0` because the row was built from `lineNumber` without checking it. The guard lives in three places
+  (`hasBp`, `isPausedLine`, the row's `onTap`) plus `_toggleBreakpoint` itself.
+- **Popup anchors come from the caret, not from the mouse.** `_requestHover()` recomputes
+  `_cursorScreenOffset` from the caret; `MouseRegion.onHover` must not pre-set it (it used to add a magic
+  `+24px`, which left the tooltip anchored below the pointer whenever the hover found nothing).
+- **The current-line band covers every row of the logical line.** `_bandRectForCaret()` returns
+  `(top, height)`: `top` is the grid row (see below) and `height` is
+  `(caret(first character after the newline) - caret(line start)) / lineHeight` rows, so a wrapped line is
+  highlighted as a whole instead of only its first segment. Mind the offset: the `\n` itself belongs to the
+  line's **last** visual row, so the end of the line must be measured at `newline + 1`.
+- **The current-line band snaps to the row grid, using the renderer for the row.**
+  `_bandTopForCaret()` takes the *row* from the caret rects
+  (`(caret(lineStart).top - caret(0).top) / lineHeight`, so a stale row cache can never move it) and then
+  positions the band at `row * lineHeight`, **not** at the caret rect's own `top`: Flutter inflates the caret
+  rect ~1px above its line box, so a band built from `caretRect.top` sat one pixel higher than the gutter
+  numbers of the very same row ("the selected line is 1px above the numbers"; measured
+  `numberRow - caretRow = +1` at 8/13/32 for both fonts, while the grid is exact). `_queueBandUpdate()`
+  repeats the measurement in a post-frame callback because the field may scroll to reveal the caret *after*
+  `build`. Do not go back to `_visualRowForLine(rows, _caretLine) * lineHeight`: a row cache that lags the text
+  (an edit, a paste, a resize) moved the band a few rows above the caret while every number still looked
+  aligned, which read as "I clicked line 400 and line 396 got selected". The invariant is locked by
+  `test/ui/editor/editor_click_line_test.dart` (click line → selection, reported `Ln/Col`, band top and
+  gutter number must all agree) and measured in the running app with
+  `flutter run -d macos -t tool/probe_click_line.dart`, which clicks a row through a synthetic pointer and
+  prints the resulting line, the bold gutter number and the caret rows.
+- **Gutter digits sit on the code's baseline, not merely in its row.** The number is an 11px font in a
+  `lineHeight`-tall row while the code is 13px with a forced strut, so its baseline is set by
+  `height: lineHeight / lineNumberFontSize` **plus** an explicit
+  `TextHeightBehavior(leadingDistribution: proportional)`. Leaving the leading to the ambient editor theme
+  (`even`) lifts the digit above the code, and the gap grows with the font size - the user-visible "numbers
+  are not level with the code", worst with Recursive. Do not trust
+  `RenderEditable.computeDistanceToActualBaseline` as the reference: under a forced strut it reports ~1px less
+  than where the glyphs are painted (that is why the old baseline test passed while the screen disagreed).
+  Reference geometry: baseline = `ascentRatio × lineHeight` for both. Locked by
+  `test/ui/editor/editor_gutter_baseline_test.dart` (both fonts × 8/13/32).
+- The status bar's `Ln n, Col m` comes from `CodeEditorPanel.onCaretChanged` → `IDEShell` →
+  `RetroStatusBar.positionText`; it is not a placeholder.
 - The paused line is tinted with `ThemeService.colors.pausedLine`.
 
 ---
 
 ## 12. Known limitations
 
-### ARM64 Assembly source-line mapping (TASK-044)
+### ARM64 Assembly
 
-Although Apple's toolchain cannot emit a DWARF line table for a hand-written `.s` file,
-Classic Code Editor implements custom address-to-line mapping via `Arm64AsmParser` and `AsmDebugger`:
-- Parses `.s` files into 4-byte instruction offset maps relative to `_main`/`main`.
-- Line breakpoints are translated into LLDB address-slide breakpoints (`breakpoint set -n main -R <offset>`).
-- Pause load addresses (`pc`) are mapped back to exact source lines in the editor gutter (`▶`).
+Line breakpoints work, but they are computed by us rather than by DWARF (see
+section 8), which leaves a few honest gaps:
+
+- **Instructions are assumed to be 4 bytes** and `.p2align`/`.align` padding is
+  not modelled. Hand-written samples only align to 4 or 8 bytes, which never
+  inserts padding between two consecutive instructions, but a hand-mixed
+  `.p2align 4` in the middle of a function would shift every following line by
+  the padding size.
+- **Only the `__text` section is mapped.** Instructions emitted into another
+  section would not be reachable by a gutter breakpoint.
+- **Macros are invisible.** A `.macro` body is one source line but several
+  instructions.
+- **The base address comes from the entry stop**, so gutter breakpoints are
+  installed after `run` pauses at `main`. They are in place before the user
+  continues, so the first Continue already honours them; there is no way to
+  break *inside* the dynamic loader before `main`.
+- **Stops outside the assembled unit** (stepping into `printf`, a signal, the
+  process epilogue) keep the arrow on the entry line.
 
 - **C/C++ requires a native toolchain.** `clang`/`clang++`/`lldb` must be on
   `PATH`; without the Xcode Command Line Tools the engine cannot start.
