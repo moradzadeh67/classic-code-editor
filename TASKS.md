@@ -467,7 +467,7 @@ opt-in `lldb_session_lifecycle_test` (C, C++, stop-while-paused, `pgrep` must be
 the very first load batch of 10, not reproduced in 23 later runs); default suite 329 pass / 6 skipped;
 analyze clean.
 
-## Phase 21 — v1.3.1 (NEXT)
+## Phase 21 — v1.4.0
 
 ### TASK-044: Assembly source-line mapping / line breakpoints
 **Phase:** 21
@@ -496,10 +496,13 @@ breakpoints are installed as `breakpoint set -a <main + offset>` once the entry 
 
 ### TASK-045: ARM64-only release build
 **Phase:** 21
-**Status:** 🔜 TODO
-**Why:** Xcode 27 warns that `x86_64` support is no longer required and will become the default.
-**Done when:** `flutter config --enable-macos-arm64-only` (or the project setting) is applied, the DMG
-still passes gates 03–05, and `docs/RELEASE.md` mentions the ARM-only build.
+**Status:** 🛑 DROPPED
+**Why:** Owner decision: DMG stays Universal (Intel and Apple Silicon) so it runs on Intel Macs. ARM64 assembly run/debug remains Apple-Silicon-only.
+
+### TASK-048: Docs, Version & Release Gate (v1.4.0+6)
+**Phase:** 22
+**Status:** ✅ DONE
+**Completed:** Version 1.4.0+6, tag v1.4.0, release notes, docs updated, analyze clean, 329 tests pass (6 opt-in skipped). Universal DMG verified.
 
 ### TASK-039: Docs, Version, Release Gate
 **Phase:** 19

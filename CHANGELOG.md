@@ -6,6 +6,8 @@ All notable changes to Classic Code Editor are documented here. The format follo
 
 ## [Unreleased]
 
+## [1.4.0] — 2026-10-21
+
 ### Fixed
 - **A gutter breakpoint in C/C++/assembly could be silently lost, and stopping a session could leave the program
   running.** lldb's stdin is a pipe, so a command written while lldb was still printing a stop report arrived

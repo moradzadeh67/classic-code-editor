@@ -641,6 +641,21 @@ away from their lines.
 
 ## 12. Known limitations
 
+### lldb sessions (C, C++, ARM64)
+
+- **lldb's stdin is shared and line-oriented.** Every command goes through
+  `LldbCommandQueue`; a program that reads stdin competes with the queue for the
+  same pipe.
+- **The acknowledgement adds latency.** A non-resuming command is written only
+  after a 40 ms quiet window and is followed by a sentinel round-trip, so a
+  breakpoint resync costs tens of milliseconds per command. Continue/Step skip
+  the sentinel (lldb would not execute it before the next stop) and jump the
+  queue.
+- **A lost ack is retried once.** If lldb never acknowledges a unit even on the
+  retry, the Console gets
+  `[<engine> debugger: could not send "<unit>" to lldb]` and the session keeps
+  running; nothing is retried a third time.
+
 ### ARM64 Assembly
 
 Line breakpoints work, but they are computed by us rather than by DWARF (see

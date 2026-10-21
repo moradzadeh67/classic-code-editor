@@ -186,7 +186,8 @@ lib/
 │   ├── debugger_factory.dart        (language → debugger dispatch)
 │   ├── debugger_manager.dart        (active debugger follows the active tab)
 │   ├── debugger_snapshot.dart       (shared stop-payload decoder)
-│   └── debugger_environment.dart    (FLUTTER_TEST real-process gate)
+│   ├── debugger_environment.dart    (FLUTTER_TEST real-process gate)
+│   └── lldb_command_queue.dart      (the only writer to lldb stdin: gate + ack + retry)
 │
 ├── models/ ← Pure Dart data classes
 │   ├── tab_file.dart

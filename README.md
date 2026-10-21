@@ -265,9 +265,9 @@ scripts/release_gate/04_launch_smoke.sh # launch the built app
 scripts/release_gate/05_make_dmg.sh     # package the .app into a DMG (hdiutil)
 ```
 
-`05_make_dmg.sh` names the artifact `Classic.Code.Editor-<version>.dmg` from `pubspec.yaml`, so **the
-pubspec version, the git tag and the DMG name stay in sync** (`1.1.0+3` → tag `v1.1.0` →
-`Classic.Code.Editor-1.1.0+3.dmg`).
+`05_make_dmg.sh` names the artifact `Classic Code Editor-<version>.dmg` from `pubspec.yaml`, so **the
+pubspec version, the git tag and the DMG name stay in sync** (`1.4.0+6` → tag `v1.4.0` →
+`Classic Code Editor-1.4.0+6.dmg`).
 
 > [!NOTE]
 > The app is **unsigned and not notarized** (that needs a paid Apple Developer account). Every user must
@@ -383,7 +383,7 @@ lib/
 
 | Platform | Status | Notes |
 |---|:---:|---|
-| 🖥️ macOS | ✅ Released | macOS 12+ (Monterey or later), Apple Silicon for ARM64 assembly — v1.3.0 · [download the DMG](https://github.com/moradzadeh67/classic-code-editor/releases/latest) |
+| 🖥️ macOS | ✅ Released | macOS 12+ (Monterey or later), Apple Silicon for ARM64 assembly — v1.4.0 · [download the DMG](https://github.com/moradzadeh67/classic-code-editor/releases/latest) |
 | 🪟 Windows | 🔜 Planned | Next major target (v1.x) |
 | 🐧 Linux | 🔜 Planned | After Windows |
 | 📱 iOS / Android | ❌ Not planned | An IDE needs a keyboard and a real shell |
@@ -405,7 +405,7 @@ Details: [docs/PRIVACY.md](docs/PRIVACY.md) · Vulnerability reports: [SECURITY.
 
 ### Download Pre-built Release
 
-1. Download the latest `.dmg` (`Classic.Code.Editor-1.3.0+5.dmg`) from [Releases](https://github.com/moradzadeh67/classic-code-editor/releases/latest)
+1. Download the latest `.dmg` (`Classic Code Editor-1.4.0+6.dmg`) from [Releases](https://github.com/moradzadeh67/classic-code-editor/releases/latest)
 2. Open the `.dmg` and drag `Classic Code Editor.app` to `Applications`
 3. **First launch (Gatekeeper):** the app is not notarized, so macOS blocks it — click **Done** on the dialog, then open **System Settings → Privacy & Security → Open Anyway** ([Apple: Safely open apps on your Mac](https://support.apple.com/en-us/102445))
 
@@ -428,7 +428,7 @@ flutter build macos --release
 
 ### System Requirements
 
-- macOS 12+ (Monterey or later), **Apple Silicon (arm64)** for the ARM64 Assembly support
+- macOS 12+ (Monterey or later), **Universal** (Intel and Apple Silicon Macs); ARM64 Assembly run/debug requires Apple Silicon (arm64)
 - Dart SDK (bundled with Flutter — used at runtime for executing Dart code)
 - Python 3 (for running Python code)
 - Clang (for running C/C++ code — comes with Xcode Command Line Tools)
