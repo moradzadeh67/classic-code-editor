@@ -231,21 +231,26 @@ The suite runs fully offline — no language server, compiler or VM is spawned.
 # Static analysis must report zero issues
 flutter analyze
 
-# Unit + widget tests (230 tests; 1 opt-in integration test is skipped)
+# Unit + widget tests (329 tests; 6 opt-in integration tests are skipped)
 flutter test
 
 # Opt-in: really spawn a Dart VM and attach over a real WebSocket
 BORLAND_REAL_VM_TEST=1 flutter test test/integration/dart_vm_pause_test.dart
 
-# Opt-in: really assemble a .s file with clang and drive lldb (Apple Silicon)
-BORLAND_REAL_ASM_TEST=1 flutter test test/integration/asm_debug_test.dart
+# Opt-in: really compile + debug with clang/lldb (asm, C, C++, session lifecycle)
+BORLAND_REAL_ASM_TEST=1 flutter test \
+  test/integration/asm_debug_test.dart \
+  test/integration/arm64_asm_breakpoint_test.dart \
+  test/integration/lldb_session_lifecycle_test.dart
 ```
 
 `DebuggerEnvironment` short-circuits every debugger while `FLUTTER_TEST` is set,
 so the default `flutter test` run never launches `dart`, `python` or
-`clang`/`lldb`. The opt-in test above flips that guard on for a single run so the
-real attach/pause chain can be exercised. See [docs/DEBUGGING.md](docs/DEBUGGING.md)
-for the full debugging architecture and troubleshooting guide.
+`clang`/`lldb`. An opt-in test must therefore also set
+`DebuggerEnvironment.allowRealProcesses = true` in `setUp`; the env gate alone
+leaves the debugger short-circuited. See
+[docs/DEBUGGING.md](docs/DEBUGGING.md) for the full debugging architecture,
+the lldb command queue and troubleshooting guide.
 
 ## 🔧 Build & Release
 

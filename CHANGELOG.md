@@ -6,6 +6,23 @@ All notable changes to Classic Code Editor are documented here. The format follo
 
 ## [Unreleased]
 
+### Fixed
+- **A gutter breakpoint in C/C++/assembly could be silently lost, and stopping a session could leave the program
+  running.** lldb's stdin is a pipe, so a command written while lldb was still printing a stop report arrived
+  split (`breakpoint set -a 0x…` reached lldb as `b` + `reakpoint set -a 0x…`), the breakpoint was never
+  installed and the program ran to completion; separately, SIGKILLing lldb alone left `borland_*_exec` alive.
+  All stdin now goes through one queue (`LldbCommandQueue`): one command in flight, gated on a 40 ms quiet
+  window, verified with a `script print("@@ACK n")` sentinel, and retried once - idempotently, because a
+  resync deletes the ids it owns first - when the ack is lost. Continue/Step jump the queue. Stop closes the
+  queue, then sends `process kill` + `quit`, waits 2 s, SIGKILLs lldb and finally the inferior pid.
+  Tests: `lldb_command_queue_test` (fake-lldb transcripts) and the opt-in
+  `lldb_session_lifecycle_test` (C, C++ and stop-while-paused; asserts `pgrep` is empty afterwards).
+- **The opt-in ARM64 entry-stop test could never pass.** Its gate (`BORLAND_REAL_ASM_TEST=1`) was not enough:
+  every debugger short-circuits under `FLUTTER_TEST`, so `startDebugging` returned with `state == running`
+  after one banner line and lldb was never started. It now sets `DebuggerEnvironment.allowRealProcesses`
+  (restored in `tearDown`), polls for the pause instead of asserting immediately, and asserts the pausing
+  line, `mainAddress`, `x0..x28`/`fp`/`lr`/`sp`/`pc`/`cpsr` and a `pc=0x` Console line.
+
 ### Changed
 - **Monaco removed — `View > Font` now offers two faces: Menlo (default) and Recursive Mono Casual.**
   Monaco ships no real bold or italic (macOS synthesizes both), and its metrics made the row height follow

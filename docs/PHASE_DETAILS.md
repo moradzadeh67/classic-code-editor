@@ -118,3 +118,11 @@ Main window layout:
 - Strut forced for every family (unforced rows follow the fallback font of a Persian glyph)
 - Removed: Monaco (synthesized bold/italic, fallback-dependent metrics)
 - Tooling: `tool/probe_font_drift.dart` measures the running app (flutter_tester has no system fonts)
+- Gutter rows come from the renderer (`_rowsFromRenderer`), never from a wrap prediction; the current-line band
+  is grid-snapped (`row * lineHeight`) and spans every row of a wrapped line; the status bar shows a live
+  `Ln, Col` (`onCaretChanged`)
+- lldb sessions write only through `LldbCommandQueue`: quiet-window gate + `@@ACK n` sentinel + one idempotent
+  retry; Stop kills in order (`process kill`, `quit`, 2 s wait, SIGKILL lldb, SIGKILL inferior), so no
+  `borland_*_exec` survives
+- Tests: 329 pass / 6 opt-in skipped; real-process suites are `BORLAND_REAL_VM_TEST=1` (Dart VM) and
+  `BORLAND_REAL_ASM_TEST=1` (asm, C, C++, session lifecycle)

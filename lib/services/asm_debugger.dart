@@ -147,6 +147,7 @@ class AsmDebugger extends CDebugger {
 
       final process = await Process.start(lldbPath, <String>[executable]);
       lldbProcess = process;
+      resetLldbQueue();
       exitHandled = false;
       state = DebugState.running;
       currentPausedLine = null;
@@ -241,16 +242,20 @@ class AsmDebugger extends CDebugger {
     );
     await scriptFile.writeAsString(_asmLldbHelperSource);
 
-    writeLldb('command script import "${scriptFile.path}"');
-    writeLldb(
-      'command script add -f borland_lldb_asm.borland_snapshot borland_snapshot',
-    );
-    writeLldb('target stop-hook add -o borland_snapshot');
-    // Only one entry breakpoint: lldb already knows the symbol as `main`, and a
-    // second `--name _main` breakpoint could only report "no locations".
+    // One queued unit: every command waits for lldb to be idle and is verified
+    // with an acknowledgement, so `run` can never be written while lldb is
+    // still printing its start-up banner. Not retried - a second `run` would
+    // restart the program.
     awaitingEntryBreakpointId = true;
-    writeLldb('breakpoint set --name main');
-    writeLldb('run');
+    enqueueLldbUnit('configure', <String>[
+      'command script import "${scriptFile.path}"',
+      'command script add -f borland_lldb_asm.borland_snapshot borland_snapshot',
+      'target stop-hook add -o borland_snapshot',
+      // Only one entry breakpoint: lldb already knows the symbol as `main`, and
+      // a second `--name _main` breakpoint could only report "no locations".
+      'breakpoint set --name main',
+      'run',
+    ], retryOnTimeout: false);
   }
 
   /// Re-installs every gutter breakpoint at its absolute address.
@@ -267,18 +272,23 @@ class AsmDebugger extends CDebugger {
     final lldb = lldbProcess;
     if (lldb == null) return;
 
+    // The whole resync is one unit, so the retry after a lost acknowledgement
+    // repeats the deletes too: it can never leave a duplicate breakpoint.
+    final commands = <String>[];
     final entryId = entryBreakpointId;
     for (final id in _lineBreakpointIds.values) {
       if (id == entryId) continue;
-      writeLldb('breakpoint delete $id');
+      commands.add('breakpoint delete $id');
     }
     _lineBreakpointIds.clear();
     _pendingBreakpointLines.clear();
 
     plan.forEach((address, line) {
       _pendingBreakpointLines.add(line);
-      writeLldb('breakpoint set -a 0x${address.toRadixString(16)}');
+      commands.add('breakpoint set -a 0x${address.toRadixString(16)}');
     });
+
+    enqueueLldbUnit('breakpoints', commands);
   }
 
   /// Absolute address -> source line for every gutter breakpoint.

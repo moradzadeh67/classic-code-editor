@@ -448,6 +448,25 @@ and family, and the line-number style follows the code font.
 **Done:** `EditorFontFamily.monaco` and its menu row are gone; a saved `"monaco"` id migrates to `menlo`;
 tests, probe and docs narrowed to the two remaining faces.
 
+### TASK-047: lldb stdin queue, readiness gate and kill order
+**Phase:** 22
+**Status:** ✅ DONE
+**Why:** `BORLAND_REAL_ASM_TEST=1`. The entry-stop test failed (`paused` vs `running`) and, once it could run,
+`a breakpoint after _main stops on its exact line` failed 1 in ~4 runs: lldb echoed
+`error: 'reakpoint' is not a valid command` - one of our writes, split on the wire.
+**Measured:** byte-level trace of every stdin write (caller, µs, exact bytes) and every **raw** stdout chunk:
+our side wrote exactly one line (`breakpoint set -a 0x…`, `len=29`), lldb received `b` + `reakpoint …`, i.e.
+cause (b): a single write read in pieces while lldb was still printing the stop report/prompt. The pipe prompt
+is printed when lldb *reads*, so "wait for the prompt" can never be the gate.
+**Done:** `LldbCommandQueue` (one command in flight, 40 ms quiet gate, `@@ACK n` sentinel as its own gated
+write, one idempotent retry for non-resume units, Continue/Step to the front, Stop closes the queue);
+`_finalize` = `process kill` + `quit` + 2 s wait + SIGKILL lldb + SIGKILL the parsed inferior pid.
+**Tests:** `lldb_command_queue_test` (6 fake-lldb transcripts; the gate test fails if the gate is removed),
+opt-in `lldb_session_lifecycle_test` (C, C++, stop-while-paused, `pgrep` must be empty).
+**Verified:** opt-in suite **20/20 idle** and **23 consecutive under 4×`yes` load** (one unexplained failure in
+the very first load batch of 10, not reproduced in 23 later runs); default suite 329 pass / 6 skipped;
+analyze clean.
+
 ## Phase 21 — v1.3.1 (NEXT)
 
 ### TASK-044: Assembly source-line mapping / line breakpoints

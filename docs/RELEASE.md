@@ -21,7 +21,7 @@ The release gate lives in `scripts/release_gate/` and runs the whole chain in or
 
 ```bash
 scripts/release_gate/01_analyze.sh      # flutter analyze (must be clean)
-scripts/release_gate/02_test.sh         # flutter test (offline; 230 tests, 1 opt-in skipped)
+scripts/release_gate/02_test.sh         # flutter test (offline; 329 tests, 6 opt-in skipped)
 scripts/release_gate/03_build_macos.sh  # flutter build macos --release
 scripts/release_gate/04_launch_smoke.sh # launches the built app as a smoke test
 scripts/release_gate/05_make_dmg.sh     # packages the .app into a DMG via hdiutil

@@ -78,7 +78,28 @@
 - `View > Font` rows must be built when the popup opens (not in `build()`),
   or the check mark goes stale
 
-### Rule 10: Debugger Architecture
+### Rule 10: Vertical layout is derived from the renderer, never predicted
+- Gutter rows come from `_rowsFromRenderer()` (caret travel for the row
+  *count*, caret position for each logical line). Do **not** re-introduce a
+  character-count or `TextPainter` wrap prediction as the model: Persian glyphs
+  come from the fallback font and are wider than a measured monospace advance,
+  so a line counted as one row renders as two and every number below it is off
+- That measurement runs in a post-frame pass and must **never give up
+  silently**: retry while the editable is absent or `debugNeedsLayout`, and
+  reject any result with fewer rows than logical lines (a stale layout)
+- The current-line band is `row * lineHeight` (a grid row) and spans every row
+  of the logical line. Do not position it from `caretRect.top`: Flutter inflates
+  that rect ~1px above its line box, which puts the highlight above the numbers
+- Continuation rows (`rows[i] == 0`) are inert: no number, no breakpoint, never
+  the paused line
+- The status bar's `Ln/Col` comes from `onCaretChanged`; it is live, not a
+  placeholder
+- `flutter_tester` always has a clean layout after `pump`, so the first-frame
+  races can only be seen in the app:
+  `flutter run -d macos -t tool/probe_click_line.dart` and
+  `flutter run -d macos -t tool/probe_baseline.dart`
+
+### Rule 11: Debugger Architecture
 - Debugger classes extend `BaseDebugger` and NEVER touch the UI or the runner
   directly
 - All debugging activity is surfaced through the broadcast `output` stream;
@@ -89,6 +110,21 @@
 - Debuggers must short-circuit real process spawns under `FLUTTER_TEST` via
   `DebuggerEnvironment`, so the unit suite never launches `dart`, `python`,
   `clang` or `lldb`
+- An opt-in gate (`BORLAND_REAL_*_TEST=1`) is **not** enough for a real-process
+  test: it must also set `DebuggerEnvironment.allowRealProcesses = true` in
+  `setUp` and restore it in `tearDown`, or the debugger short-circuits and the
+  test asserts against `state == running` forever
+- **Never write to lldb's stdin directly.** Everything goes through
+  `LldbCommandQueue` (`enqueueLldbUnit`), because lldb's stdin is a pipe and
+  splits lines wherever it happens to be reading: a command written during the
+  stop report arrived as `b` + `reakpoint set -a 0x…` and the breakpoint was
+  silently lost. Each non-resuming command is verified with a
+  `script print("@@ACK n")` sentinel; a lost ack retries the unit **once**, so a
+  unit must be idempotent (delete your own breakpoint ids before adding them)
+- `Stop` owns the kill order: `process kill` -> `quit` -> wait 2 s -> SIGKILL
+  lldb -> SIGKILL the inferior pid parsed from `Process <pid> launched`. Killing
+  lldb alone leaves `borland_*_exec` running; `lldb_session_lifecycle_test`
+  asserts `pgrep` is empty afterwards
 
 ## File Structure (MUST follow)
 

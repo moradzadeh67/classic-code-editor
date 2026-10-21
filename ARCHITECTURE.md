@@ -113,6 +113,7 @@ the shell never needs to know which languages exist. See
 | `python_debugger.dart` | Runs a generated `sys.settrace` tracer driver. |
 | `asm_debugger.dart` | ARM64 Assembly: assembles with `clang -g -arch arm64` and drives the same `lldb` driver, reporting `x0`..`x28`/`fp`/`lr`/`sp`/`pc`/`cpsr` as Variables plus a one-instruction disassembly. |
 | `c_debugger.dart` | Compiles with `clang -g -O0` and attaches `lldb`, injecting a helper stop-hook. |
+| `lldb_command_queue.dart` | The only writer to lldb's stdin: one command in flight behind a quiet-window gate, an `@@ACK n` sentinel per non-resuming command, one idempotent retry, and `close()` for Stop. Owns the inferior pid parsed from `Process <pid> launched`. |
 | `debugger_factory.dart` | Maps a `LanguageConfig` (extension) to one of the four debuggers (Dart, Python, C/C++, ARM64); instances are reused so breakpoints survive tab/language switches. |
 | `debugger_manager.dart` | Keeps the active debugger in sync with the active tab. Stops a *running* session when the language changes; never clears breakpoints. |
 | `debugger_snapshot.dart` | One shared JSON decoder for the `@@BORLAND_SNAP` / `@@BORLAND_PAUSED` stop payloads. |
@@ -194,6 +195,7 @@ output and a session is never silent.
 | EditorSettingsService | 18/22 | ✅ | Font size + font family persistence + ChangeNotifier |
 | SessionService | 20 | ✅ | Open tabs + 10-entry MRU in `session.json` |
 | EditorMetrics | 18/22 | ✅ | Font-size + family driven line-height / gutter metrics |
+| CodeEditorPanel rows | 22 | ✅ | Renderer-owned gutter rows, grid-snapped full-line band, Ln/Col reporting |
 
 ### Editor zoom and font data flow
 `EditorSettingsService.instance.fontSize` + `.fontFamily` -> `EditorMetrics.forFontSize(size, family:)` -> `metrics.textStyle/strutStyle/fontFamily/gutterWidth/lineHeight/markerFontSize/lineNumberFontSize`. `CodeEditorPanel` subscribes to the service, rebuilds with new metrics, invalidates `_charAdvance` and `_gutterRows` caches keyed by **both** `metrics.fontSize` and `metrics.fontFamily` (a new family changes the glyph advance at the same size), and schedules `_syncGutterScroll()` post-frame.
@@ -201,6 +203,16 @@ output and a session is never silent.
 `EditorFontFamily` (in `editor_settings_service.dart`) maps a stable persisted id (`menlo` | `recursive`) to the Flutter family name. Menlo is a macOS system family used by name; Recursive ships as four static faces under the alias `RecursiveMonoCasual` (`pubspec.yaml` `fonts:`), with `fontFamilyFallback: ['Menlo']`. Ligatures (`calt`/`liga`) are disabled for both. An unknown id - including the retired `monaco` - resolves to `menlo`.
 
 The strut is **forced for every family** at the plain `lineHeight / fontSize` factor. Unforced, the row height follows the font of whichever glyph is on the line, so a line with Persian text (fallback font) grew the row by 1-2px while the gutter still reserved `lineHeight` - the code drifted away from the numbers over a long file. Do not "calibrate" the factor per family: `TextPainter.height` floors the strut halves and looks short, while the editor's `RenderEditable` rounds and renders exactly; the invariant is asserted on a real `EditableText` in `test/ui/editor/editor_font_fallback_drift_test.dart`, and `tool/probe_font_drift.dart` measures the running app.
+
+### Gutter rows, current-line band and caret reporting
+Everything vertical is derived from the renderer, never predicted:
+
+- **Rows.** `_rowsFromRenderer()` builds one entry per visual row (the logical line on a line's first row, `0` on continuation rows). The row *count* is the caret travel `(caret(last) - caret(first)) / lineHeight + 1`; each logical line is placed at the row its caret occupies. A `TextPainter` prediction survives only as a one-frame stopgap, because a character-count/wrap guess is wrong as soon as a glyph comes from the fallback font (a Persian line counted as one row renders as two, and every number below it sits one row high). The rebuild runs post-frame, retries while the editable is not measurable, and rejects a measurement with fewer rows than logical lines.
+- **Band.** `_bandRectForCaret()` returns `(top, height)`: `top` = `row * lineHeight` (a *grid* row, because Flutter's caret rect is inflated ~1px above its line box and using it put the highlight above the numbers), `height` = every row of the logical line, so a wrapped line is highlighted as a whole.
+- **Caret reporting.** `CodeEditorPanel.onCaretChanged(line, column)` -> `IDEShell` -> `RetroStatusBar.positionText`, so the status bar shows a live `Ln n, Col m`.
+- **Continuation rows are inert:** no number, no breakpoint, never the paused line.
+
+The invariants are locked by `editor_click_line_test`, `editor_wrapped_gutter_test` and `editor_gutter_baseline_test`, and measured in the running app by `tool/probe_click_line.dart` and `tool/probe_baseline.dart`.
 
 ## Retro Design Tokens
 

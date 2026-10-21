@@ -9,6 +9,7 @@ import 'base_debugger.dart';
 import 'debugger_environment.dart';
 import 'debugger_snapshot.dart';
 import 'language_runner_service.dart';
+import 'lldb_command_queue.dart';
 
 /// A debugger for C and C++ programs.
 ///
@@ -48,6 +49,50 @@ class CDebugger extends BaseDebugger {
   final String clangPath;
   final String clangPlusPlusPath;
   final String lldbPath;
+
+  // ---------------------------------------------------------------------
+  // Command queue and readiness gate.
+  //
+  // lldb's stdin is a *pipe*, so its line editor reads whatever arrives and
+  // splits it wherever it happens to be. Writing while lldb is still printing
+  // the stop report cuts the command in two (`breakpoint set -a 0x…` reached
+  // lldb as `b` + `reakpoint set -a 0x…`, i.e. "resync the breakpoints" silently
+  // lost one) - measured with a byte-level trace of stdin and of the raw stdout
+  // chunks. Every command therefore goes through one queue and is only written
+  // when lldb is provably idle, is verified with an acknowledgement sentinel,
+  // and the whole unit is retried once (idempotently) when the ack is lost.
+  // ---------------------------------------------------------------------
+
+  /// How long lldb must be silent before a command may be written.
+  static const Duration lldbQuietWindow = Duration(milliseconds: 40);
+
+  /// How long to wait for lldb to become idle before giving up on a command.
+  static const Duration lldbGateTimeout = Duration(seconds: 5);
+
+  /// How long to wait for the acknowledgement sentinel of a command.
+  static const Duration lldbAckTimeout = Duration(seconds: 5);
+
+  static const Duration _lldbExitGrace = Duration(seconds: 2);
+
+  /// Serialises every write to lldb's stdin (see [LldbCommandQueue]).
+  ///
+  /// Recreated for every session: [LldbCommandQueue.close] is final, so a new
+  /// session must not inherit the queue that Stop closed.
+  late LldbCommandQueue _lldbQueue = _newLldbQueue();
+
+  /// Starts a fresh command queue. Called when a session starts.
+  @protected
+  void resetLldbQueue() {
+    _lldbQueue = _newLldbQueue();
+  }
+
+  LldbCommandQueue _newLldbQueue() => LldbCommandQueue(
+    write: _rawWrite,
+    log: (line) => emitOutput('[$debuggerLabel debugger: $line]'),
+    quietWindow: lldbQuietWindow,
+    gateTimeout: lldbGateTimeout,
+    ackTimeout: lldbAckTimeout,
+  );
 
   Process? _lldb;
   final List<String> _tempDirectories = [];
@@ -119,8 +164,10 @@ class CDebugger extends BaseDebugger {
   @protected
   String get debuggerLabel => isCpp ? 'C++' : 'C';
 
+  /// Queues a single lldb command (kept for subclasses that used to write
+  /// directly; it now always goes through the gated queue).
   @protected
-  void writeLldb(String command) => _write(command);
+  void writeLldb(String command) => enqueueLldbUnit(command, <String>[command]);
 
   @protected
   void resyncBreakpoints() => _resyncBreakpoints();
@@ -180,6 +227,7 @@ class CDebugger extends BaseDebugger {
 
       final process = await Process.start(lldbPath, <String>[executable]);
       _lldb = process;
+      resetLldbQueue();
       _exitHandled = false;
       state = DebugState.running;
       currentPausedLine = null;
@@ -248,24 +296,31 @@ class CDebugger extends BaseDebugger {
     );
     await scriptFile.writeAsString(_lldbHelperSource);
 
-    _write('command script import "${scriptFile.path}"');
-    _write(
+    final commands = <String>[
+      'command script import "${scriptFile.path}"',
       'command script add -f borland_lldb.borland_snapshot borland_snapshot',
-    );
-    _write('target stop-hook add -o borland_snapshot');
-    _resyncBreakpoints();
+      'target stop-hook add -o borland_snapshot',
+      ..._resyncCommands(),
+    ];
     // Stop at `main` so pressing Debug pauses immediately, the same way the
     // Dart VM (`--pause-isolates-on-start`) and the Python tracer do. Without
     // it lldb only stops at the loader entry - which carries no source line -
     // and then runs the program straight to completion, so no marker appears.
     _awaitingEntryBreakpointId = true;
-    _write('breakpoint set --name main');
-    _write('run');
+    commands
+      ..add('breakpoint set --name main')
+      ..add('run');
+    // `run` must never be sent twice, so the setup unit is not retried; the
+    // gate and the ack still apply to every command.
+    enqueueLldbUnit('configure', commands, retryOnTimeout: false);
   }
 
   void _watchStreams(Process process) {
     _stdoutSubscription = process.stdout
         .transform(const Utf8Decoder(allowMalformed: true))
+        // Raw chunks first: the readiness gate and the ack sentinel live in the
+        // chunk boundaries, which `LineSplitter` would hide.
+        .map(_handleRawChunk)
         .transform(const LineSplitter())
         .listen(
           // Route through the virtual [handleStdoutLine] so a subclass can take
@@ -430,37 +485,85 @@ class CDebugger extends BaseDebugger {
     // Only meaningful while paused; queuing a command while lldb is already
     // running would fire it at the *next* unrelated stop.
     if (state != DebugState.paused || _lldb == null) return;
-    _write(command);
+    // Jumps the queue so a pending breakpoint resync cannot delay a Continue,
+    // and is never retried: sending `continue` twice would skip a stop.
+    enqueueLldbUnit(
+      command,
+      <String>[command],
+      userAction: true,
+      retryOnTimeout: false,
+    );
     state = DebugState.running;
     currentPausedLine = null;
     notifyListeners();
   }
 
-  void _write(String command) {
+  /// Writes [data] verbatim. Only the kill path uses this: everything else must
+  /// go through [enqueueLldbUnit] so it cannot land in the middle of lldb's
+  /// output.
+  void _rawWrite(String data) {
     final process = _lldb;
     if (process == null) return;
     try {
-      process.stdin.writeln(command);
+      process.stdin.write(data);
     } catch (e) {
-      debugPrint('[CDebugger] Failed to send "$command": $e');
+      debugPrint('[CDebugger] Failed to send "$data": $e');
     }
   }
 
-  void _resyncBreakpoints() {
-    if (_lldb == null) return;
+  /// Queues [commands] as one unit of work (see [LldbUnit] and
+  /// [LldbCommandQueue]).
+  @protected
+  void enqueueLldbUnit(
+    String label,
+    List<String> commands, {
+    bool userAction = false,
+    bool retryOnTimeout = true,
+  }) {
+    if (_lldb == null || commands.isEmpty || _lldbQueue.isClosed) return;
+    unawaited(
+      _lldbQueue.enqueue(
+        LldbUnit(
+          label,
+          commands,
+          userAction: userAction,
+          retryOnTimeout: retryOnTimeout,
+        ),
+      ),
+    );
+  }
+
+  /// Feeds a raw stdout chunk through the protocol state machine.
+  ///
+  /// Runs **before** `LineSplitter`, because the acknowledgement knowledge
+  /// lives in the line boundaries, and it strips the marker so it can never
+  /// reach the Console.
+  String _handleRawChunk(String chunk) => _lldbQueue.handleStdoutChunk(chunk);
+
+  /// The commands that make the gutter breakpoints match [breakpoints].
+  ///
+  /// Deletes the ids this debugger owns (except the implicit `main` one) before
+  /// installing them, so a retry can never leave duplicates behind.
+  List<String> _resyncCommands() {
+    if (_lldb == null) return const <String>[];
+    final commands = <String>[];
     final entryId = _entryBreakpointId;
     for (final id in _lldbBreakpointIds) {
-      // Defensive: the implicit `main` breakpoint must outlive a resync.
       if (id == entryId) continue;
-      _write('breakpoint delete $id');
+      commands.add('breakpoint delete $id');
     }
     _lldbBreakpointIds.clear();
 
     final source = _compiledSource;
-    if (source == null) return;
+    if (source == null) return commands;
     for (final line in _linesFor(source)) {
-      _write('breakpoint set --file "${_basename(source)}" --line $line');
+      commands.add('breakpoint set --file "${_basename(source)}" --line $line');
     }
+    return commands;
+  }
+
+  void _resyncBreakpoints() {
+    enqueueLldbUnit('breakpoints', _resyncCommands());
   }
 
   @override
@@ -527,21 +630,44 @@ class CDebugger extends BaseDebugger {
   }
 
   Future<void> _finalize() async {
+    // Stop owns the kill sequence: whatever was queued is dropped immediately,
+    // so a Stop never waits for a command that is stuck behind the gate.
+    _lldbQueue.close();
+
+    final process = _lldb;
+    _lldb = null;
+    final inferior = _lldbQueue.inferiorPid;
+    _lldbQueue.inferiorPid = null;
+
+    if (process != null) {
+      // Ask lldb to take the inferior down *first*: SIGKILLing lldb alone leaves
+      // `borland_*_exec` running forever.
+      try {
+        process.stdin.write('process kill\nquit\n');
+      } catch (e) {
+        debugPrint('[CDebugger] Failed to send the kill sequence: $e');
+      }
+      final exited = await process.exitCode.timeout(
+        _lldbExitGrace,
+        onTimeout: () => -1,
+      );
+      if (exited == -1) {
+        process.kill(ProcessSignal.sigkill);
+      }
+      // Belt and braces: if lldb is gone but the program is not, kill it by pid.
+      if (inferior != null) {
+        try {
+          Process.killPid(inferior, ProcessSignal.sigkill);
+        } catch (_) {
+          // Already gone - the normal case.
+        }
+      }
+    }
+
     await _stdoutSubscription?.cancel();
     await _stderrSubscription?.cancel();
     _stdoutSubscription = null;
     _stderrSubscription = null;
-
-    final process = _lldb;
-    _lldb = null;
-    if (process != null) {
-      try {
-        process.stdin.writeln('quit');
-      } catch (e) {
-        debugPrint('[CDebugger] Failed to send quit: $e');
-      }
-      process.kill(ProcessSignal.sigkill);
-    }
 
     await _cleanupTemp();
 

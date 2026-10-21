@@ -286,6 +286,48 @@ there is a stop at `_dyld_start` whose line number is
 (and any empty file), filters out frames without a usable location, and only
 then publishes a pause — otherwise the first stop would report a nonsense line.
 
+### Writing to lldb: the command queue, the readiness gate and the kill order
+
+lldb's stdin is a **pipe**, so its line editor reads whatever arrives and splits
+it wherever it happens to be. Writing a command while lldb was still printing a
+stop report cut it in two - `breakpoint set -a 0x…` reached lldb as `b` +
+`reakpoint set -a 0x…` ("error: 'reakpoint' is not a valid command"), so the
+breakpoint the gutter showed was never installed and the program ran to
+completion. Measured with a byte-level trace of stdin and of the **raw** stdout
+chunks: one write from our side, split on the wire. Everything now goes through
+`LldbCommandQueue` (`lib/services/lldb_command_queue.dart`):
+
+* **One command in flight.** A unit is a labelled group of commands (`configure`,
+  `breakpoints`, `continue`), and Continue/Step are inserted at the **front** so a
+  user action never waits behind breakpoint work.
+* **Readiness gate.** A command is written only when nothing is outstanding and
+  lldb has been silent for `lldbQuietWindow` (40 ms). The `(lldb)` prompt is *not*
+  a readiness signal: on a pipe lldb prints it when it *reads* a line, not when
+  it becomes idle.
+* **Acknowledgement sentinel.** Every non-resuming command is followed by
+  `script print("@@ACK n")`, sent as its own gated write, and the next command
+  only goes out once the ack came back. The marker is stripped from the raw
+  chunk so it never reaches the Console. Commands that resume the target (`run`,
+  `continue`, `thread step*`, `next`, `step`, `finish`) are **not** acknowledged:
+  lldb executes nothing after them until the next stop.
+* **One idempotent retry.** A lost ack (5 s) logs
+  `lldb did not acknowledge "<unit>" - retrying once` and re-sends the *whole*
+  unit. A breakpoint resync deletes the ids it owns before installing them, so a
+  retry can never leave a duplicate; the retry is skipped for units that must
+  not repeat (`run`).
+* **Stop owns the kill sequence.** `Stop` closes the queue (dropping everything
+  pending, including a command stuck at the gate), then writes
+  `process kill` + `quit`, waits up to 2 s for lldb, SIGKILLs it, and finally
+  SIGKILLs the inferior pid parsed from `Process <pid> launched`. Before this,
+  SIGKILLing lldb alone left `borland_*_exec` running forever.
+
+`test/services/lldb_command_queue_test.dart` locks this with fake-lldb
+transcripts (a command held while the stop report is arriving, bytes split across
+a prompt, a lost ack that retries idempotently, Stop emptying the queue), and
+`test/integration/lldb_session_lifecycle_test.dart` asserts that
+`pgrep -x lldb` and `pgrep -f 'borland_(c|asm)_exec'` are empty after a normal
+run and after a Stop while paused.
+
 ### Requirements
 
 `clang`, `clang++` and `lldb` must be on `PATH` (they ship with the Xcode
@@ -417,13 +459,25 @@ This keeps CI deterministic and headless-safe.
 
 ```bash
 flutter analyze                 # must report "No issues found!"
-flutter test                    # 310 tests; 2 opt-in integration tests skipped
+flutter test                    # 329 tests; 6 opt-in integration tests skipped
 
 # Opt-in: really spawn a Dart VM and attach over a real WebSocket
 BORLAND_REAL_VM_TEST=1 flutter test test/integration/dart_vm_pause_test.dart
 
-# Opt-in: really compile + lldb samples/array_sum_arm64.s
-BORLAND_REAL_ASM_TEST=1 flutter test test/integration/arm64_asm_breakpoint_test.dart
+# Opt-in: really compile + debug with lldb (asm, C and C++)
+BORLAND_REAL_ASM_TEST=1 flutter test \
+  test/integration/asm_debug_test.dart \
+  test/integration/arm64_asm_breakpoint_test.dart \
+  test/integration/lldb_session_lifecycle_test.dart
+```
+
+> An opt-in gate is **not** enough: every debugger short-circuits while
+> `FLUTTER_TEST` is set, so such a test must also set
+> `DebuggerEnvironment.allowRealProcesses = true` in `setUp` (and restore it in
+> `tearDown`). Without it `startDebugging` returns with `state == running` after
+> a single banner line and never touches lldb - which is exactly why the
+> entry-stop test failed for a while for reasons that had nothing to do with the
+> entry stop.
 ```
 
 ### What the tests cover
@@ -436,6 +490,7 @@ BORLAND_REAL_ASM_TEST=1 flutter test test/integration/arm64_asm_breakpoint_test.
 | `debugger_factory_test` | Extension → debugger mapping and instance reuse. |
 | `vm_service_client_test` | JSON-RPC correlation, URI→WebSocket conversion, timeouts. |
 | `console_panel_test` | Output rendering. |
+| `lldb_command_queue_test` | The lldb stdin protocol: readiness gate, ack sentinel, one idempotent retry, Stop clearing the queue (fake-lldb transcripts). |
 | `debugger_gutter_test` | Gutter row alignment with the editor. |
 | `debugger_language_switch_test` | `DebuggerManager` tab/language switching. |
 | `debugger_arrow_all_languages_test` | The `▶` marker shows for every language. |
@@ -448,9 +503,14 @@ BORLAND_REAL_ASM_TEST=1 flutter test test/integration/arm64_asm_breakpoint_test.
 | `editor_font_gutter_test` | Gutter/code alignment for both fonts × sizes 8/13/32, `▶`, cache invalidation. |
 | `editor_font_fallback_drift_test` | **Authoritative** row-height check on a real `EditableText`: 1000 lines, ASCII/Persian/mixed, wrapped docs. |
 | `editor_click_line_test` | Click → selected line, reported `Ln/Col`, band top and gutter number must all agree (wrapped, Persian). |
+| `editor_wrapped_gutter_test` | Narrow editors (520/400px) that provably wrap: numbers on their own row, blank continuation rows, clicking a wrapped row selects its line, the band covers every row, a continuation row never sets a breakpoint, and a big first paste still numbers correctly. |
+| `editor_gutter_baseline_test` | The digit sits on the code's baseline (both fonts × 8/13/32). |
 | `view_menu_font_test` / `font_menu_live_check_test` | `View > Font` rows, live check mark (choose → reopen, no rebuild), theme switch. |
+| `lldb_command_queue_test` | Fake-lldb transcripts for the stdin protocol: command held while the stop report arrives, bytes split across a prompt, lost ack → one idempotent retry, Stop empties the queue, marker never reaches the Console. |
 | `test/integration/dart_vm_pause_test.dart` | End-to-end real VM attach (opt-in). |
-| `test/integration/arm64_asm_breakpoint_test.dart` | Real `clang`+`lldb`: breakpoint on `add x2, x2, x3` hits 5× with `x2=0,10,30,60,100` (opt-in). |
+| `test/integration/asm_debug_test.dart` | Real `clang`+`lldb`: the entry stop publishes `paused`, `main`, registers and a `pc=0x` line (opt-in). |
+| `test/integration/arm64_asm_breakpoint_test.dart` | Real `clang`+`lldb`: breakpoint on `add x2, x2, x3` hits 5× with `x2=0,10,30,60,100`, the program prints `Sum = 150`, and a breakpoint *after* `_main` stops on its own line (opt-in). |
+| `test/integration/lldb_session_lifecycle_test.dart` | Real C and C++ sessions (breakpoint, step, exit) plus Stop while paused; asserts `pgrep -x lldb` and `pgrep -f 'borland_(c\|asm)_exec'` are empty (opt-in). |
 
 ### Manual probe scripts (`tool/`)
 
@@ -461,6 +521,10 @@ BORLAND_REAL_ASM_TEST=1 flutter test test/integration/arm64_asm_breakpoint_test.
 - `tool/probe_click_line.dart` — clicks a row of a generated wrapped document with a synthetic pointer in
   the running app and prints the selected line, the bold gutter number and the caret rows (the instrument
   for "the click selected the wrong line").
+- `tool/probe_baseline.dart` — paints the panel to an image in the running app and prints, for every font ×
+  size, the caret row, the gutter number row, the band row and the last inked pixel row of the digit and of
+  the code (the instrument for "the numbers are not level with the code"). The caret rect is inflated ~1px
+  above its line box, which is why the band is snapped to `row * lineHeight`.
 - `tool/probe_font_drift.dart` — **run it in the real app**, not under `flutter test`:
   `flutter run -d macos -t tool/probe_font_drift.dart`. It prints a painter table
   (diagnostic only) and then a widget-phase table that measures caret rects of a
