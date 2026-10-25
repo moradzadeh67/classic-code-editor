@@ -4,6 +4,35 @@ All notable changes to Classic Code Editor are documented here. The format follo
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [1.4.3] — 2026-10-25
+
+### Added
+- **Unsaved buffers are analyzed by a real language server.** An `Untitled` tab is now exposed to the server as
+  `untitled.<ext>` (the extension its content resolved to) inside a per-session temp workspace that also carries
+  `compile_flags.txt`, so `clangd`, `pyright` and the Dart server analyze it exactly like a saved file — real
+  diagnostics, hover and completion before you ever press Save. Nothing is written for the buffer itself
+  (`didOpen` carries the text) and nothing outside that temp directory is touched. New:
+  `UnsavedBufferWorkspace`.
+
+### Fixed
+- **C and C++ showed dozens of errors for code that compiles and runs.** The generated `compile_flags.txt` was
+  written in a format clangd does not accept: the file has **no comment syntax**, so the `# …` header lines were
+  passed to the compiler as arguments, the command became invalid and clangd lost the macOS SDK headers
+  (`'iostream' / 'stdio.h' file not found`) and then reported every `std::` use as an error — 21 errors on a
+  correct C++ file, 3 on a correct C file. The file now contains one argument per line (`-isysroot` and its path
+  on separate lines) and nothing else, is not written at all when the SDK path is unknown, and a file this app
+  generated in the old broken format is repaired automatically. Verified against the real clangd: 21 → 0
+  diagnostics for the C++ sample, 3 → 0 for the C sample.
+- **Invented diagnostics for unsaved buffers.** Because a server derives grammar, package context and build
+  flags from the document path, an `Untitled` tab used to be analyzed as a fake file in the app's working
+  directory: clangd reported missing SDK headers and the Dart server flagged `Untitled.dart` as "isn't a
+  lower_case_with_underscores identifier". The virtual workspace above removes both; if no writable temp
+  directory exists the editor reports **LSP: Off** with a tooltip instead of guessing.
+
+### Changed
+- **The blue Console guide lines are lighter again.** w600 was too heavy; `[Running Python 3...]` and
+  `[Compiling C++ code with clang++...]` now sit at w500 — legible, still lighter than the w600 program output.
+
 ## [1.4.2] — 2026-10-25
 
 ### Changed

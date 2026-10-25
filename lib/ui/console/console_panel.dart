@@ -199,13 +199,16 @@ class _ConsolePanelState extends State<ConsolePanel> {
                         fontSize: 13,
                         fontFamily: 'Courier New',
                         color: textColor,
-                        // Program output sits at w600; the blue `[Running ...]`
-                        // / `[Compiling ...]` guide lines used to be the only
-                        // normal-weight text and read as washed out, so they get
-                        // the same weight instead of the thin default.
+                        // Program output is w600; the blue `[Running ...]` /
+                        // `[Compiling ...]` guide lines were the only normal
+                        // weight text and read as washed out, so they sit one
+                        // step up (w500) - enough to be legible, still lighter
+                        // than the output they introduce.
                         fontWeight: line.trim().startsWith('> ')
                             ? FontWeight.bold
-                            : FontWeight.w600,
+                            : (!line.trim().startsWith('[')
+                                  ? FontWeight.w600
+                                  : FontWeight.w500),
                       ),
                     ),
                   );

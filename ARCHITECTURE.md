@@ -85,8 +85,9 @@ binary serves which `highlightLanguage`. `LspServerManager` caches one
 restart anything. When no candidate connects, the manager prints the install
 hint to the Console **once** and switches to the `Off` spec; `AnalyzerService`
 then covers Dart and offline completion covers the rest. clangd gets a
-generated `compile_flags.txt` (never overwriting a user file) before its
-`initialize`, and an empty first completion is retried once while a server is
+generated `compile_flags.txt` (never overwriting a user file; one argument per
+line and no comment header — clangd has no comment syntax there and a `#` line
+silently breaks the whole command) before its `initialize`, and an empty first completion is retried once while a server is
 still indexing.
 
 ### Static analysis fallback (Phase 09):
@@ -198,7 +199,8 @@ output and a session is never silent.
 | LspService | 10 | ✅ | Real-time diagnostics via LSP (one server) |
 | LspServerSpec | 23 | ✅ | Server registry: binary names, args, language ids, install hint |
 | LspServerManager | 23 | ✅ | One warm server per language; follows the active tab |
-| CompileFlagsEnsurer | 23 | ✅ | Creates `compile_flags.txt` for clangd when missing |
+| CompileFlagsEnsurer | 23 | ✅ | Creates `compile_flags.txt` for clangd when missing (repairs its own old format) |
+| UnsavedBufferWorkspace | 24 | ✅ | `untitled.<ext>` documents in a temp workspace so servers can analyze unsaved buffers |
 | TerminalService | 12 | ✅ | Integrated terminal |
 | LanguageRunnerService | 14 | ✅ | Execute Python/C/C++ |
 | DartDebugger | 13/15 | ✅ | Dart debugging via the VM Service |

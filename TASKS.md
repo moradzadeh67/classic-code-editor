@@ -606,3 +606,27 @@ the output they introduce, instead of the washed-out normal weight.
 **Docs:** CHANGELOG `[1.4.2]`, README (Console feature + version refs), RELEASE.md, `docs/RELEASE_NOTES_1.4.2.md`.
 **Release:** version `1.4.2+8`, tag `v1.4.2`, GitHub release titled **Classic Code Editor v1.4.2** with the
 universal DMG. `flutter analyze` clean, **367 tests pass / 8 opt-in skipped**.
+
+### TASK-053: Unsaved-buffer analysis, compile_flags format fix, v1.4.3 release
+**Phase:** 24
+**Status:** ✅ DONE
+**Added:**
+- `UnsavedBufferWorkspace` (NEW): every `Untitled` tab is exposed to the language server as
+  `untitled.<ext>` (extension resolved from the content) inside one per-session temp directory that also holds
+  `compile_flags.txt`, so clangd / pyright / the Dart server analyze it exactly like a saved file — real
+  diagnostics, hover and completion before Save. Nothing is written for the buffer itself (`didOpen` carries
+  the text), the directory is removed on dispose, and a failed temp directory falls back to `LSP: Off` with a
+  tooltip.
+**Fixed:**
+- `compile_flags.txt` was written with a `#` comment header and a one-line `-isysroot <path>`. clangd has **no
+  comment syntax** there: the comment lines became compiler arguments, the command broke, the SDK headers were
+  lost and a correct C++ file reported 21 errors (C: 3). The file is now one argument per line, is skipped when
+  the SDK path is unknown, and a file this app generated in the old format is repaired (`upgraded`). Verified
+  against the real clangd: 21 → 0 (C++) and 3 → 0 (C).
+- Invented diagnostics for unsaved buffers (clangd missing headers, Dart's "file name isn't
+  lower_case_with_underscores") are gone with the virtual workspace above.
+**Changed:** the blue Console guide lines dropped from w600 to w500 (w600 was too heavy).
+**Docs:** CHANGELOG `[1.4.3]`, README (LSP + compile_flags notes, version refs), ARCHITECTURE (service table +
+compile_flags format rule), AGENTS (Rule 12 notes + file structure), RELEASE.md, `docs/RELEASE_NOTES_1.4.3.md`.
+**Release:** version `1.4.3+9`, tag `v1.4.3`, GitHub release **Classic Code Editor v1.4.3** with the universal
+DMG. `flutter analyze` clean, **368 tests pass / 8 opt-in skipped**.

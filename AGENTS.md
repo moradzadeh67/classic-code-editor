@@ -136,8 +136,13 @@
   not restart either server
 - Apple's clangd is launched **without** `--stdio` (it rejects the flag); Pyright
   needs `--stdio`. This is asserted in `lsp_server_spec_test`
-- clangd gets a generated `compile_flags.txt` (`-isysroot $(xcrun --show-sdk-path)`)
-  **before** `initialize`; an existing file is never overwritten
+- clangd gets a generated `compile_flags.txt` (`-isysroot` and the SDK path on
+  **separate lines**) **before** `initialize`; an existing file is never
+  overwritten, and there is **no comment syntax** in that file — a `#` line is
+  passed to the compiler and silently breaks every include
+- An unsaved buffer is analyzed through `UnsavedBufferWorkspace`
+  (`untitled.<ext>` in a temp dir with `compile_flags.txt`); never hand a server
+  a synthetic path in the app's own working directory
 - A missing server must degrade loudly, not silently: print the install hint to
   the Console once and fall back to offline completion (the `Off` spec), and
   never run `dart analyze` on non-Dart files
@@ -214,6 +219,7 @@ lib/
 │   ├── lsp_server_manager.dart      (one warm server per language, follows the tab)
 │   ├── lsp_service.dart             (Language Server Protocol over stdio)
 │   ├── compile_flags.dart           (auto compile_flags.txt for clangd)
+│   ├── unsaved_buffer_workspace.dart (temp workspace for untitled buffers)
 │   ├── terminal_service.dart        (shell commands)
 │   ├── editor_settings_service.dart (font-size persistence + ChangeNotifier)
 │   ├── debug_service.dart           (live variable watcher)

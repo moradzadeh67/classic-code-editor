@@ -125,7 +125,9 @@ ARM64 Assembly support: highlighting, Run, and the LLDB debugger with its regist
 - **Auto-Indentation:** Smart indentation on Enter, auto-dedent on closing brackets
 - **LSP Integration:** Real-time diagnostics, hover tooltips and autocomplete from
   the server that matches the file — Dart, `clangd` for C/C++, `pyright`/`pylsp`
-  for Python. Servers are started once and stay warm while you switch tabs.
+  for Python. Servers are started once and stay warm while you switch tabs, and
+  an untitled buffer is analyzed too (it is exposed to the server under a
+  lowercase `untitled.<ext>` name in a temp workspace).
 - **Offline Completion:** Falls back to a built-in per-language keyword/API list
   when the language server is unavailable
 - **Breakpoint Gutter:** Click line number to toggle breakpoints; numbers sit on
@@ -274,8 +276,8 @@ scripts/release_gate/05_make_dmg.sh     # package the .app into a DMG (hdiutil)
 ```
 
 `05_make_dmg.sh` names the artifact `Classic Code Editor-<version>.dmg` from `pubspec.yaml`, so **the
-pubspec version, the git tag and the DMG name stay in sync** (`1.4.2+8` → tag `v1.4.2` →
-`Classic Code Editor-1.4.2+8.dmg`).
+pubspec version, the git tag and the DMG name stay in sync** (`1.4.3+9` → tag `v1.4.3` →
+`Classic Code Editor-1.4.3+9.dmg`).
 
 > [!NOTE]
 > The app is **unsigned and not notarized** (that needs a paid Apple Developer account). Every user must
@@ -340,6 +342,7 @@ lib/
 │   ├── lsp_server_manager.dart      → One warm server per language, follows the tab
 │   ├── lsp_service.dart             → Language Server Protocol (one server)
 │   ├── compile_flags.dart           → Auto-creates compile_flags.txt for clangd
+│   ├── unsaved_buffer_workspace.dart → Temp workspace so untitled buffers are analyzed
 │   ├── python_debugger.dart         → Python debugger (sys.settrace tracer)
 │   ├── terminal_service.dart        → Shell commands
 │   └── theme_service.dart           → 4 themes + persistence
@@ -394,7 +397,7 @@ lib/
 
 | Platform | Status | Notes |
 |---|:---:|---|
-| 🖥️ macOS | ✅ Released | macOS 12+ (Monterey or later), Apple Silicon for ARM64 assembly — v1.4.2 · [download the DMG](https://github.com/moradzadeh67/classic-code-editor/releases/latest) |
+| 🖥️ macOS | ✅ Released | macOS 12+ (Monterey or later), Apple Silicon for ARM64 assembly — v1.4.3 · [download the DMG](https://github.com/moradzadeh67/classic-code-editor/releases/latest) |
 | 🪟 Windows | 🔜 Planned | Next major target (v1.x) |
 | 🐧 Linux | 🔜 Planned | After Windows |
 | 📱 iOS / Android | ❌ Not planned | An IDE needs a keyboard and a real shell |
@@ -416,7 +419,7 @@ Details: [docs/PRIVACY.md](docs/PRIVACY.md) · Vulnerability reports: [SECURITY.
 
 ### Download Pre-built Release
 
-1. Download the latest `.dmg` (`Classic Code Editor-1.4.2+8.dmg`) from [Releases](https://github.com/moradzadeh67/classic-code-editor/releases/latest)
+1. Download the latest `.dmg` (`Classic Code Editor-1.4.3+9.dmg`) from [Releases](https://github.com/moradzadeh67/classic-code-editor/releases/latest)
 2. Open the `.dmg` and drag `Classic Code Editor.app` to `Applications`
 3. **First launch (Gatekeeper):** the app is not notarized, so macOS blocks it — click **Done** on the dialog, then open **System Settings → Privacy & Security → Open Anyway** ([Apple: Safely open apps on your Mac](https://support.apple.com/en-us/102445))
 
@@ -461,9 +464,10 @@ keep working.
 | Python | `pyright-langserver` → `pylsp` | `npm install -g pyright` or `python3 -m pip install python-lsp-server` |
 
 On the first C/C++ file the editor creates a `compile_flags.txt` in the project
-directory (with `-isysroot $(xcrun --show-sdk-path)`) so clangd can see the macOS
-SDK headers. An existing `compile_flags.txt` is **never** overwritten — yours
-wins.
+directory (with `-isysroot` and `$(xcrun --show-sdk-path)` on separate lines — the
+file has one argument per line and **no comment syntax**) so clangd can see the
+macOS SDK headers. An existing `compile_flags.txt` is **never** overwritten —
+yours wins; only a file this app generated in its old broken format is repaired.
 
 ## ⚠️ Known Limitations
 

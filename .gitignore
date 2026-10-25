@@ -84,3 +84,6 @@ macos/Runner.xcworkspace/xcshareddata/
 directory-tree.txt
 *.dmg
 *.zip
+
+# clangd flags generated per workspace by CompileFlagsEnsurer
+compile_flags.txt

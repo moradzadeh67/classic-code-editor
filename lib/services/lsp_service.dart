@@ -113,7 +113,8 @@ class LspService extends ChangeNotifier {
   String get statusDetail {
     final name = _spec.displayName;
     if (_spec.languageIds.isEmpty) {
-      return 'No language server for this file — the built-in analyzer is used.';
+      return _spec.detail ??
+          'No language server for this file — the built-in analyzer is used.';
     }
     final error = _lastError;
     switch (_status) {

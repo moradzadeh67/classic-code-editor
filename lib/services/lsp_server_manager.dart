@@ -92,6 +92,20 @@ class LspServerManager extends ChangeNotifier {
     return _active;
   }
 
+  /// Points the UI at "no server" because the active buffer has no file yet.
+  ///
+  /// Nothing is started and no document is opened: a language server derives
+  /// grammar, package context and build flags from the document path, so an
+  /// unsaved `Untitled` buffer would produce invented diagnostics (clangd:
+  /// `'iostream' file not found`; the Dart server: "file name … isn't
+  /// lower_case_with_underscores"). Saving the buffer activates the real server.
+  LspService activateForUnsavedBuffer() {
+    if (_disposed) return _active;
+    _activeLanguage = '';
+    _setActive(_build(LspServerSpec.unsaved));
+    return _active;
+  }
+
   /// Returns the cached service for [spec], creating and starting it on demand.
   LspService _build(LspServerSpec spec) {
     return _services.putIfAbsent(spec.id, () {

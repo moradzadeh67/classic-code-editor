@@ -14,6 +14,7 @@ class LspServerSpec {
     required this.executableNames,
     required this.arguments,
     required this.installHint,
+    this.detail,
     this.usesCompileFlags = false,
     this.initializationOptions = const <String, dynamic>{},
   });
@@ -36,6 +37,10 @@ class LspServerSpec {
 
   /// One-line install hint printed to the Console when the server is missing.
   final String installHint;
+
+  /// Tooltip text for a spec that serves nothing ([languageIds] is empty),
+  /// explaining *why* no server applies.
+  final String? detail;
 
   /// clangd only sees the macOS SDK through a `compile_flags.txt`.
   final bool usesCompileFlags;
@@ -63,7 +68,8 @@ class LspServerSpec {
       '--client-id=$clientId',
       '--client-version=$clientVersion',
     ],
-    installHint: 'install the Dart SDK (https://dart.dev/get-dart) and make '
+    installHint:
+        'install the Dart SDK (https://dart.dev/get-dart) and make '
         'sure `dart` is on PATH',
   );
 
@@ -80,7 +86,8 @@ class LspServerSpec {
     ],
     arguments: <String>[],
     usesCompileFlags: true,
-    installHint: 'run `xcode-select --install` (ships /usr/bin/clangd) or '
+    installHint:
+        'run `xcode-select --install` (ships /usr/bin/clangd) or '
         '`brew install llvm`',
   );
 
@@ -116,6 +123,26 @@ class LspServerSpec {
     executableNames: <String>[],
     arguments: <String>[],
     installHint: '',
+    detail: 'No language server for this file — the built-in analyzer is used.',
+  );
+
+  /// Sentinel for an unsaved buffer (`Untitled`).
+  ///
+  /// A language server identifies a document by its path and derives grammar,
+  /// package context and build flags from it, so a buffer with no file on disk
+  /// cannot be analyzed honestly: clangd reports missing SDK headers and the
+  /// Dart server flags the synthetic file name. Nothing is analyzed until the
+  /// buffer is saved, and the tooltip says so instead of showing fake errors.
+  static const LspServerSpec unsaved = LspServerSpec(
+    id: 'unsaved',
+    displayName: 'Off',
+    languageIds: <String>{},
+    executableNames: <String>[],
+    arguments: <String>[],
+    installHint: '',
+    detail:
+        'This file is unsaved — save it to get live diagnostics, hover and '
+        'completion from a language server.',
   );
 
   /// Servers that can serve [languageId], most preferred first.

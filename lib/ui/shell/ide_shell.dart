@@ -14,6 +14,7 @@ import '../../services/lsp_server_manager.dart';
 import '../../services/lsp_service.dart';
 import '../../models/language_config.dart';
 import '../../services/terminal_service.dart';
+import '../../services/unsaved_buffer_workspace.dart';
 import '../../services/debugger_manager.dart';
 import '../../utils/app_shortcuts.dart';
 import '../../utils/line_edit.dart';
@@ -51,6 +52,11 @@ class _IDEShellState extends State<IDEShell> {
 
   /// The server for the active file. Never null: `Off` when nothing applies.
   LspService get _lspService => _lspManager.active;
+
+  /// Where an unsaved buffer is analyzed: servers need a document path, so the
+  /// buffer is exposed under a lowercase name with the right extension inside a
+  /// temp workspace (see [UnsavedBufferWorkspace]).
+  final UnsavedBufferWorkspace _unsavedWorkspace = UnsavedBufferWorkspace();
   final TerminalService _terminalService = TerminalService();
   final CodeController _codeController = CodeController();
 
@@ -143,6 +149,7 @@ class _IDEShellState extends State<IDEShell> {
     _shellFocusNode.dispose();
     _fileService.removeListener(_onFileServiceChanged);
     _lspManager.dispose();
+    _unsavedWorkspace.dispose();
     for (final subscription in _debuggerOutputSubscriptions) {
       unawaited(subscription.cancel());
     }
@@ -155,7 +162,9 @@ class _IDEShellState extends State<IDEShell> {
   }
 
   void _onFileServiceChanged() {
-    final path = _fileService.currentFilePath ?? _fileService.fileName;
+    // Only a saved file has a path a language server can work with; an unsaved
+    // buffer is reported as such instead of being handed a synthetic name.
+    final path = _fileService.currentFilePath;
     final content = _fileService.fileContent;
 
     unawaited(_syncLanguageServer(path, content));
@@ -168,7 +177,8 @@ class _IDEShellState extends State<IDEShell> {
       path,
       content,
     ).highlightLanguage;
-    if (!_lspService.isConnected &&
+    if (path != null &&
+        !_lspService.isConnected &&
         language == 'dart' &&
         path != _lastAnalyzedPath) {
       _lastAnalyzedPath = path;
@@ -183,17 +193,38 @@ class _IDEShellState extends State<IDEShell> {
   ///
   /// Activation is asynchronous (clangd/pyright can take a second to answer
   /// `initialize`), so a token discards the result of a superseded tab switch.
-  Future<void> _syncLanguageServer(String path, String content) async {
+  Future<void> _syncLanguageServer(String? path, String content) async {
     final token = ++_lspSyncToken;
     final previousPath = _lspOpenPath;
     final previousService = _lspOpenService;
 
-    // A language server identifies a document by its path and picks the grammar
-    // from the file name (clangd ignores an extension it does not know), so an
-    // unsaved buffer gets the extension resolved from its content. Nothing is
-    // written to disk: the server analyzes the in-memory text.
-    final config = LanguageConfig.fromPathOrContent(path, content);
-    final documentPath = _lspDocumentPath(path, config);
+    // An unsaved buffer has no document path, and every server needs one
+    // (clangd for the grammar and build flags, the Dart server for the package
+    // context). It gets a stable virtual path instead - a lowercase name with
+    // the extension its content resolved to, inside a temp workspace that also
+    // carries clangd's compile_flags.txt.
+    String? documentPath;
+    try {
+      documentPath =
+          path ??
+          await _unsavedWorkspace.pathFor(
+            LanguageConfig.fromPathOrContent(path, content),
+          );
+    } on FileSystemException catch (e) {
+      debugPrint('Unsaved buffer workspace unavailable: $e');
+    }
+    if (!mounted || token != _lspSyncToken) return;
+
+    if (documentPath == null) {
+      // No writable directory: report "no analysis" instead of inventing one.
+      if (previousPath != null && previousService != null) {
+        previousService.closeDocument(previousPath);
+      }
+      _lspOpenPath = null;
+      _lspLastContent = null;
+      _lspOpenService = _lspManager.activateForUnsavedBuffer();
+      return;
+    }
 
     final service = await _lspManager.activateFor(
       documentPath,
@@ -221,17 +252,6 @@ class _IDEShellState extends State<IDEShell> {
       _lspLastContent = content;
       service.updateFile(documentPath, content);
     }
-  }
-
-  /// Path the language server knows the active buffer by.
-  ///
-  /// Only buffers without any extension are renamed (`Untitled` +
-  /// `.cpp` → `Untitled.cpp`); a real file keeps its own path, and a name that
-  /// already carries an extension (`.h`, `.txt`) is never rewritten.
-  String _lspDocumentPath(String path, LanguageConfig config) {
-    final name = path.split('/').last;
-    if (name.contains('.')) return path;
-    return '$path${config.extension}';
   }
 
   void _toggleFileExplorer() {
