@@ -82,8 +82,18 @@ void main() {
         isTrue,
       );
 
-      expect(classes.contains('symbol'), isTrue);
-      expect(valuesByClass['symbol']!.any((v) => v.contains('msg')), isTrue);
+      expect(classes.contains('title'), isTrue);
+      expect(
+        valuesByClass['title']!.any((v) => v.contains('msg')),
+        isTrue,
+        reason: 'a label should carry the label/function class',
+      );
+      // Labels must not use `symbol`, which the palette resolves to the
+      // operator green.
+      expect(
+        valuesByClass['symbol']?.any((v) => v.contains('msg')) ?? false,
+        isFalse,
+      );
     });
   });
 }

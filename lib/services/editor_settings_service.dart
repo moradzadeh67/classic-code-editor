@@ -6,6 +6,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../models/syntax_scheme.dart';
+
 /// The editor fonts offered by View > Font.
 ///
 /// [id] is what `editor_settings.json` stores, so renaming a label (or even the
@@ -79,11 +81,15 @@ class EditorSettingsService extends ChangeNotifier {
   final Future<Directory> Function()? _directoryProvider;
   double _fontSize = defaultFontSize;
   EditorFontFamily _fontFamily = EditorFontFamily.menlo;
+  SyntaxScheme _syntaxScheme = SyntaxScheme.standard;
 
   double get fontSize => _fontSize;
 
   /// The editor font selected in View > Font.
   EditorFontFamily get fontFamily => _fontFamily;
+
+  /// The palette selected in View > Syntax Colors (shared by all four themes).
+  SyntaxScheme get syntaxScheme => _syntaxScheme;
 
   bool get canIncrease => _fontSize < maxFontSize;
 
@@ -106,6 +112,14 @@ class EditorSettingsService extends ChangeNotifier {
   void setFontFamily(EditorFontFamily v) {
     if (_fontFamily == v) return; // notify ONLY on change
     _fontFamily = v;
+    notifyListeners();
+    _save();
+  }
+
+  /// Switches the syntax palette; listeners (the editor) repaint immediately.
+  void setSyntaxScheme(SyntaxScheme v) {
+    if (_syntaxScheme == v) return; // notify ONLY on change
+    _syntaxScheme = v;
     notifyListeners();
     _save();
   }
@@ -167,6 +181,15 @@ class EditorSettingsService extends ChangeNotifier {
         _fontFamily = family;
         notifyListeners();
       }
+
+      // Same rules for the palette: a missing key (older settings file) or a
+      // corrupt/unknown id resolves to Standard rather than leaving the editor
+      // in an undefined state.
+      final scheme = SyntaxScheme.fromId(data['syntaxScheme']);
+      if (_syntaxScheme != scheme) {
+        _syntaxScheme = scheme;
+        notifyListeners();
+      }
     } catch (e) {
       debugPrint('EditorSettingsService load error: $e');
       // Never throws; corrupt/missing JSON falls back to default.
@@ -181,6 +204,7 @@ class EditorSettingsService extends ChangeNotifier {
       final content = jsonEncode({
         'fontSize': _fontSize,
         'fontFamily': _fontFamily.id,
+        'syntaxScheme': _syntaxScheme.id,
       });
       final cached = _cachedFile;
       if (cached != null) {

@@ -8,12 +8,17 @@ import '../models/diagnostic.dart';
 import '../models/language_config.dart';
 import '../models/lsp_models.dart';
 import '../utils/json_rpc_client.dart';
+import 'lsp_server_spec.dart';
 
 /// Connection state of the Dart Language Server process.
 enum LspConnectionStatus { stopped, starting, connected, error }
 
-/// Manages a connection to the official Dart Language Server
-/// (`dart language-server`) over stdio using the Language Server Protocol.
+/// Manages a connection to a language server over stdio using the Language
+/// Server Protocol.
+///
+/// Which server is launched (and with which arguments) comes from an
+/// [LspServerSpec]; selection per file lives in `LspServerManager`. This class
+/// only knows how to talk LSP.
 ///
 /// Responsibilities:
 /// * spawn and tear down the language server process,
@@ -22,10 +27,19 @@ enum LspConnectionStatus { stopped, starting, connected, error }
 /// * surface real-time diagnostics published by the server,
 /// * request code completion and hover documentation.
 class LspService extends ChangeNotifier {
-  LspService({String? workspaceRoot})
-    : _rootPath = workspaceRoot ?? Directory.current.path;
+  LspService({
+    String? workspaceRoot,
+    LspServerSpec? spec,
+    this._prepareWorkspace,
+    @visibleForTesting this._requestSender,
+  }) : _rootPath = workspaceRoot ?? Directory.current.path,
+       _spec = spec ?? LspServerSpec.dart;
 
   static const Duration _initializeTimeout = Duration(seconds: 20);
+
+  /// One retry, because the first completion after `initialized` often lands
+  /// while the server is still indexing and comes back empty.
+  static const Duration _warmupRetryDelay = Duration(milliseconds: 200);
 
   Process? _process;
   JsonRpcClient? _rpc;
@@ -49,6 +63,19 @@ class LspService extends ChangeNotifier {
   final Set<String> _workspaceFolders = <String>{};
 
   final String? _rootPath;
+  final LspServerSpec _spec;
+  final Future<void> Function()? _prepareWorkspace;
+  final Future<Map<String, dynamic>?> Function(
+    String method,
+    Map<String, dynamic>? params,
+  )?
+  _requestSender;
+
+  /// In-flight startup, so `openFile` can wait instead of racing the handshake.
+  Future<void>? _startTask;
+
+  /// The server this instance was configured for.
+  LspServerSpec get spec => _spec;
 
   LspConnectionStatus _status = LspConnectionStatus.stopped;
   String? _lastError;
@@ -68,6 +95,8 @@ class LspService extends ChangeNotifier {
 
   /// A short human-readable label suitable for the status bar.
   String get statusLabel {
+    // No server applies to this file (Assembly, unknown extension).
+    if (_spec.languageIds.isEmpty) return 'LSP: Off';
     switch (_status) {
       case LspConnectionStatus.stopped:
         return 'LSP: Stopped';
@@ -77,6 +106,27 @@ class LspService extends ChangeNotifier {
         return 'LSP: Connected';
       case LspConnectionStatus.error:
         return 'LSP: Error';
+    }
+  }
+
+  /// Longer explanation for a tooltip: which server, and why it is not running.
+  String get statusDetail {
+    final name = _spec.displayName;
+    if (_spec.languageIds.isEmpty) {
+      return 'No language server for this file — the built-in analyzer is used.';
+    }
+    final error = _lastError;
+    switch (_status) {
+      case LspConnectionStatus.stopped:
+        return '$name language server is stopped.';
+      case LspConnectionStatus.starting:
+        return 'Starting the $name language server…';
+      case LspConnectionStatus.connected:
+        return '$name language server: connected.';
+      case LspConnectionStatus.error:
+        return error == null || error.isEmpty
+            ? '$name language server: error.'
+            : '$name language server: $error';
     }
   }
 
@@ -99,8 +149,16 @@ class LspService extends ChangeNotifier {
   int get warningCount =>
       diagnostics.where((d) => d.severity == 'warning').length;
 
-  /// Starts the Dart Language Server and performs the LSP handshake.
-  Future<void> startServer() async {
+  /// Starts the configured language server and performs the LSP handshake.
+  ///
+  /// Safe to call repeatedly: concurrent callers share one startup future, and
+  /// a failed start clears it so a later attempt can retry.
+  Future<void> startServer() {
+    if (_disposed || _spec.languageIds.isEmpty) return Future<void>.value();
+    return _startTask ??= _startServer().whenComplete(() => _startTask = null);
+  }
+
+  Future<void> _startServer() async {
     if (_disposed) return;
     if (_process != null || _status == LspConnectionStatus.starting) return;
 
@@ -115,12 +173,20 @@ class LspService extends ChangeNotifier {
     }
 
     try {
-      final dartExecutable = await _resolveDartExecutable();
-      final process = await Process.start(dartExecutable, <String>[
-        'language-server',
-        '--client-id=RetroDart',
-        '--client-version=1.0.0',
-      ], workingDirectory: _rootPath);
+      final executable = await _resolveExecutable();
+      // clangd cannot see the SDK headers without compile_flags.txt, and it
+      // indexes on initialize, so the file has to exist before the handshake.
+      try {
+        await _prepareWorkspace?.call();
+      } catch (e) {
+        debugPrint('LspService workspace preparation failed: $e');
+      }
+
+      final process = await Process.start(
+        executable,
+        _spec.arguments,
+        workingDirectory: _rootPath,
+      );
       _process = process;
 
       final rpc = JsonRpcClient(process.stdin);
@@ -137,7 +203,7 @@ class LspService extends ChangeNotifier {
           .transform(const LineSplitter())
           .listen((line) {
             if (line.trim().isNotEmpty) {
-              debugPrint('[LSP] $line');
+              debugPrint('[LSP ${_spec.id}] $line');
             }
           });
 
@@ -147,7 +213,7 @@ class LspService extends ChangeNotifier {
     } catch (e) {
       _lastError = e.toString();
       _status = LspConnectionStatus.error;
-      debugPrint('LspService failed to start: $e');
+      debugPrint('LspService (${_spec.id}) failed to start: $e');
       _safeNotify();
     }
   }
@@ -157,7 +223,10 @@ class LspService extends ChangeNotifier {
 
     final params = <String, dynamic>{
       'processId': pid,
-      'clientInfo': <String, dynamic>{'name': 'RetroDart', 'version': '1.0.0'},
+      'clientInfo': <String, dynamic>{
+        'name': LspServerSpec.clientId,
+        'version': LspServerSpec.clientVersion,
+      },
       'rootUri': rootUri,
       'capabilities': <String, dynamic>{
         'textDocument': <String, dynamic>{
@@ -175,7 +244,7 @@ class LspService extends ChangeNotifier {
         },
         'workspace': <String, dynamic>{'workspaceFolders': true},
       },
-      'initializationOptions': <String, dynamic>{},
+      'initializationOptions': _spec.initializationOptions,
     };
 
     if (rootUri != null) {
@@ -192,6 +261,9 @@ class LspService extends ChangeNotifier {
     if (response == null) {
       throw StateError('Language server did not respond to initialize');
     }
+
+    // Stop/Dispose may have run while we were waiting for the handshake.
+    if (_disposed || _rpc == null) return;
 
     _sendNotification('initialized', <String, dynamic>{});
 
@@ -323,6 +395,10 @@ class LspService extends ChangeNotifier {
   }
 
   /// Requests completion items from the LSP server at [filePath], [line], [column].
+  ///
+  /// A completely empty result is retried once after a short delay: the first
+  /// request after `initialized` usually arrives while a server (clangd,
+  /// pyright) is still indexing, and users read that as "completion is broken".
   Future<List<CompletionItem>> requestCompletion(
     String filePath,
     int line,
@@ -331,20 +407,31 @@ class LspService extends ChangeNotifier {
     if (!isConnected) return const [];
     final uri = _pathToUri(filePath);
 
-    final response = await _sendRequest(
-      'textDocument/completion',
-      <String, dynamic>{
-        'textDocument': <String, dynamic>{'uri': uri},
-        'position': <String, dynamic>{
-          'line': line - 1, // LSP is 0-based
-          'character': column - 1,
-        },
+    final params = <String, dynamic>{
+      'textDocument': <String, dynamic>{'uri': uri},
+      'position': <String, dynamic>{
+        'line': line - 1, // LSP is 0-based
+        'character': column - 1,
       },
-    );
+    };
+
+    var items = await _completionAt(params);
+
+    if (items.isEmpty) {
+      await Future<void>.delayed(_warmupRetryDelay);
+      if (!isConnected) return const [];
+      items = await _completionAt(params);
+    }
+
+    return items;
+  }
+
+  Future<List<CompletionItem>> _completionAt(Map<String, dynamic> params) async {
+    final response = await _request('textDocument/completion', params);
 
     if (response == null) return const [];
 
-    List<dynamic>? items = response['items'] as List<dynamic>?;
+    final items = response['items'] as List<dynamic>?;
 
     if (items == null) return const [];
 
@@ -430,7 +517,7 @@ class LspService extends ChangeNotifier {
     if (!isConnected) return null;
     final uri = _pathToUri(filePath);
 
-    final response = await _sendRequest('textDocument/hover', <String, dynamic>{
+    final response = await _request('textDocument/hover', <String, dynamic>{
       'textDocument': <String, dynamic>{'uri': uri},
       'position': <String, dynamic>{'line': line - 1, 'character': column - 1},
     });
@@ -509,6 +596,15 @@ class LspService extends ChangeNotifier {
   // ---------------------------------------------------------------------------
   // JSON-RPC plumbing
   // ---------------------------------------------------------------------------
+
+  Future<Map<String, dynamic>?> _request(
+    String method, [
+    Map<String, dynamic>? params,
+  ]) {
+    final sender = _requestSender;
+    if (sender != null) return sender(method, params);
+    return _sendRequest(method, params);
+  }
 
   Future<Map<String, dynamic>?> _sendRequest(
     String method, [
@@ -660,17 +756,58 @@ class LspService extends ChangeNotifier {
     _safeNotify();
   }
 
-  Future<String> _resolveDartExecutable() async {
-    try {
-      final which = await Process.run('which', <String>['dart']);
-      if (which.exitCode == 0) {
-        final path = (which.stdout as String).trim();
-        if (path.isNotEmpty) return path;
-      }
-    } catch (e) {
-      debugPrint('Unable to resolve the dart executable: $e');
+  Future<String> _resolveExecutable() async {
+    // Absolute candidates first: a bundled .app starts with launchd's minimal
+    // PATH, so `which` alone misses /opt/homebrew/bin.
+    for (final candidate in _spec.executableNames) {
+      if (!candidate.contains('/')) continue;
+      final expanded = _expandHome(candidate);
+      if (File(expanded).existsSync()) return expanded;
     }
-    return 'dart';
+
+    for (final candidate in _spec.executableNames) {
+      if (candidate.contains('/')) continue;
+      for (final directory in _searchDirectories()) {
+        final path = '$directory/$candidate';
+        if (File(path).existsSync()) return path;
+      }
+      try {
+        final which = await Process.run('/usr/bin/which', <String>[candidate]);
+        if (which.exitCode == 0) {
+          final path = (which.stdout as String).trim();
+          if (path.isNotEmpty) return path;
+        }
+      } catch (e) {
+        debugPrint('Unable to resolve $candidate: $e');
+      }
+    }
+
+    // Fall back to the bare name so Process.start reports a clear error.
+    final names = _spec.executableNames;
+    return names.isEmpty ? _spec.id : names.last;
+  }
+
+  List<String> _searchDirectories() {
+    final home = Platform.environment['HOME'];
+    return <String>[
+      '/usr/bin',
+      '/usr/local/bin',
+      '/opt/homebrew/bin',
+      '/opt/local/bin',
+      if (home != null && home.isNotEmpty) ...<String>[
+        '$home/.local/bin',
+        '$home/.npm-global/bin',
+        '$home/Library/Python/3.14/bin',
+        '$home/Library/Python/3.13/bin',
+        '$home/Library/Python/3.12/bin',
+      ],
+    ];
+  }
+
+  String _expandHome(String path) {
+    if (!path.startsWith('~/')) return path;
+    final home = Platform.environment['HOME'];
+    return home == null ? path : '$home${path.substring(1)}';
   }
 
   String? get _rootUri {

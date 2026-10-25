@@ -6,6 +6,7 @@ import 'package:highlight/languages/dart.dart';
 import 'package:highlight/languages/python.dart';
 
 import '../models/language_config.dart';
+import '../models/syntax_scheme.dart';
 
 void registerHighlightLanguages() {
   MultiLanguageHighlighter.patchSymbolModes();
@@ -23,69 +24,164 @@ class MultiLanguageHighlighter {
   static const Color bracketColor = Color(0xFF031CFC);
   static const Color variableColor = Color(0xFF1A237E);
 
-  static Map<String, TextStyle> getThemeStyles() {
-    return {
-      'meta': const TextStyle(
-        color: preprocessorColor,
-        fontWeight: FontWeight.bold,
-      ),
-      'meta-keyword': const TextStyle(
-        color: preprocessorColor,
-        fontWeight: FontWeight.bold,
-      ),
-      'meta-string': const TextStyle(color: stringColor),
-      'keyword': const TextStyle(
-        color: keywordColor,
-        fontWeight: FontWeight.bold,
-      ),
-      'selector-tag': const TextStyle(
-        color: keywordColor,
-        fontWeight: FontWeight.bold,
-      ),
-      'built_in': const TextStyle(
-        color: typeColor,
-        fontWeight: FontWeight.w600,
-      ),
-      'type': const TextStyle(color: typeColor, fontWeight: FontWeight.w600),
-      'class': const TextStyle(
-        color: Color(0xFF006699),
-        fontWeight: FontWeight.bold,
-      ),
-      'string': const TextStyle(color: stringColor),
-      'quote': const TextStyle(color: stringColor),
-      'title': const TextStyle(color: methodColor, fontWeight: FontWeight.bold),
-      'title.function': const TextStyle(
-        color: methodColor,
-        fontWeight: FontWeight.bold,
-      ),
-      'function': const TextStyle(color: methodColor),
-      'number': const TextStyle(
-        color: numberColor,
-        fontWeight: FontWeight.w600,
-      ),
-      'literal': const TextStyle(
-        color: numberColor,
-        fontWeight: FontWeight.bold,
-      ),
-      'comment': const TextStyle(
-        color: commentColor,
-        fontStyle: FontStyle.italic,
-      ),
-      'variable': const TextStyle(color: variableColor),
-      'params': const TextStyle(color: Color(0xFF283593)),
-      'operator': const TextStyle(
-        color: operatorColor,
-        fontWeight: FontWeight.bold,
-      ),
-      'punctuation': const TextStyle(
-        color: bracketColor,
-        fontWeight: FontWeight.bold,
-      ),
-      'symbol': const TextStyle(
-        color: operatorColor,
-        fontWeight: FontWeight.bold,
-      ),
-    };
+  /// The palette category a token class belongs to.
+  ///
+  /// A scheme only has to describe these categories; every language then picks
+  /// its colors through one shared mapping. That is why Assembly needs no
+  /// palette work of its own: registers are tagged `built_in` (the built-in
+  /// category), directives `meta` (annotations) and labels `title` (functions).
+  /// New token classes the grammars start emitting are added to
+  /// [_categoryByClass] only — never to a scheme's color list.
+  static const Map<String, _SyntaxCategory> _categoryByClass = {
+    // Order mirrors the classic palette so Standard keeps the exact same map.
+    'meta': _SyntaxCategory.annotation,
+    'meta-keyword': _SyntaxCategory.annotation,
+    'meta-string': _SyntaxCategory.string,
+    'keyword': _SyntaxCategory.keyword,
+    'selector-tag': _SyntaxCategory.keyword,
+    'built_in': _SyntaxCategory.builtIn,
+    'type': _SyntaxCategory.type,
+    'class': _SyntaxCategory.className,
+    'string': _SyntaxCategory.string,
+    'quote': _SyntaxCategory.string,
+    // The Python grammar wraps every f-string `{...}` interpolation in this
+    // class; without an entry it fell back to the default (black) text color.
+    'subst': _SyntaxCategory.string,
+    'title': _SyntaxCategory.functionTitle,
+    'title.function': _SyntaxCategory.functionTitle,
+    'function': _SyntaxCategory.function,
+    'number': _SyntaxCategory.number,
+    'literal': _SyntaxCategory.literal,
+    'comment': _SyntaxCategory.comment,
+    'variable': _SyntaxCategory.variable,
+    'params': _SyntaxCategory.params,
+    'operator': _SyntaxCategory.operator,
+    'punctuation': _SyntaxCategory.punctuation,
+    'symbol': _SyntaxCategory.operator,
+    // Emitted by the Dart grammar for `///` doc comments. The classic palette
+    // never styled it, so Standard must keep leaving it as plain text; only
+    // Colorful assigns it a category (see [_unstyledInStandard]).
+    'doctag': _SyntaxCategory.comment,
+  };
+
+  /// Classes that Standard deliberately leaves without a style, exactly as
+  /// before this setting existed.
+  static const Set<String> _unstyledInStandard = {'doctag'};
+
+  /// Colors of the classic (Standard) palette, per category.
+  ///
+  /// These values are what `View > Syntax Colors > Standard` renders and must
+  /// not change: several categories share a color on purpose.
+  static const Map<_SyntaxCategory, TextStyle> _standardStyleByCategory = {
+    _SyntaxCategory.keyword: TextStyle(
+      color: keywordColor,
+      fontWeight: FontWeight.bold,
+    ),
+    _SyntaxCategory.literal: TextStyle(
+      color: numberColor,
+      fontWeight: FontWeight.bold,
+    ),
+    _SyntaxCategory.string: TextStyle(color: stringColor),
+    _SyntaxCategory.number: TextStyle(
+      color: numberColor,
+      fontWeight: FontWeight.w600,
+    ),
+    _SyntaxCategory.type: TextStyle(
+      color: typeColor,
+      fontWeight: FontWeight.w600,
+    ),
+    _SyntaxCategory.builtIn: TextStyle(
+      color: typeColor,
+      fontWeight: FontWeight.w600,
+    ),
+    _SyntaxCategory.className: TextStyle(
+      color: Color(0xFF006699),
+      fontWeight: FontWeight.bold,
+    ),
+    _SyntaxCategory.function: TextStyle(color: methodColor),
+    _SyntaxCategory.functionTitle: TextStyle(
+      color: methodColor,
+      fontWeight: FontWeight.bold,
+    ),
+    _SyntaxCategory.params: TextStyle(color: Color(0xFF283593)),
+    _SyntaxCategory.operator: TextStyle(
+      color: operatorColor,
+      fontWeight: FontWeight.bold,
+    ),
+    _SyntaxCategory.punctuation: TextStyle(
+      color: bracketColor,
+      fontWeight: FontWeight.bold,
+    ),
+    _SyntaxCategory.comment: TextStyle(
+      color: commentColor,
+      fontStyle: FontStyle.italic,
+    ),
+    _SyntaxCategory.annotation: TextStyle(
+      color: preprocessorColor,
+      fontWeight: FontWeight.bold,
+    ),
+    _SyntaxCategory.variable: TextStyle(color: variableColor),
+  };
+
+  /// The Colorful scheme: eleven distinct colors tuned for the shared
+  /// `#E8F1FF` editor background (all at roughly 4.5:1 contrast or better).
+  ///
+  /// Identifiers and parameter lists keep the default text color, which is what
+  /// the editor paints when a category has no color of its own.
+  static const Map<_SyntaxCategory, TextStyle> _colorfulStyleByCategory = {
+    _SyntaxCategory.keyword: TextStyle(
+      color: Color(0xFFA800E0),
+      fontWeight: FontWeight.bold,
+    ),
+    _SyntaxCategory.literal: TextStyle(
+      color: Color(0xFF8F5A00),
+      fontWeight: FontWeight.bold,
+    ),
+    _SyntaxCategory.string: TextStyle(color: Color(0xFF007A1F)),
+    _SyntaxCategory.number: TextStyle(color: Color(0xFFB34A00)),
+    _SyntaxCategory.type: TextStyle(color: Color(0xFF00718F)),
+    _SyntaxCategory.builtIn: TextStyle(color: Color(0xFFC2185B)),
+    _SyntaxCategory.className: TextStyle(color: Color(0xFF00718F)),
+    _SyntaxCategory.function: TextStyle(color: Color(0xFF0050E6)),
+    _SyntaxCategory.functionTitle: TextStyle(color: Color(0xFF0050E6)),
+    _SyntaxCategory.annotation: TextStyle(color: Color(0xFF4B3FE0)),
+    _SyntaxCategory.operator: TextStyle(
+      color: Color(0xFF00796B),
+      fontWeight: FontWeight.bold,
+    ),
+    _SyntaxCategory.punctuation: TextStyle(
+      color: Color(0xFF031CFC),
+      fontWeight: FontWeight.bold,
+    ),
+    _SyntaxCategory.comment: TextStyle(
+      color: Color(0xFF596E48),
+      fontStyle: FontStyle.italic,
+    ),
+    // Plain identifiers. Written out instead of relying on inheritance, because
+    // a parameter list nests inside the (colored) function node.
+    _SyntaxCategory.params: TextStyle(color: Color(0xFF000000)),
+    _SyntaxCategory.variable: TextStyle(color: Color(0xFF000000)),
+  };
+
+  /// Token-class styles for the editor, built from one class → category mapping.
+  ///
+  /// [scheme] defaults to [SyntaxScheme.standard] so existing callers (and
+  /// tests) keep the classic palette without passing anything.
+  static Map<String, TextStyle> getThemeStyles([
+    SyntaxScheme scheme = SyntaxScheme.standard,
+  ]) {
+    final colorful = scheme == SyntaxScheme.colorful;
+    final byCategory = colorful
+        ? _colorfulStyleByCategory
+        : _standardStyleByCategory;
+
+    final styles = <String, TextStyle>{};
+    _categoryByClass.forEach((className, category) {
+      if (!colorful && _unstyledInStandard.contains(className)) return;
+      final style = byCategory[category];
+      if (style != null) styles[className] = style;
+    });
+    return styles;
   }
 
   /// Minimal ARM64 (AArch64) grammar for `.s` files.
@@ -143,8 +239,14 @@ class MultiLanguageHighlighter {
           relevance: 0,
         ),
         Mode(className: 'number', begin: r'(?<![\w.$])#?-?\d+', relevance: 0),
-        // A label is anything followed by a colon at the start of a line.
-        Mode(className: 'symbol', begin: r'^[A-Za-z_.$][\w.$]*:', relevance: 0),
+        // A label is anything followed by a colon at the start of a line. It is
+        // `title` (the palette's function/label blue), not `symbol`, which is
+        // the operator green — that made every label look like an operator
+        // while the real separators stayed black.
+        Mode(className: 'title', begin: r'^[A-Za-z_.$][\w.$]*:', relevance: 0),
+        // Separators the stock grammar leaves in the default text color.
+        Mode(className: 'operator', begin: r'[,!]', relevance: 0),
+        Mode(className: 'punctuation', begin: r'[\[\]{}]', relevance: 0),
       ],
     );
   }
@@ -172,6 +274,46 @@ class MultiLanguageHighlighter {
       relevance: 0,
     );
 
+    // A `contains` rule always wins over the enclosing mode's own `end` match,
+    // so a mode that ends on one of these characters must never receive a rule
+    // that can match it: the mode would never close and would swallow the rest
+    // of the file (that is exactly what used to happen to C++ function bodies).
+    // Hence one explicit rule set per context instead of one shared set.
+    final bracketsNoBraces = Mode(
+      begin: r'[()\[\]]',
+      className: 'punctuation',
+      relevance: 0,
+    );
+    final operatorsNoColon = Mode(
+      begin: r'[!@#\$%^&*+=\-~<>/|?;.,\\`]',
+      className: 'operator',
+      relevance: 0,
+    );
+    final operatorsNoSemiEq = Mode(
+      begin: r'[!@#\$%^&*+\-~<>/|?:.,\\`]',
+      className: 'operator',
+      relevance: 0,
+    );
+
+    /// The rules a removed `params` mode used to provide, minus anything that
+    /// owns parentheses again (`Mode(self: true)` and nested `( ... )` modes) —
+    /// re-adding one of those would put the delimiters back under a mode.
+    List<Mode> contentRulesOf(Mode? mode) => [
+      for (final m in mode?.contains ?? const <Mode?>[])
+        if (m != null &&
+            m.self != true &&
+            m.className != 'params' &&
+            m.begin != r'\(')
+          m,
+    ];
+
+    Mode? firstWhereOrNull(List<Mode?>? list, bool Function(Mode) test) {
+      for (final m in list ?? const <Mode?>[]) {
+        if (m != null && test(m)) return m;
+      }
+      return null;
+    }
+
     void patch(Mode mode) {
       final contains = List<Mode?>.from(mode.contains ?? const <Mode?>[]);
       // Replace the stock plain `=>` rule so the fat arrow is colored too.
@@ -191,6 +333,51 @@ class MultiLanguageHighlighter {
     patch(python);
     patch(cpp);
 
+    // python fix: the grammar's `\b(print|exec)\(` rule carries no className
+    // (and `print`/`exec` are keywords, not `built_in`), so calls to the
+    // common builtins rendered in the default text color. A rule placed first
+    // in `contains` wins over that bare rule, exactly like the symbol rules.
+    final pyBuiltins = Mode(
+      begin:
+          r'\b(print|exec|len|range|str|int|float|bool|list|dict|set|tuple|'
+          r'open|input|enumerate|zip|sorted|sum|min|max|abs|type|isinstance|'
+          r'super|self|repr|map|filter)\b',
+      className: 'built_in',
+      relevance: 0,
+    );
+    python.contains = <Mode?>[pyBuiltins, ...?python.contains];
+    python.compiled = false;
+
+    // python fix: `def f(self, name)` opened a `params` mode that owned its own
+    // parentheses (`begin: "\\(", end: "\\)"`), so a signature's `(` and `)`
+    // were painted in the params color instead of the bracket color while every
+    // other paren in the file was blue. Dropping that mode lets the shared
+    // bracket rule color them too; the literals it used to color inside a
+    // signature are inlined so `x=1` / `y="s"` keep their colors.
+    final pyDefinition = firstWhereOrNull(
+      python.contains,
+      (m) => m.end == ':' && m.variants != null,
+    );
+    final pyParams = firstWhereOrNull(
+      pyDefinition?.contains,
+      (m) => m.className == 'params',
+    );
+    if (pyDefinition != null && pyParams != null) {
+      pyDefinition.contains =
+          List<Mode?>.from(pyDefinition.contains ?? const <Mode?>[])
+            ..remove(pyParams)
+            ..addAll(contentRulesOf(pyParams))
+            // The definition mode ends at `:`, so `:` stays out of its operator
+            // rules or the mode could never close.
+            ..add(brackets)
+            ..add(operatorsNoColon);
+      // `,` and `=` are legal in a signature and only survived because the
+      // params mode swallowed them; without relaxing this the whole `def`
+      // would be rejected as illegal and lose its keyword color.
+      pyDefinition.illegal = r'[\$\n;]';
+      pyDefinition.compiled = false;
+    }
+
     // cpp fix: the generated grammar opens swallowing variants on
     // `Mode(begin: "=", end: ";")` / `Mode(begin: "(", end: ")")` whose own
     // `contains` never include the symbol rules above, so operators and
@@ -198,18 +385,7 @@ class MultiLanguageHighlighter {
     // real C++ files even though `mode.contains` carried the rules).
     // Those variants only boost highlight.js relevance — their keyword lists
     // duplicate the top-level ones — so dropping that element lets the
-    // patched top-level rules color symbols everywhere. Function parameter
-    // lists still open the `params` mode below, so patch it (and its nested
-    // paren mode) with the same rules.
-    void patchContains(Mode? mode) {
-      if (mode == null) return;
-      final list = List<Mode?>.from(mode.contains ?? const <Mode?>[]);
-      list.add(brackets);
-      list.add(operators);
-      mode.contains = list;
-      mode.compiled = false;
-    }
-
+    // patched top-level rules color symbols everywhere.
     cpp.contains = List<Mode?>.from(cpp.contains ?? const <Mode?>[])
       ..removeWhere(
         (m) =>
@@ -220,13 +396,10 @@ class MultiLanguageHighlighter {
             m.variants != null,
       );
 
-    Mode? firstWhereOrNull(List<Mode?>? list, bool Function(Mode) test) {
-      for (final m in list ?? const <Mode?>[]) {
-        if (m != null && test(m)) return m;
-      }
-      return null;
-    }
-
+    // cpp fix: a signature's parameter list was a `params` mode owning its
+    // parentheses (and recursing into itself for calls like `f(g())`), so those
+    // `(` `)` were params-colored instead of blue. The function mode ends at
+    // one of `{ ; =`, so those characters stay out of the rules added to it.
     final functionMode = firstWhereOrNull(
       cpp.contains,
       (m) => m.className == 'function',
@@ -235,13 +408,21 @@ class MultiLanguageHighlighter {
       functionMode?.contains,
       (m) => m.className == 'params',
     );
-    patchContains(paramsMode);
-    patchContains(
-      firstWhereOrNull(
-        paramsMode?.contains,
-        (m) => m.begin == r'\(' && m.className == null && m.contains != null,
-      ),
-    );
+    if (functionMode != null && paramsMode != null) {
+      functionMode.contains =
+          List<Mode?>.from(functionMode.contains ?? const <Mode?>[])
+            ..remove(paramsMode)
+            ..addAll(contentRulesOf(paramsMode))
+            ..add(bracketsNoBraces)
+            ..add(operatorsNoSemiEq);
+      // The stock rule forbids anything but word characters, spaces, `* & : < >`
+      // inside a signature; commas, parentheses and `=` are ordinary there, and
+      // a rejected character makes the whole declaration lose its colors, so
+      // the same conservative illegal marker the grammar uses at top level is
+      // applied instead.
+      functionMode.illegal = '</';
+      functionMode.compiled = false;
+    }
 
     cpp.compiled = false; // recompile everything touched above
   }
@@ -267,7 +448,7 @@ class MultiLanguageHighlighter {
     required String text,
     String? filePath,
   }) {
-    final config = LanguageConfig.fromExtension(filePath);
+    final config = LanguageConfig.fromPathOrContent(filePath, text);
     final mode = getModeForLanguage(config.highlightLanguage);
     return CodeController(text: text, language: mode);
   }
@@ -281,4 +462,28 @@ class DartHighlighter {
   static CodeController createController({required String text}) {
     return MultiLanguageHighlighter.createController(text: text);
   }
+}
+
+/// One slot of a syntax palette.
+///
+/// This is a color concept, not a language concept: every token class the five
+/// grammars emit resolves to one of these through
+/// `MultiLanguageHighlighter._categoryByClass`, so a scheme only ever lists
+/// colors once, and no language needs its own palette.
+enum _SyntaxCategory {
+  keyword,
+  literal,
+  string,
+  number,
+  type,
+  builtIn,
+  className,
+  function,
+  functionTitle,
+  params,
+  operator,
+  punctuation,
+  comment,
+  annotation,
+  variable,
 }

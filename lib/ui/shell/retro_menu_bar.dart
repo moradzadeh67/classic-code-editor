@@ -9,6 +9,7 @@ import '../../services/dart_runner_service.dart';
 import '../../services/file_service.dart';
 import '../../services/analyzer_service.dart';
 import '../../services/theme_service.dart';
+import '../../models/syntax_scheme.dart';
 import '../../services/editor_settings_service.dart';
 import '../../services/session_service.dart';
 import '../../utils/line_edit.dart';
@@ -214,6 +215,22 @@ class RetroMenuBar extends StatelessWidget {
                       EditorSettingsService.instance.fontFamily ==
                       EditorFontFamily.recursive,
                 ),
+                RetroMenuSeparator<String>(),
+                // A non-selectable group label, then the two schemes. Rule 8:
+                // the check mark depends on the live setting, so these rows are
+                // intentionally not const.
+                const RetroMenuItem<String>(
+                  value: 'syntax_header',
+                  label: 'Syntax Colors',
+                  enabled: false,
+                ),
+                for (final scheme in SyntaxScheme.values)
+                  RetroMenuItem<String>(
+                    value: 'syntax_${scheme.id}',
+                    label: scheme.label,
+                    checked:
+                        EditorSettingsService.instance.syntaxScheme == scheme,
+                  ),
                 const RetroMenuSeparator<String>(),
                 // Rule 8: the check mark depends on the live theme, so these rows
                 // are intentionally not const.
@@ -261,6 +278,12 @@ class RetroMenuBar extends StatelessWidget {
                 } else if (value == 'font_recursive') {
                   EditorSettingsService.instance.setFontFamily(
                     EditorFontFamily.recursive,
+                  );
+                } else if (SyntaxScheme.values.any(
+                  (scheme) => value == 'syntax_${scheme.id}',
+                )) {
+                  EditorSettingsService.instance.setSyntaxScheme(
+                    SyntaxScheme.fromId(value.substring('syntax_'.length)),
                   );
                 } else if (value == 'theme_vc6') {
                   ThemeService.instance.switchTheme(ThemeType.vc6);

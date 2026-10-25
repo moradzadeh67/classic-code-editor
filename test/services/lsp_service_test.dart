@@ -39,6 +39,75 @@ void main() {
     });
   });
 
+  group('LspService completion warm-up', () {
+    test('retries an empty first completion once and returns the second list',
+        () async {
+      var calls = 0;
+      final lsp = LspService(
+        workspaceRoot: '/tmp/lsp_completion_test',
+        requestSender: (method, params) async {
+          calls++;
+          if (calls == 1) {
+            return <String, dynamic>{'isIncomplete': true, 'items': <dynamic>[]};
+          }
+          return <String, dynamic>{
+            'items': <dynamic>[
+              <String, dynamic>{'label': 'printf', 'kind': 3},
+            ],
+          };
+        },
+      );
+      addTearDown(lsp.dispose);
+
+      await lsp.startServer();
+      final items = await lsp.requestCompletion('/tmp/main.c', 1, 1);
+
+      expect(calls, 2);
+      expect(items.single.label, 'printf');
+    });
+
+    test('does not retry when the first answer has items', () async {
+      var calls = 0;
+      final lsp = LspService(
+        workspaceRoot: '/tmp/lsp_completion_test',
+        requestSender: (method, params) async {
+          calls++;
+          return <String, dynamic>{
+            'items': <dynamic>[
+              <String, dynamic>{'label': 'main', 'kind': 3},
+            ],
+          };
+        },
+      );
+      addTearDown(lsp.dispose);
+
+      await lsp.startServer();
+      final items = await lsp.requestCompletion('/tmp/main.c', 1, 1);
+
+      expect(calls, 1);
+      expect(items.single.label, 'main');
+    });
+
+    test('gives up after one retry when the server keeps returning nothing',
+        () async {
+      var calls = 0;
+      final lsp = LspService(
+        workspaceRoot: '/tmp/lsp_completion_test',
+        requestSender: (method, params) async {
+          calls++;
+          return <String, dynamic>{'items': <dynamic>[]};
+        },
+      );
+      addTearDown(lsp.dispose);
+
+      await lsp.startServer();
+      final items = await lsp.requestCompletion('/tmp/main.c', 1, 1);
+
+      expect(calls, 2);
+      expect(items, isEmpty);
+    });
+  });
+
   group('LspService.closeDocument', () {
     test('drops that document diagnostics and keeps the others', () {
       lsp.debugSetDiagnosticsFor('/tmp/a.dart', [

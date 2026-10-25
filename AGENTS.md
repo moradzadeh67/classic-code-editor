@@ -126,6 +126,42 @@
   lldb alone leaves `borland_*_exec` running; `lldb_session_lifecycle_test`
   asserts `pgrep` is empty afterwards
 
+### Rule 12: Language servers are chosen by spec, never by a hard-coded command
+- `LspServerSpec` (in `lsp_server_spec.dart`) is the **only** place that knows
+  a server's binary names, arguments and language ids. Adding a language means
+  adding a spec plus a `candidatesForLanguage` branch — never another `if` in
+  `LspService`
+- `LspService` speaks LSP and nothing else; `LspServerManager` owns selection
+  and keeps one warm service per spec id, so switching `.c` ↔ `.dart` tabs must
+  not restart either server
+- Apple's clangd is launched **without** `--stdio` (it rejects the flag); Pyright
+  needs `--stdio`. This is asserted in `lsp_server_spec_test`
+- clangd gets a generated `compile_flags.txt` (`-isysroot $(xcrun --show-sdk-path)`)
+  **before** `initialize`; an existing file is never overwritten
+- A missing server must degrade loudly, not silently: print the install hint to
+  the Console once and fall back to offline completion (the `Off` spec), and
+  never run `dart analyze` on non-Dart files
+- `flutter_tester` short-circuits `LspService.startServer`, so real handshakes
+  are only verified by the opt-in `clangd_presence_test` (`BORLAND_REAL_CLANGD_TEST=1`)
+
+### Rule 13: Syntax colors have one class → category map, and grammars are patched carefully
+- `MultiLanguageHighlighter` owns the only color logic: `_categoryByClass`
+  (token class → palette category) plus one color map per `SyntaxScheme`
+  (`standard` = the classic palette, must stay byte-identical; `colorful` = the
+  11-color palette). A new language or token class is added to the map only —
+  never with its own colors, and never per theme (all four themes share it)
+- A grammar patch must **never** put a `contains` rule that can match the
+  enclosing mode's `end` character: `contains` wins over `end`, so the mode
+  would never close (a `)` rule inside a C++ `params` mode swallowed the rest of
+  the file). Use the per-context rule sets (`bracketsNoBraces`,
+  `operatorsNoColon`, `operatorsNoSemiEq`)
+- A paren-owning mode (`params`, or any `begin: "\("` / `end: "\)"`) can never
+  render its own parentheses in the bracket color. Remove that child mode, keep
+  its literal/comment rules, and let the shared bracket rule do the work
+- Verify a grammar change on a **whole small file** (function bodies included),
+  not on a snippet: a mode that fails to close only shows up when the next lines
+  lose their colors
+
 ## File Structure (MUST follow)
 
 ```text
@@ -174,7 +210,10 @@ lib/
 │   ├── dart_runner_service.dart     (execute Dart code)
 │   ├── language_runner_service.dart (run/compile Dart/Python/C/C++/ARM64 + output stream)
 │   ├── analyzer_service.dart        (static analysis fallback)
-│   ├── lsp_service.dart             (Dart language server over stdio)
+│   ├── lsp_server_spec.dart         (which server serves which language + args)
+│   ├── lsp_server_manager.dart      (one warm server per language, follows the tab)
+│   ├── lsp_service.dart             (Language Server Protocol over stdio)
+│   ├── compile_flags.dart           (auto compile_flags.txt for clangd)
 │   ├── terminal_service.dart        (shell commands)
 │   ├── editor_settings_service.dart (font-size persistence + ChangeNotifier)
 │   ├── debug_service.dart           (live variable watcher)

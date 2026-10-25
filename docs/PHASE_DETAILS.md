@@ -126,3 +126,18 @@ Main window layout:
   `borland_*_exec` survives
 - Tests: 329 pass / 6 opt-in skipped; real-process suites are `BORLAND_REAL_VM_TEST=1` (Dart VM) and
   `BORLAND_REAL_ASM_TEST=1` (asm, C, C++, session lifecycle)
+
+## Phase 23: Multi-Language Language Servers (v1.4.1)
+- `LspServerSpec` registry: binary candidates + arguments + language ids + install hint for
+  `dart language-server`, `clangd`, `pyright-langserver` and `pylsp` (pyright is preferred for Python)
+- `LspServerManager` keeps one warm `LspService` per spec id and swaps with the active tab; no restart when
+  alternating `.c` / `.dart` / `.py`. `active` is never null — the `Off` spec covers Assembly/unknown files
+- Missing server degrades loudly: one Console hint per language, then offline completion; `dart analyze` is
+  now limited to Dart files
+- `compile_flags.txt` is created for clangd (comment header + `-isysroot $(xcrun --show-sdk-path)`); a
+  user-authored file is never touched
+- Empty first completion is retried once (200 ms) while clangd/pyright are indexing
+- `startServer` is a shared future, so `openFile` waits for `initialize` instead of losing the first document
+- Status bar LSP segment gained a tooltip naming the active server and the failure reason
+- Tests: 354 pass / 8 opt-in skipped; opt-in `BORLAND_REAL_CLANGD_TEST=1` runs against the real Apple clangd
+  21.0.0 (`initialize` answered in 8 ms)

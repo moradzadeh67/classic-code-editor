@@ -45,7 +45,7 @@ It is a real IDE, not a mock-up:
 
 - ✅ **100% free** — no accounts, no telemetry, no backend
 - ✅ **MIT licensed** — read it, fork it, ship it
-- ✅ **Real language intelligence** — the actual Dart language server over LSP (diagnostics, hover, completion)
+- ✅ **Real language intelligence** — real language servers over LSP for Dart, C/C++ (`clangd`) and Python (`pyright`/`pylsp`), with diagnostics, hover and completion
 - ✅ **Real debuggers** — Dart VM Service, Python `sys.settrace`, C/C++ and ARM64 Assembly via `clang` + `lldb`, with breakpoints and variable inspection
 - ✅ **Four authentic retro themes** — VC++ 6.0, Borland Delphi, Visual Basic 6.0, Turbo Pascal
 - ✅ **Everything stays on your machine** — code is run and debugged locally
@@ -123,7 +123,9 @@ ARM64 Assembly support: highlighting, Run, and the LLDB debugger with its regist
   the `ASM` heptagon for ARM64 Assembly (with a vector fallback when an asset is
   missing)
 - **Auto-Indentation:** Smart indentation on Enter, auto-dedent on closing brackets
-- **LSP Integration:** Real-time diagnostics, hover tooltips, autocomplete
+- **LSP Integration:** Real-time diagnostics, hover tooltips and autocomplete from
+  the server that matches the file — Dart, `clangd` for C/C++, `pyright`/`pylsp`
+  for Python. Servers are started once and stay warm while you switch tabs.
 - **Offline Completion:** Falls back to a built-in per-language keyword/API list
   when the language server is unavailable
 - **Breakpoint Gutter:** Click line number to toggle breakpoints; numbers sit on
@@ -141,6 +143,9 @@ ARM64 Assembly support: highlighting, Run, and the LLDB debugger with its regist
 - **Editor Zoom:** `Cmd +` / `Cmd -` / `Cmd 0` changes font size (8..32) with live gutter alignment
 - **Editor Font:** `View > Font` picks **Menlo** (default) or **Recursive Mono Casual**;
   the choice is remembered and applies to the code *and* the gutter line numbers
+- **Syntax Colors:** `View > Syntax Colors` switches the code palette between **Standard**
+  (the classic colors, default) and **Colorful** (11 high-contrast colors) live in all four
+  themes and for every language; the choice is remembered
 
 ### 🐛 Real Multi-Language Debuggers
 - **Debug Controls:** Debug, Stop, Step Over, Step Into, Step Out, Continue
@@ -205,7 +210,8 @@ ARM64 Assembly support: highlighting, Run, and the LLDB debugger with its regist
 - **File Picker:** [`file_picker`](https://pub.dev/packages/file_picker)
 - **Path Handling:** [`path_provider`](https://pub.dev/packages/path_provider)
 - **State Management:** Service-oriented + `ChangeNotifier`
-- **LSP:** JSON-RPC over stdio via custom `JsonRpcClient`
+- **LSP:** JSON-RPC over stdio via custom `JsonRpcClient`; one server per
+  language (`dart language-server`, `clangd`, `pyright-langserver`/`pylsp`)
 - **Debugger:** Dart VM Service (JSON-RPC over WebSocket), Python `sys.settrace`, C/C++ and ARM64 Assembly `clang` + `lldb`
 - **Architecture:** Layered (UI / Services / Models / Utils)
 
@@ -266,8 +272,8 @@ scripts/release_gate/05_make_dmg.sh     # package the .app into a DMG (hdiutil)
 ```
 
 `05_make_dmg.sh` names the artifact `Classic Code Editor-<version>.dmg` from `pubspec.yaml`, so **the
-pubspec version, the git tag and the DMG name stay in sync** (`1.4.0+6` → tag `v1.4.0` →
-`Classic Code Editor-1.4.0+6.dmg`).
+pubspec version, the git tag and the DMG name stay in sync** (`1.4.1+7` → tag `v1.4.1` →
+`Classic Code Editor-1.4.1+7.dmg`).
 
 > [!NOTE]
 > The app is **unsigned and not notarized** (that needs a paid Apple Developer account). Every user must
@@ -328,7 +334,10 @@ lib/
 │   ├── file_service.dart            → Open/Save files, tabs, save guard helpers
 │   ├── session_service.dart         → Open tabs + recent files (session.json)
 │   ├── language_runner_service.dart → Execute Python/C/C++/ARM64
-│   ├── lsp_service.dart             → Language Server Protocol
+│   ├── lsp_server_spec.dart         → Which server serves which language + args
+│   ├── lsp_server_manager.dart      → One warm server per language, follows the tab
+│   ├── lsp_service.dart             → Language Server Protocol (one server)
+│   ├── compile_flags.dart           → Auto-creates compile_flags.txt for clangd
 │   ├── python_debugger.dart         → Python debugger (sys.settrace tracer)
 │   ├── terminal_service.dart        → Shell commands
 │   └── theme_service.dart           → 4 themes + persistence
@@ -383,7 +392,7 @@ lib/
 
 | Platform | Status | Notes |
 |---|:---:|---|
-| 🖥️ macOS | ✅ Released | macOS 12+ (Monterey or later), Apple Silicon for ARM64 assembly — v1.4.0 · [download the DMG](https://github.com/moradzadeh67/classic-code-editor/releases/latest) |
+| 🖥️ macOS | ✅ Released | macOS 12+ (Monterey or later), Apple Silicon for ARM64 assembly — v1.4.1 · [download the DMG](https://github.com/moradzadeh67/classic-code-editor/releases/latest) |
 | 🪟 Windows | 🔜 Planned | Next major target (v1.x) |
 | 🐧 Linux | 🔜 Planned | After Windows |
 | 📱 iOS / Android | ❌ Not planned | An IDE needs a keyboard and a real shell |
@@ -405,7 +414,7 @@ Details: [docs/PRIVACY.md](docs/PRIVACY.md) · Vulnerability reports: [SECURITY.
 
 ### Download Pre-built Release
 
-1. Download the latest `.dmg` (`Classic Code Editor-1.4.0+6.dmg`) from [Releases](https://github.com/moradzadeh67/classic-code-editor/releases/latest)
+1. Download the latest `.dmg` (`Classic Code Editor-1.4.1+7.dmg`) from [Releases](https://github.com/moradzadeh67/classic-code-editor/releases/latest)
 2. Open the `.dmg` and drag `Classic Code Editor.app` to `Applications`
 3. **First launch (Gatekeeper):** the app is not notarized, so macOS blocks it — click **Done** on the dialog, then open **System Settings → Privacy & Security → Open Anyway** ([Apple: Safely open apps on your Mac](https://support.apple.com/en-us/102445))
 
@@ -436,11 +445,31 @@ flutter build macos --release
 - The same `clang` / `lldb` pair assembles and debugs `.s` files
   (`clang -g -arch arm64`); on an Intel Mac the app refuses with a clear message
 
+### Optional language servers (LSP)
+
+Nothing is installed automatically. The editor looks for these binaries at
+start-up (per file type) and prints an install hint to the Console when one is
+missing; until then the built-in offline completion and `dart analyze` fallback
+keep working.
+
+| Language | Server (in order) | Install |
+|---|---|---|
+| Dart | `dart language-server` | ships with the Dart SDK |
+| C / C++ | `clangd` | `xcode-select --install` (ships `/usr/bin/clangd`) or `brew install llvm` |
+| Python | `pyright-langserver` → `pylsp` | `npm install -g pyright` or `python3 -m pip install python-lsp-server` |
+
+On the first C/C++ file the editor creates a `compile_flags.txt` in the project
+directory (with `-isysroot $(xcrun --show-sdk-path)`) so clangd can see the macOS
+SDK headers. An existing `compile_flags.txt` is **never** overwritten — yours
+wins.
+
 ## ⚠️ Known Limitations
 
 - **Unsigned / not notarized** — Gatekeeper blocks the first launch until you choose *Open Anyway*.
 - **External toolchain required** — running and debugging needs `dart`, `python3`, `clang` and `lldb` on your `PATH`; without them the editor still works but Run/Debug fails with a clear message.
-- **LSP today is Dart-only** — Python and C/C++ language servers (pyright/clangd) are on the roadmap.
+- **Language servers are optional** — C/C++ needs `clangd` and Python needs
+  `pyright` or `pylsp`; without them the editor falls back to offline completion
+  and says so in the Console (Dart works out of the box).
 - **Assembly support is Apple-Silicon only** — `.s` files are assembled with
   `clang -g -arch arm64`, so Run/Debug reports that ARM64 needs an arm64 macOS
   host instead of silently producing an Intel binary.
@@ -534,8 +563,7 @@ This project is actively developed and tested using:
 - [x] Phase 17 — Release Smoke Gate
 - [x] Phase 18 — Editor Zoom & Gutter Metrics
 - [x] Phase 19 — ARM64 Assembly, Turbo Pascal theme & editor UX
-- [ ] Python LSP support
-- [ ] C/C++ LSP support (clangd)
+- [x] Phase 23 — Language servers for C/C++ (`clangd`) and Python (`pyright`/`pylsp`)
 - [ ] On-device ML for code suggestions
 
 See [ROADMAP.md](ROADMAP.md) for the canonical phase list and

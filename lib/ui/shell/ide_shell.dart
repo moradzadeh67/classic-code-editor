@@ -10,7 +10,9 @@ import '../../services/theme_service.dart';
 import '../../services/dart_runner_service.dart';
 import '../../services/file_service.dart';
 import '../../services/analyzer_service.dart';
+import '../../services/lsp_server_manager.dart';
 import '../../services/lsp_service.dart';
+import '../../models/language_config.dart';
 import '../../services/terminal_service.dart';
 import '../../services/debugger_manager.dart';
 import '../../utils/app_shortcuts.dart';
@@ -40,7 +42,15 @@ class _IDEShellState extends State<IDEShell> {
   final DartRunnerService _dartRunnerService = DartRunnerService();
   final FileService _fileService = FileService();
   final AnalyzerService _analyzerService = AnalyzerService();
-  final LspService _lspService = LspService();
+
+  /// Picks the language server per file (Dart, clangd, pyright/pylsp) and keeps
+  /// each of them warm across tab switches.
+  late final LspServerManager _lspManager = LspServerManager(
+    onOutput: (message) => _dartRunnerService.emitOutput(message),
+  );
+
+  /// The server for the active file. Never null: `Off` when nothing applies.
+  LspService get _lspService => _lspManager.active;
   final TerminalService _terminalService = TerminalService();
   final CodeController _codeController = CodeController();
 
@@ -78,10 +88,13 @@ class _IDEShellState extends State<IDEShell> {
   /// Last persisted tab set, so typing never rewrites `session.json`.
   String? _lastSessionSignature;
 
-  /// Path currently registered with the language server, plus the last content
-  /// pushed to it, so we only emit `didOpen` / `didChange` when needed.
+  /// Path the language server currently has `didOpen` for, on which service.
   String? _lspOpenPath;
+  LspService? _lspOpenService;
   String? _lspLastContent;
+
+  /// Incremented per sync so a slow activation cannot reopen a stale file.
+  int _lspSyncToken = 0;
 
   @override
   void initState() {
@@ -94,9 +107,10 @@ class _IDEShellState extends State<IDEShell> {
         debugger.output.listen(_dartRunnerService.emitOutput),
       );
     }
-    // Start the language server in the background so it is warming up while the
-    // user is still opening their first file.
-    unawaited(_lspService.startServer());
+    // Warm up the default language server (Dart) while the user is still
+    // opening their first file; the server for another language starts on the
+    // first file that needs it.
+    unawaited(_lspManager.activateFor(null));
     // macOS routes Cmd+Q and the red window button through the engine's
     // cancelable exit request, so this is the single quit guard.
     _appLifecycle = AppLifecycleListener(onExitRequested: _handleExitRequested);
@@ -128,7 +142,7 @@ class _IDEShellState extends State<IDEShell> {
     _appLifecycle.dispose();
     _shellFocusNode.dispose();
     _fileService.removeListener(_onFileServiceChanged);
-    _lspService.dispose();
+    _lspManager.dispose();
     for (final subscription in _debuggerOutputSubscriptions) {
       unawaited(subscription.cancel());
     }
@@ -144,32 +158,54 @@ class _IDEShellState extends State<IDEShell> {
     final path = _fileService.currentFilePath ?? _fileService.fileName;
     final content = _fileService.fileContent;
 
-    // Push the active document to the language server (open once, then change).
-    if (path != _lspOpenPath) {
-      final previousPath = _lspOpenPath;
-      _lspOpenPath = path;
-      _lspLastContent = content;
-      // Close the document we are leaving first: the server otherwise keeps
-      // publishing its diagnostics and the status bar counts problems from a
-      // file that is no longer open (e.g. errors from a closed tab showing up
-      // under the file that replaced it).
-      if (previousPath != null) {
-        _lspService.closeDocument(previousPath);
-      }
-      unawaited(_lspService.openFile(path, content));
-    } else if (content != _lspLastContent) {
-      _lspLastContent = content;
-      _lspService.updateFile(path, content);
-    }
+    unawaited(_syncLanguageServer(path, content));
 
     // Keep the one-shot analyzer as a fallback while the LSP is unavailable.
-    if (!_lspService.isConnected && path != _lastAnalyzedPath) {
+    // It shells out to `dart analyze`, so it is only meaningful for Dart files.
+    final language = LanguageConfig.fromExtension(path).highlightLanguage;
+    if (!_lspService.isConnected &&
+        language == 'dart' &&
+        path != _lastAnalyzedPath) {
       _lastAnalyzedPath = path;
       _analyzerService.analyzeFile(path);
     }
 
     // Persist the tab set (open / close / switch) and the MRU list.
     _persistSession();
+  }
+
+  /// Points the matching language server at [path] and keeps it in sync.
+  ///
+  /// Activation is asynchronous (clangd/pyright can take a second to answer
+  /// `initialize`), so a token discards the result of a superseded tab switch.
+  Future<void> _syncLanguageServer(String path, String content) async {
+    final token = ++_lspSyncToken;
+    final previousPath = _lspOpenPath;
+    final previousService = _lspOpenService;
+
+    final service = await _lspManager.activateFor(path);
+    if (!mounted || token != _lspSyncToken) return;
+
+    final switchedService = !identical(service, previousService);
+
+    if (switchedService || path != previousPath) {
+      // The old server (or the same one, for the previous file) must forget the
+      // document, or it keeps publishing diagnostics for a file nobody is
+      // looking at any more.
+      if (previousPath != null && previousService != null) {
+        previousService.closeDocument(previousPath);
+      }
+      _lspOpenPath = path;
+      _lspOpenService = service;
+      _lspLastContent = content;
+      await service.openFile(path, content);
+      return;
+    }
+
+    if (content != _lspLastContent) {
+      _lspLastContent = content;
+      service.updateFile(path, content);
+    }
   }
 
   void _toggleFileExplorer() {
@@ -402,8 +438,13 @@ class _IDEShellState extends State<IDEShell> {
         }
       },
       child: ListenableBuilder(
-        // Rebuild on theme changes AND when the active debugger swaps language.
-        listenable: Listenable.merge([ThemeService.instance, _debuggerManager]),
+        // Rebuild on theme changes, when the active debugger swaps language, and
+        // when the language server for the focused file changes.
+        listenable: Listenable.merge([
+          ThemeService.instance,
+          _debuggerManager,
+          _lspManager,
+        ]),
         builder: (context, _) {
           return Scaffold(
             backgroundColor: ThemeService.instance.colors.background,

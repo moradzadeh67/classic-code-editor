@@ -198,6 +198,15 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
           text: widget.fileService.fileContent,
           filePath: _filePath,
         );
+    // A controller handed in by the shell (`CodeController()` with no language)
+    // renders every token in the default text color, so the initial file needs
+    // its grammar applied here — not only on the next tab switch.
+    _controller.language = MultiLanguageHighlighter.getModeForLanguage(
+      LanguageConfig.fromPathOrContent(
+        _filePath,
+        widget.fileService.fileContent,
+      ).highlightLanguage,
+    );
     _controller.addListener(_onTextChanged);
     _controller.addListener(_onCaretMoved);
     _controller.addListener(_queueBandUpdate);
@@ -251,6 +260,16 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
 
     final newText = _controller.text;
     widget.fileService.updateContent(newText);
+
+    // An untitled buffer has no extension, so its grammar can only come from
+    // the content: keep re-sniffing while it is typed instead of staying on the
+    // Dart fallback (which painted Python as plain text).
+    final mode = MultiLanguageHighlighter.getModeForLanguage(
+      LanguageConfig.fromPathOrContent(_filePath, newText).highlightLanguage,
+    );
+    if (mode != _controller.language) {
+      _controller.language = mode;
+    }
 
     // Auto-clean breakpoints when text is cleared or lines are deleted
     if (widget.debugger != null) {
@@ -526,7 +545,7 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
 
   void _updateControllerText() {
     final newContent = widget.fileService.fileContent;
-    final config = LanguageConfig.fromExtension(_filePath);
+    final config = LanguageConfig.fromPathOrContent(_filePath, newContent);
     _controller.language = MultiLanguageHighlighter.getModeForLanguage(
       config.highlightLanguage,
     );
@@ -619,7 +638,7 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
     }
 
     final filePath = _filePath;
-    final config = LanguageConfig.fromExtension(filePath);
+    final config = LanguageConfig.fromPathOrContent(filePath, _controller.text);
     final language = config.highlightLanguage;
 
     final selection = _controller.selection;
@@ -1209,7 +1228,15 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
     }
 
     return CodeTheme(
-      data: CodeThemeData(styles: MultiLanguageHighlighter.getThemeStyles()),
+      // The palette follows View > Syntax Colors. `CodeThemeData` compares by
+      // its style map and the panel rebuilds on every settings notification, so
+      // a scheme change repaints the field without recreating the controller
+      // (no analysis, cursor or undo history is lost).
+      data: CodeThemeData(
+        styles: MultiLanguageHighlighter.getThemeStyles(
+          EditorSettingsService.instance.syntaxScheme,
+        ),
+      ),
       child: Stack(
         children: [
           Container(

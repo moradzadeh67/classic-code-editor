@@ -83,66 +83,9 @@ class LanguageRunnerService extends ChangeNotifier {
       }
     }
 
-    // Check extension if filePath exists
-    if (filePath != null && filePath.contains('.')) {
-      final ext = filePath.toLowerCase().split('.').last;
-      if (ext == 'dart' ||
-          ext == 'c' ||
-          ext == 'cpp' ||
-          ext == 'cc' ||
-          ext == 'cxx' ||
-          ext == 'py' ||
-          ext == 's') {
-        return LanguageConfig.fromExtension(filePath);
-      }
-    }
-
-    // Automatic content-based detection for unsaved tabs ("Untitled *")
-    //
-    // C++ *only* markers are checked before the plain `#include` rule: almost
-    // every C file starts with an `#include`, so testing `#include` first made
-    // every untitled C buffer resolve to C++ and be compiled with `clang++`.
-    final trimmed = content.trim();
-    if (trimmed.contains('std::') ||
-        trimmed.contains('cout') ||
-        trimmed.contains('cin') ||
-        trimmed.contains('iostream') ||
-        trimmed.contains('#include <string>') ||
-        trimmed.contains('#include <vector>') ||
-        trimmed.contains('namespace ') ||
-        trimmed.contains('template<') ||
-        trimmed.contains('template <')) {
-      return LanguageConfig.fromExtension('test.cpp');
-    }
-    if (trimmed.contains('#include <stdio.h>') ||
-        trimmed.contains('#include <stdlib.h>') ||
-        trimmed.contains('#include <string.h>') ||
-        trimmed.contains('printf(') ||
-        trimmed.contains('scanf(') ||
-        trimmed.contains('malloc(')) {
-      return LanguageConfig.fromExtension('test.c');
-    }
-    // A bare `#include` with none of the markers above is far more likely C++.
-    if (trimmed.contains('#include')) {
-      return LanguageConfig.fromExtension('test.cpp');
-    }
-    if (trimmed.contains('def ') ||
-        trimmed.contains('import sys') ||
-        trimmed.contains('import os') ||
-        (trimmed.contains('print(') && !trimmed.contains(';'))) {
-      return LanguageConfig.fromExtension('test.py');
-    }
-    if (trimmed.contains('void main(') || trimmed.contains('import \'dart:')) {
-      return LanguageConfig.fromExtension('test.dart');
-    }
-    if (trimmed.contains('.globl') ||
-        trimmed.contains('.text') ||
-        trimmed.contains('.section') ||
-        trimmed.contains('_main:')) {
-      return LanguageConfig.fromExtension('test.s');
-    }
-
-    return LanguageConfig.fromExtension(filePath);
+    // Extension first, then content sniffing for unsaved buffers - one rule
+    // set shared with the editor highlighter so Run/Debug and colors agree.
+    return LanguageConfig.fromPathOrContent(filePath, content);
   }
 
   /// Sends user input to stdin of the active process.

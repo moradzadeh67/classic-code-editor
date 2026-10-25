@@ -4,7 +4,55 @@ All notable changes to Classic Code Editor are documented here. The format follo
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.4.1] — 2026-10-25
+
+### Added
+- **Language servers for C/C++ and Python.** The LSP layer no longer hard-codes `dart language-server`.
+  `LspServerSpec` declares each server (binary candidates, arguments, language ids, install hint) and
+  `LspServerManager` keeps **one warm instance per language**, swapping with the active tab instead of
+  restarting a process on every switch: `clangd` for `.c`/`.cpp`, `pyright` then `pylsp` for `.py`, the Dart
+  server for `.dart`. Nothing is installed automatically — a missing server prints its install hint to the
+  Console **once** (`xcode-select --install`, `npm install -g pyright`, `python3 -m pip install
+  python-lsp-server`) and the editor falls back to offline completion; ARM64 Assembly gets no server at all
+  (`Off`). Apple's clangd is launched without `--stdio` (it rejects the flag), pyright with it.
+  Tests: `lsp_server_spec_test`, `lsp_server_manager_test` (reuse, fallback order, one-time hint),
+  opt-in `clangd_presence_test` (real `initialize` handshake, 8 ms on this Mac).
+- **`compile_flags.txt` is generated for clangd** on the first C/C++ file, with a comment header and
+  `-isysroot $(xcrun --show-sdk-path)`, so clangd sees the macOS SDK headers instead of reporting
+  `'stdio.h' file not found`. An existing file is never overwritten. Tests: `compile_flags_test`.
+- **Completion warm-up retry.** An empty completion is retried once after 200 ms, because the first request
+  after `initialized` lands while clangd/pyright are still indexing. Tests: `lsp_service_test`.
+- The status bar's LSP segment now has a tooltip naming the active server and the reason it is not running.
+- **`View > Syntax Colors` with two palettes: Standard (the classic colors, default) and Colorful (11
+  high-contrast colors). The choice applies live in all four themes for every language and is remembered in
+  `editor_settings.json` (`syntaxScheme: "standard" | "colorful"`, unknown values fall back to Standard).
+
+### Fixed
+- **Python syntax highlighting was black in the editor.** Three separate gaps: the shell hands the panel a
+  bare `CodeController()` (no language), and `CodeEditorPanel.initState` never applied one — so a file open
+  when the panel mounted rendered every token in the default text color; unsaved tabs called `Untitled` had no
+  extension, so `LanguageConfig` fell back to the Dart grammar; and the Python grammar's own gaps left
+  `print`/`exec` (a bare rule without `className`) and f-string `{...}` interpolations (`subst` class, absent
+  from the style map) black. The editor now applies the grammar on mount, resolves the language with shared
+  extension→content sniffing (`LanguageConfig.fromPathOrContent`, also used by Run/Debug), styles `subst` from
+  the existing string color and colors Python builtins through a rule added before the bare one. Tests:
+  `python_syntax_colors_test` (real `SpanBuilder` path, one case per theme).
+- **Parentheses in C++ and Python signatures were not the bracket color.** The bundled grammars give a
+  parameter list its own `params` mode that owns its `(` and `)`, so those two characters were painted in the
+  params color while every other bracket was blue; patching such a mode with a bracket rule made it worse,
+  because a `contains` rule wins over the mode's `end` and the mode then never closed (in C++ that swallowed
+  the rest of the file and made call parentheses switch colors mid-line). The paren-owning modes are removed
+  and their inner rules kept, so the shared bracket rule colors every parenthesis; the rules added to a mode
+  now never contain its own end character.
+- **ARM64 Assembly labels and separators were mis-colored.** Labels (`msg:`, `_main:`) were tagged `symbol`, which the
+  palette resolves to the operator green — they read like operators — and while `,` / `[` / `]` / `!` stayed in the
+  default text color. Labels now use the shared label/function color (`title`), and commas, writebacks and brackets
+  pick up the operator / bracket colors already used by the other languages.
+- **The first file opened during server startup could never reach the language server.** `startServer` is now
+  a shared future, so `openFile` waits for the handshake instead of returning while the status was still
+  `starting` (the document was silently dropped until the next keystroke).
+- **The static-analysis fallback ran `dart analyze` on C and Python files.** It is now limited to Dart; other
+  languages rely on offline completion and the Console hint instead.
 
 ## [1.4.0] — 2026-10-21
 

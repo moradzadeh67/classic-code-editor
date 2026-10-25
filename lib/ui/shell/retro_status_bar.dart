@@ -100,42 +100,45 @@ class RetroStatusBar extends StatelessWidget {
               const SizedBox(width: 4),
               _segment(
                 width: 110,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 8,
-                      height: 8,
-                      decoration: BoxDecoration(
-                        border: Border.all(
-                          color: ThemeService.instance.uiColors['borderDark']!,
-                          width: 1,
-                        ),
-                        borderRadius: BorderRadius.zero,
-                      ),
-                      child: DecoratedBox(
+                child: Tooltip(
+                  message: lsp?.statusDetail ?? '',
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 8,
+                        height: 8,
                         decoration: BoxDecoration(
-                          color: lspConnected
-                              ? const Color(0xFF008000)
-                              : const Color(0xFF808080),
+                          border: Border.all(
+                            color: ThemeService.instance.uiColors['borderDark']!,
+                            width: 1,
+                          ),
                           borderRadius: BorderRadius.zero,
                         ),
-                      ),
-                    ),
-                    const SizedBox(width: 5),
-                    Expanded(
-                      child: Text(
-                        lspText,
-                        style: TextStyle(
-                          fontSize: 11.0,
-                          fontWeight: FontWeight.w400,
-                          fontFamily: 'Arial',
-                          height: 1.0,
-                          color: textColor,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: lspConnected
+                                ? const Color(0xFF008000)
+                                : const Color(0xFF808080),
+                            borderRadius: BorderRadius.zero,
+                          ),
                         ),
                       ),
-                    ),
-                  ],
+                      const SizedBox(width: 5),
+                      Expanded(
+                        child: Text(
+                          lspText,
+                          style: TextStyle(
+                            fontSize: 11.0,
+                            fontWeight: FontWeight.w400,
+                            fontFamily: 'Arial',
+                            height: 1.0,
+                            color: textColor,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
               const SizedBox(width: 4),

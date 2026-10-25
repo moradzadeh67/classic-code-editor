@@ -68,14 +68,26 @@ User clicks theme button
 → UI widgets rebuild with new colors
 → Theme saved to file for persistence
 
-### Real-time diagnostics (Phase 09/10):
+### Real-time diagnostics (Phase 10/23):
 User types in the editor
 → FileService.updateContent() notifies listeners
-→ IDEShell pushes the change to LspService
+→ IDEShell asks LspServerManager for the server of the active file
+  (Dart → `dart language-server`, C/C++ → `clangd`, Python → `pyright`/`pylsp`)
 → LspService sends textDocument/didChange over JSON-RPC stdio
-→ Dart language server publishes textDocument/publishDiagnostics
+→ the server publishes textDocument/publishDiagnostics
 → LspService parses them into Diagnostic models and notifies listeners
 → PanelLayout / RetroStatusBar rebuild (LSP diagnostics take precedence)
+
+### Language server selection (Phase 23):
+`LspServerSpec.candidatesForLanguage()` is the only place that knows which
+binary serves which `highlightLanguage`. `LspServerManager` caches one
+`LspService` per spec id, so switching between a `.c` and a `.dart` tab does not
+restart anything. When no candidate connects, the manager prints the install
+hint to the Console **once** and switches to the `Off` spec; `AnalyzerService`
+then covers Dart and offline completion covers the rest. clangd gets a
+generated `compile_flags.txt` (never overwriting a user file) before its
+`initialize`, and an empty first completion is retried once while a server is
+still indexing.
 
 ### Static analysis fallback (Phase 09):
 Used while the language server is unavailable
@@ -183,7 +195,10 @@ output and a session is never silent.
 | DartRunnerService | 05 | ✅ | Execute Dart code |
 | FileService | 07 | ✅ | Open/Save files |
 | AnalyzerService | 09 | ✅ | Static analysis (fallback) |
-| LspService | 10 | ✅ | Real-time diagnostics via LSP |
+| LspService | 10 | ✅ | Real-time diagnostics via LSP (one server) |
+| LspServerSpec | 23 | ✅ | Server registry: binary names, args, language ids, install hint |
+| LspServerManager | 23 | ✅ | One warm server per language; follows the active tab |
+| CompileFlagsEnsurer | 23 | ✅ | Creates `compile_flags.txt` for clangd when missing |
 | TerminalService | 12 | ✅ | Integrated terminal |
 | LanguageRunnerService | 14 | ✅ | Execute Python/C/C++ |
 | DartDebugger | 13/15 | ✅ | Dart debugging via the VM Service |
@@ -323,23 +338,62 @@ Paused Line: #DCDCA8
 
 ### Editor syntax palette (applies to all four themes)
 The editor surface does not read the per-theme `SyntaxColors` tables above; it
-loads `MultiLanguageHighlighter.getThemeStyles()`
-(`lib/utils/multi_language_highlighter.dart`) through `CodeThemeData`. Key
-slots of that palette:
+loads `MultiLanguageHighlighter.getThemeStyles(scheme)`
+(`lib/utils/multi_language_highlighter.dart`) through `CodeThemeData`.
+`View > Syntax Colors` picks the scheme (`SyntaxScheme.standard` — the default —
+or `SyntaxScheme.colorful`), persisted as `syntaxScheme` in
+`editor_settings.json` and applied live: only the `CodeThemeData` changes, the
+`CodeController`, its highlighted nodes, the cursor and the undo history are
+reused.
 
-- Keywords: `#C842F5` (bold) · Strings: `#C62828` · Comments: `#596E48` (italic)
-- Numbers: `#E65100` · Types / built-ins: `#00796B` · Functions: `#0D47A1`
-- **Operators** (`! @ # $ % ^ & * + = - ~ < > / | ? : ; , . \ ` and `=>`):
-  **`#00BF69`** (emerald green, bold)
-- **Brackets** (`( ) { } [ ]`, tokenized as `punctuation`): **`#031CFC`**
-  (blue, bold)
+Internally there is **one** token-class → category map (`_categoryByClass`) and
+one color map per scheme, so no language owns a palette:
+
+| Category | Standard | Colorful |
+|---|---|---|
+| keyword (`keyword`, `selector-tag`) | `#C842F5` bold | `#A800E0` bold |
+| literal (`literal`) | `#E65100` bold | `#8F5A00` bold |
+| string (`string`, `quote`, `meta-string`, `subst`) | `#C62828` | `#007A1F` |
+| number (`number`) | `#E65100` w600 | `#B34A00` |
+| type (`type`), C++ class name (`class`) | `#00796B` w600 / `#006699` bold | `#00718F` |
+| built-ins / registers (`built_in`) | `#00796B` w600 | `#C2185B` |
+| function (`function`, `title`, `title.function`) | `#0D47A1` | `#0050E6` |
+| annotation (`meta`, `meta-keyword`; `#include`, `@decorator`, `.globl`) | `#7B1FA2` bold | `#4B3FE0` |
+| operator (`operator`, `symbol`) | `#00BF69` bold | `#00796B` bold |
+| brackets (`punctuation`) | `#031CFC` bold | `#031CFC` bold |
+| comment (`comment`) | `#596E48` italic | `#596E48` italic |
+| identifiers (`params`, `variable`) | `#283593` / `#1A237E` | default text |
+
+Standard reproduces the classic palette byte for byte (an untouched settings file
+always resolves to it); `doctag` (Dart `///`) is deliberately unstyled there and
+only mapped in Colorful.
 
 > highlight 0.7's Dart / C / C++ / Python grammars emit no `operator` /
 > `punctuation` classes of their own, so
 > `MultiLanguageHighlighter.patchSymbolModes()` appends single-character
 > rules to each grammar before any controller compiles it (no extra package).
+> Two rules learned the hard way:
+> 1. **A `contains` rule wins over the enclosing mode's `end` match.** Never add
+>    a bracket rule that can match a mode's own end character — the mode then
+>    never closes (a `)` rule inside a `params` mode swallowed the rest of a C++
+>    file). Each patch therefore uses a rule set without that character
+>    (`bracketsNoBraces`, `operatorsNoColon`, `operatorsNoSemiEq`).
+> 2. **Paren-owning modes are removed, not patched.** The bundled grammars wrap
+>    a parameter list in a `params` mode (`begin: "\(", end: "\)"`) that owns
+>    its own parentheses, so those two characters could never be the bracket
+>    color. Python's `def`/`class` mode and C++'s `function` mode drop that
+>    child, keep its literal/comment rules, and let the shared bracket rule
+>    color every parenthesis.
 > Strings, comments, numbers, `#include` (meta) and Python `#` comments keep
 > their own colors.
+
+### Syntax scheme change flow
+`View > Syntax Colors > Standard | Colorful`
+→ `EditorSettingsService.setSyntaxScheme()` (notifies + saves)
+→ `CodeEditorPanel` rebuilds on that notification
+→ `CodeThemeData(styles: getThemeStyles(scheme))` → `CodeTheme.updateShouldNotify`
+→ the `EditableText` re-renders with the new styles. No restart, no re-parse,
+no controller recreation.
 
 ### Common Rules:
 - Border width: 2.0

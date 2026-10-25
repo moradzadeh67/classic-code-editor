@@ -509,3 +509,79 @@ breakpoints are installed as `breakpoint set -a <main + offset>` once the entry 
 **Status:** ✅ DONE
 **Completed:** README/CHANGELOG/ARCHITECTURE/TASKS/PHASE_DETAILS/DEBUGGING/RELEASE/RETRO_DESIGN
 updated; version 1.3.0+5; analyze + 204 tests PASS (1 opt-in skipped). Later raised to 230 by Phase 20.
+
+### TASK-049: Multi-language LSP — clangd, pyright/pylsp
+**Phase:** 23
+**Status:** ✅ DONE
+**Completed:**
+- `LspServerSpec` (NEW) is now the single source of truth for a server's binary names, arguments, language
+  ids and install hint: Dart, clangd (no `--stdio` — Apple's build rejects it), pyright (`--stdio`) and pylsp
+  (fallback). `candidatesForLanguage` maps `c`/`cpp` → clangd, `python` → pyright then pylsp, `armasm` → none.
+- `LspServerManager` (NEW) caches one `LspService` per spec id, so alternating `.c`/`.dart`/`.py` tabs never
+  restart a server; `active` is always non-null (`Off` spec when nothing applies). A missing server prints its
+  install hint to the Console once and the UI falls back to offline completion.
+- `CompileFlagsEnsurer` (NEW) writes `compile_flags.txt` (comment header + `-isysroot $(xcrun --show-sdk-path)`)
+  before clangd's `initialize`; an existing file is never overwritten.
+- `LspService` is parameterised by `LspServerSpec`, resolves binaries from launchd's minimal PATH, shares one
+  startup future (so `openFile` can wait for `initialize`), and retries an empty first completion once (200 ms).
+- Status bar LSP segment has a tooltip naming the active server and the failure reason.
+- `dart analyze` fallback is limited to Dart files.
+- Docs: README (install table + known limitation), ARCHITECTURE (services + selection flow), AGENTS.md (Rule 12
+  + file structure), CHANGELOG, PHASE_DETAILS.
+- Tests: `lsp_server_spec_test`, `lsp_server_manager_test`, `compile_flags_test`, completion warm-up retries in
+  `lsp_service_test`, opt-in `clangd_presence_test` (real handshake). Suite: **354 pass / 8 opt-in skipped**
+  (was 329/6; the two new skips are the opt-in clangd tests). Analyze clean.
+
+### TASK-050: View > Syntax Colors — Standard / Colorful palettes
+**Phase:** 24
+**Status:** ✅ DONE
+**Completed:**
+- `SyntaxScheme` (NEW, `models/syntax_scheme.dart`) with the stable ids `standard` / `colorful`; `fromId` falls
+  back to `standard` for a missing key, a corrupt value or an id from a scheme removed later.
+- `EditorSettingsService` stores it next to `fontSize` / `fontFamily` (`syntaxScheme` in
+  `editor_settings.json`), resolves it through the same `fromId` pattern as the font id, and
+  `setSyntaxScheme` notifies listeners so the editor repaints with no restart.
+- `MultiLanguageHighlighter` now owns **one** token-class → category map (`_categoryByClass`) plus one color map
+  per scheme, and `getThemeStyles([scheme])` builds the class map from them (default argument = Standard, so
+  every existing caller and test is unchanged). Standard reproduces the classic palette exactly (verified
+  key-by-key in the app); Colorful is the 11-color palette from the owner spec.
+- `CodeEditorPanel` passes `EditorSettingsService.instance.syntaxScheme` into `CodeThemeData`; the panel already
+  rebuilds on that service's notifications, so only the theme data changes — the `CodeController`, its
+  highlighted nodes, analysis, cursor and undo history are reused (verified live in all four themes).
+- `View > Syntax Colors`: a disabled group row plus `Standard` / `Colorful` with the check mark on the active
+  one (same style as the View > Font rows, built when the popup opens).
+- Assembly needed **no** palette work: registers are `built_in`, directives `meta`, labels `title` (functions),
+  so they follow their categories in both schemes.
+
+**Token classes that had no category before (mapped by judgement, closest category):**
+- `doctag` (emitted by the Dart grammar for `///` doc comments) → **comment**. Standard deliberately keeps it
+  unstyled (it was plain text before, so nothing changes); only Colorful paints it.
+- `params` and `variable` → **plain text**. Standard keeps its own two colors (`#283593`, `#1A237E`); Colorful
+  has no identifier color in the spec, so both are written as the default text color `#000000` — explicit, not
+  inherited, because a parameter list nests inside the (colored) function node.
+- `selector-tag` → keyword, `symbol` → operator, `meta-keyword` → annotation, `meta-string`/`quote`/`subst` →
+  string, `title`/`title.function` → function, `type` → types (all pre-existing classes, no guesswork).
+**No new tests** (owner verifies manually); existing suite + `flutter analyze` clean. No commit, no version bump.
+
+### TASK-051: Color fixes (Python black, Assembly labels, C/C++/Python parens) + v1.4.1 release
+**Phase:** 24
+**Status:** ✅ DONE
+**Fixed (all verified through the real `SpanBuilder` + `CodeThemeData` path):**
+- **Python rendered black.** Three gaps at once: the shell hands `CodeEditorPanel` a bare `CodeController()`
+  (no language) and `initState` never applied one, so a file open when the panel mounted painted every token
+  in the default color; `LanguageConfig` had no content sniffing, so an `Untitled` buffer fell back to the Dart
+  grammar; and the Python grammar left `print`/`exec` (bare rule, no `className`) plus f-string `{...}`
+  (`subst`, missing from the style map) unstyled. Languages now resolve through one shared
+  `LanguageConfig.fromPathOrContent` (also used by Run/Debug), the grammar is applied on mount and re-sniffed
+  while typing, `subst` maps to the string color and Python builtins get a rule before the bare one.
+- **C++/Python parentheses were not the bracket color.** The bundled grammars wrap a parameter list in a
+  `params` mode that owns its `(`/`)`. Those modes are now removed (their literal/comment rules kept) so the
+  shared bracket rule colors every bracket. Patching such a mode instead made it worse: a `contains` rule wins
+  over the mode's `end`, so the mode never closed and C++ call parentheses changed color mid-line.
+- **Assembly labels/separators.** Labels were tagged `symbol` (operator green) instead of `title`, and
+  `,` `[` `]` `!` stayed in the default color; they now use the operator/bracket categories.
+- **`View > Syntax Colors`** (`TASK-050`) shipped in the same release.
+**Docs:** CHANGELOG `[1.4.1]`, README (feature + version refs), ARCHITECTURE (palette table, scheme flow,
+grammar-patch rules), AGENTS Rule 13, PHASE_DETAILS, RELEASE.md, `docs/RELEASE_NOTES_1.4.1.md`.
+**Release:** version `1.4.1+7`, tag `v1.4.1`, GitHub release titled **Classic Code Editor v1.4.1** with the
+universal DMG. `flutter analyze` clean, **368 tests pass / 8 opt-in skipped**.
