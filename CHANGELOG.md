@@ -4,6 +4,28 @@ All notable changes to Classic Code Editor are documented here. The format follo
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [1.4.2] — 2026-10-25
+
+### Changed
+- **The blue Console guide lines are easier to read.** `[Running Python 3...]`,
+  `[Compiling C++ code with clang++...]` and the other bracketed status lines were the only text rendered at
+  normal weight next to w600 program output, so they looked washed out; they now use the same weight as the
+  output they introduce.
+
+### Fixed
+- **The Console carried the previous run's output over to the next one.** Running C++ and then a Python buffer
+  left the old blue `[Compiling C++ code with clang++ ...]` banner (and the old program's output) above the new
+  program's output. `LanguageRunnerService.clearConsole()` now fires a dedicated clear event that
+  `ConsolePanel` obeys, and every run — and every debug session — calls it before it prints anything, so each
+  run starts on an empty Console whatever the previous language was.
+- **An unsaved C++ (or Python) tab reported "Dart language server: connected".** The language server was chosen
+  from the file path alone, and an untitled buffer has none, so it kept the Dart server while the editor colored
+  the same buffer as C++ and Run compiled it with `clang++`. Server selection and the `languageId` sent in
+  `textDocument/didOpen` now use the same resolver as coloring (`LanguageConfig.fromPathOrContent`), so an
+  untitled buffer is analyzed by the server for the language it actually contains, and an extensionless buffer
+  is opened with the resolved extension (`Untitled` → `Untitled.cpp`) because clangd picks the grammar from the
+  file name. Verified against the real clangd: it publishes diagnostics for such an in-memory document.
+
 ## [1.4.1] — 2026-10-25
 
 ### Added

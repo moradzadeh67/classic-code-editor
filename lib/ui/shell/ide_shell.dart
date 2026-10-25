@@ -162,7 +162,12 @@ class _IDEShellState extends State<IDEShell> {
 
     // Keep the one-shot analyzer as a fallback while the LSP is unavailable.
     // It shells out to `dart analyze`, so it is only meaningful for Dart files.
-    final language = LanguageConfig.fromExtension(path).highlightLanguage;
+    // The resolver sniffs unsaved buffers, so an untitled C++ tab is not sent to
+    // `dart analyze` just because it has no extension.
+    final language = LanguageConfig.fromPathOrContent(
+      path,
+      content,
+    ).highlightLanguage;
     if (!_lspService.isConnected &&
         language == 'dart' &&
         path != _lastAnalyzedPath) {
@@ -183,29 +188,50 @@ class _IDEShellState extends State<IDEShell> {
     final previousPath = _lspOpenPath;
     final previousService = _lspOpenService;
 
-    final service = await _lspManager.activateFor(path);
+    // A language server identifies a document by its path and picks the grammar
+    // from the file name (clangd ignores an extension it does not know), so an
+    // unsaved buffer gets the extension resolved from its content. Nothing is
+    // written to disk: the server analyzes the in-memory text.
+    final config = LanguageConfig.fromPathOrContent(path, content);
+    final documentPath = _lspDocumentPath(path, config);
+
+    final service = await _lspManager.activateFor(
+      documentPath,
+      content: content,
+    );
     if (!mounted || token != _lspSyncToken) return;
 
     final switchedService = !identical(service, previousService);
 
-    if (switchedService || path != previousPath) {
+    if (switchedService || documentPath != previousPath) {
       // The old server (or the same one, for the previous file) must forget the
       // document, or it keeps publishing diagnostics for a file nobody is
       // looking at any more.
       if (previousPath != null && previousService != null) {
         previousService.closeDocument(previousPath);
       }
-      _lspOpenPath = path;
+      _lspOpenPath = documentPath;
       _lspOpenService = service;
       _lspLastContent = content;
-      await service.openFile(path, content);
+      await service.openFile(documentPath, content);
       return;
     }
 
     if (content != _lspLastContent) {
       _lspLastContent = content;
-      service.updateFile(path, content);
+      service.updateFile(documentPath, content);
     }
+  }
+
+  /// Path the language server knows the active buffer by.
+  ///
+  /// Only buffers without any extension are renamed (`Untitled` +
+  /// `.cpp` → `Untitled.cpp`); a real file keeps its own path, and a name that
+  /// already carries an extension (`.h`, `.txt`) is never rewritten.
+  String _lspDocumentPath(String path, LanguageConfig config) {
+    final name = path.split('/').last;
+    if (name.contains('.')) return path;
+    return '$path${config.extension}';
   }
 
   void _toggleFileExplorer() {

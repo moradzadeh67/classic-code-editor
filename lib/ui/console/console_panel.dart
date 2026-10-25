@@ -28,6 +28,7 @@ class _ConsolePanelState extends State<ConsolePanel> {
   final TextEditingController _inputController = TextEditingController();
   final FocusNode _inputFocusNode = FocusNode();
   StreamSubscription<String>? _subscription;
+  StreamSubscription<void>? _clearSubscription;
 
   @override
   void initState() {
@@ -46,11 +47,21 @@ class _ConsolePanelState extends State<ConsolePanel> {
         }
       });
     });
+
+    // A new run wipes the previous program's output (and its banner) first.
+    _clearSubscription = widget.dartRunnerService.clearStream.listen((_) {
+      if (!mounted) return;
+      setState(_outputLines.clear);
+      if (_scrollController.hasClients) {
+        _scrollController.jumpTo(0);
+      }
+    });
   }
 
   @override
   void dispose() {
     _subscription?.cancel();
+    _clearSubscription?.cancel();
     _scrollController.dispose();
     _inputController.dispose();
     _inputFocusNode.dispose();
@@ -188,11 +199,13 @@ class _ConsolePanelState extends State<ConsolePanel> {
                         fontSize: 13,
                         fontFamily: 'Courier New',
                         color: textColor,
+                        // Program output sits at w600; the blue `[Running ...]`
+                        // / `[Compiling ...]` guide lines used to be the only
+                        // normal-weight text and read as washed out, so they get
+                        // the same weight instead of the thin default.
                         fontWeight: line.trim().startsWith('> ')
                             ? FontWeight.bold
-                            : (!line.trim().startsWith('[')
-                                  ? FontWeight.w600
-                                  : FontWeight.normal),
+                            : FontWeight.w600,
                       ),
                     ),
                   );

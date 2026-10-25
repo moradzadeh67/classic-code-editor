@@ -14,11 +14,19 @@ class LanguageRunnerService extends ChangeNotifier {
   Process? _process;
   final StreamController<String> _outputController =
       StreamController<String>.broadcast();
+
+  /// Fires when the Console must drop everything it is showing. Kept apart from
+  /// [outputStream] so a listener can never mistake it for program output.
+  final StreamController<void> _clearController =
+      StreamController<void>.broadcast();
   bool _isRunning = false;
   int? _exitCode;
   String _preferredLanguage = 'Auto';
 
   Stream<String> get outputStream => _outputController.stream;
+
+  /// Emits whenever the Console should be emptied (before a new run starts).
+  Stream<void> get clearStream => _clearController.stream;
   bool get isRunning => _isRunning;
   int? get exitCode => _exitCode;
 
@@ -39,6 +47,17 @@ class LanguageRunnerService extends ChangeNotifier {
   void emitOutput(String line) {
     if (!_outputController.isClosed) {
       _outputController.add(line);
+    }
+  }
+
+  /// Empties the Console.
+  ///
+  /// Every run calls this first, so the previous program's output — and the blue
+  /// `[Running C++ ...]` banner that belongs to it — can never sit above the new
+  /// program's output, even when the language changed in between.
+  void clearConsole() {
+    if (!_clearController.isClosed) {
+      _clearController.add(null);
     }
   }
 
@@ -123,6 +142,9 @@ class LanguageRunnerService extends ChangeNotifier {
       debugPrint('Already running, returning');
       return;
     }
+
+    // A new run starts from a clean Console (see [clearConsole]).
+    clearConsole();
 
     _isRunning = true;
     _exitCode = null;
@@ -433,6 +455,7 @@ class LanguageRunnerService extends ChangeNotifier {
   void dispose() {
     stopExecution();
     _outputController.close();
+    _clearController.close();
     super.dispose();
   }
 }

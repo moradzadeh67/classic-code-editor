@@ -316,8 +316,12 @@ class LspService extends ChangeNotifier {
 
     _ensureWorkspaceFolder(filePath);
 
-    final langConfig = LanguageConfig.fromExtension(filePath);
-    final languageId = langConfig.highlightLanguage;
+    // Same resolver as the editor: an unsaved buffer is identified by its
+    // content, not only by a path it may not have yet.
+    final languageId = LanguageConfig.fromPathOrContent(
+      filePath,
+      content,
+    ).highlightLanguage;
 
     _documentVersions[uri] = 1;
     _documentContents[uri] = content;
@@ -426,7 +430,9 @@ class LspService extends ChangeNotifier {
     return items;
   }
 
-  Future<List<CompletionItem>> _completionAt(Map<String, dynamic> params) async {
+  Future<List<CompletionItem>> _completionAt(
+    Map<String, dynamic> params,
+  ) async {
     final response = await _request('textDocument/completion', params);
 
     if (response == null) return const [];

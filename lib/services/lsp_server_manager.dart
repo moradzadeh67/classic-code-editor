@@ -48,14 +48,25 @@ class LspServerManager extends ChangeNotifier {
 
   /// Selects and starts the server for [filePath], then returns it.
   ///
+  /// The language comes from the file extension, or - for an unsaved buffer -
+  /// from its content, through the same `LanguageConfig.fromPathOrContent`
+  /// resolver the editor uses for coloring: an untitled C++ tab must get
+  /// `clangd`, not the Dart server the path (`Untitled`) would imply.
+  ///
   /// Switching between two files of the same language is a no-op. When no server
   /// is installed for the language, the "off" service is returned (it never
   /// connects, so the UI falls back to `AnalyzerService`) and the install hint is
   /// printed once.
-  Future<LspService> activateFor(String? filePath) async {
+  Future<LspService> activateFor(
+    String? filePath, {
+    String content = '',
+  }) async {
     if (_disposed) return _active;
 
-    final language = LanguageConfig.fromExtension(filePath).highlightLanguage;
+    final language = LanguageConfig.fromPathOrContent(
+      filePath,
+      content,
+    ).highlightLanguage;
     if (language == _activeLanguage) return _active;
     _activeLanguage = language;
 

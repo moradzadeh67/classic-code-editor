@@ -585,3 +585,24 @@ updated; version 1.3.0+5; analyze + 204 tests PASS (1 opt-in skipped). Later rai
 grammar-patch rules), AGENTS Rule 13, PHASE_DETAILS, RELEASE.md, `docs/RELEASE_NOTES_1.4.1.md`.
 **Release:** version `1.4.1+7`, tag `v1.4.1`, GitHub release titled **Classic Code Editor v1.4.1** with the
 universal DMG. `flutter analyze` clean, **368 tests pass / 8 opt-in skipped**.
+
+### TASK-052: Console polish, content-aware LSP selection, v1.4.2 release
+**Phase:** 24
+**Status:** ✅ DONE
+**Fixed:**
+- **Console started each run with the previous program's output.** `LanguageRunnerService` gained a dedicated
+  `clearStream` / `clearConsole()` (kept apart from `outputStream` so no listener mistakes it for output);
+  `runCode` calls it before printing anything and the Debug button does the same, and `ConsolePanel` clears its
+  lines and resets the scroll on that event.
+- **An untitled C++/Python buffer said "Dart language server: connected".** Server selection and the
+  `languageId` in `textDocument/didOpen` now use `LanguageConfig.fromPathOrContent`, and an extensionless
+  buffer is opened with the resolved extension (`Untitled` → `Untitled.cpp`) so clangd picks the right grammar.
+  Verified with the real clangd (publishes diagnostics for the in-memory document).
+- **`dart analyze` fallback** is no longer triggered for an untitled C++ buffer (same resolver).
+**Changed:** the bracketed Console guide lines (`[Running Python 3...]`, `[Compiling ...]`) now use w600 like
+the output they introduce, instead of the washed-out normal weight.
+**Tooling:** `pyright` 1.1.414 installed (`npm install -g pyright`) and verified end to end (handshake +
+`publishDiagnostics` on an unsaved Python buffer).
+**Docs:** CHANGELOG `[1.4.2]`, README (Console feature + version refs), RELEASE.md, `docs/RELEASE_NOTES_1.4.2.md`.
+**Release:** version `1.4.2+8`, tag `v1.4.2`, GitHub release titled **Classic Code Editor v1.4.2** with the
+universal DMG. `flutter analyze` clean, **367 tests pass / 8 opt-in skipped**.

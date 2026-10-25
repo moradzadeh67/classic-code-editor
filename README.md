@@ -175,7 +175,9 @@ ARM64 Assembly support: highlighting, Run, and the LLDB debugger with its regist
 
 ### 🖥️ Integrated Terminal & Console
 - **Terminal:** Full shell access with colored output
-- **Console:** Live program output with color-coded lines
+- **Console:** Live program output with color-coded lines; the blue run/compile
+  guide lines match the output's weight, and every new run starts on a clean
+  Console (the previous program's output and banner are dropped first)
 - **Debug Output Bridge:** Debugger banners, pauses and exit codes stream into
   the Console, so a session is never silent
 - **Interactive Stdin:** Send input to running programs
@@ -272,8 +274,8 @@ scripts/release_gate/05_make_dmg.sh     # package the .app into a DMG (hdiutil)
 ```
 
 `05_make_dmg.sh` names the artifact `Classic Code Editor-<version>.dmg` from `pubspec.yaml`, so **the
-pubspec version, the git tag and the DMG name stay in sync** (`1.4.1+7` → tag `v1.4.1` →
-`Classic Code Editor-1.4.1+7.dmg`).
+pubspec version, the git tag and the DMG name stay in sync** (`1.4.2+8` → tag `v1.4.2` →
+`Classic Code Editor-1.4.2+8.dmg`).
 
 > [!NOTE]
 > The app is **unsigned and not notarized** (that needs a paid Apple Developer account). Every user must
@@ -392,7 +394,7 @@ lib/
 
 | Platform | Status | Notes |
 |---|:---:|---|
-| 🖥️ macOS | ✅ Released | macOS 12+ (Monterey or later), Apple Silicon for ARM64 assembly — v1.4.1 · [download the DMG](https://github.com/moradzadeh67/classic-code-editor/releases/latest) |
+| 🖥️ macOS | ✅ Released | macOS 12+ (Monterey or later), Apple Silicon for ARM64 assembly — v1.4.2 · [download the DMG](https://github.com/moradzadeh67/classic-code-editor/releases/latest) |
 | 🪟 Windows | 🔜 Planned | Next major target (v1.x) |
 | 🐧 Linux | 🔜 Planned | After Windows |
 | 📱 iOS / Android | ❌ Not planned | An IDE needs a keyboard and a real shell |
@@ -414,7 +416,7 @@ Details: [docs/PRIVACY.md](docs/PRIVACY.md) · Vulnerability reports: [SECURITY.
 
 ### Download Pre-built Release
 
-1. Download the latest `.dmg` (`Classic Code Editor-1.4.1+7.dmg`) from [Releases](https://github.com/moradzadeh67/classic-code-editor/releases/latest)
+1. Download the latest `.dmg` (`Classic Code Editor-1.4.2+8.dmg`) from [Releases](https://github.com/moradzadeh67/classic-code-editor/releases/latest)
 2. Open the `.dmg` and drag `Classic Code Editor.app` to `Applications`
 3. **First launch (Gatekeeper):** the app is not notarized, so macOS blocks it — click **Done** on the dialog, then open **System Settings → Privacy & Security → Open Anyway** ([Apple: Safely open apps on your Mac](https://support.apple.com/en-us/102445))
 

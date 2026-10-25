@@ -155,6 +155,9 @@ class RetroToolbar extends StatelessWidget {
                       debugPrint(
                         'Debug button clicked: ${debugger.runtimeType} -> $path',
                       );
+                      // A debug session writes to the same Console: start it
+                      // from a clean slate like Run does.
+                      dartRunnerService?.clearConsole();
                       debugger?.startDebugging(path, content: content);
                     },
                   )
