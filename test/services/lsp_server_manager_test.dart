@@ -57,20 +57,23 @@ void main() {
     fakes = <String, _FakeLspService>{};
   });
 
-  test('starts on Dart and reuses the warm instance when coming back', () async {
-    final manager = buildManager();
-    addTearDown(manager.dispose);
+  test(
+    'starts on Dart and reuses the warm instance when coming back',
+    () async {
+      final manager = buildManager();
+      addTearDown(manager.dispose);
 
-    final dartFirst = manager.active;
-    expect(dartFirst.spec.id, 'dart');
+      final dartFirst = manager.active;
+      expect(dartFirst.spec.id, 'dart');
 
-    await manager.activateFor('/tmp/main.c');
-    expect(manager.active.spec.id, 'clangd');
+      await manager.activateFor('/tmp/main.c');
+      expect(manager.active.spec.id, 'clangd');
 
-    await manager.activateFor('/tmp/main.dart');
-    expect(identical(manager.active, dartFirst), isTrue);
-    expect(createdSpecIds.where((id) => id == 'dart'), hasLength(1));
-  });
+      await manager.activateFor('/tmp/main.dart');
+      expect(identical(manager.active, dartFirst), isTrue);
+      expect(createdSpecIds.where((id) => id == 'dart'), hasLength(1));
+    },
+  );
 
   test('switching between C and C++ keeps the same clangd process', () async {
     final manager = buildManager();
@@ -107,7 +110,10 @@ void main() {
     final service = await manager.activateFor('/tmp/tool.py');
 
     expect(service.spec.id, 'pylsp');
-    expect(output.any((line) => line.contains('pyright is not available')), isTrue);
+    expect(
+      output.any((line) => line.contains('pyright is not available')),
+      isTrue,
+    );
     expect(output.any((line) => line.contains('npm install')), isTrue);
   });
 
@@ -140,19 +146,22 @@ void main() {
     expect(output, isEmpty);
   });
 
-  test('notifies listeners only when the active server really changes', () async {
-    final manager = buildManager();
-    addTearDown(manager.dispose);
+  test(
+    'notifies listeners only when the active server really changes',
+    () async {
+      final manager = buildManager();
+      addTearDown(manager.dispose);
 
-    var notifications = 0;
-    manager.addListener(() => notifications++);
+      var notifications = 0;
+      manager.addListener(() => notifications++);
 
-    await manager.activateFor('/tmp/one.c');
-    final afterFirstSwitch = notifications;
+      await manager.activateFor('/tmp/one.c');
+      final afterFirstSwitch = notifications;
 
-    await manager.activateFor('/tmp/two.c');
+      await manager.activateFor('/tmp/two.c');
 
-    expect(afterFirstSwitch, greaterThan(0));
-    expect(notifications, afterFirstSwitch);
-  });
+      expect(afterFirstSwitch, greaterThan(0));
+      expect(notifications, afterFirstSwitch);
+    },
+  );
 }

@@ -59,6 +59,12 @@ class LspService extends ChangeNotifier {
   /// Diagnostics reported by the server, keyed by document URI.
   final Map<String, List<Diagnostic>> _diagnosticsByUri = {};
 
+  /// URI of the document the editor is looking at, if one has been opened.
+  ///
+  /// The map above deliberately keeps each document's own list; the UI must
+  /// never be shown the union of every document the server ever published for.
+  String? _activeUri;
+
   /// Workspace folder URIs already registered with the server.
   final Set<String> _workspaceFolders = <String>{};
 
@@ -145,10 +151,41 @@ class LspService extends ChangeNotifier {
     return _diagnosticsByUri[_pathToUri(filePath)] ?? const <Diagnostic>[];
   }
 
+  /// Path of the document the editor last opened on this server, or `null` when
+  /// this server does not currently serve a document.
+  ///
+  /// The UI treats a connected server as authoritative **only** for this
+  /// document; without it there is nothing to show (and the one-shot analyzer
+  /// is the only fallback).
+  String? get activeDocumentPath {
+    final uri = _activeUri;
+    return uri == null ? null : _uriToPath(uri);
+  }
+
+  /// Diagnostics published for [activeDocumentPath] only.
+  ///
+  /// An empty list is a real answer ("no problems"), not "nothing was
+  /// published", so callers must not replace it with another source.
+  List<Diagnostic> get activeDiagnostics {
+    final uri = _activeUri;
+    return uri == null
+        ? const <Diagnostic>[]
+        : (_diagnosticsByUri[uri] ?? const <Diagnostic>[]);
+  }
+
+  /// Error count of [activeDiagnostics].
+  int get activeErrorCount =>
+      activeDiagnostics.where((d) => d.severity == 'error').length;
+
+  /// Warning count of [activeDiagnostics].
+  int get activeWarningCount =>
+      activeDiagnostics.where((d) => d.severity == 'warning').length;
+
+  /// Total error count across all open documents (original behavior preserved).
   int get errorCount => diagnostics.where((d) => d.severity == 'error').length;
 
-  int get warningCount =>
-      diagnostics.where((d) => d.severity == 'warning').length;
+  /// Total warning count across all open documents (original behavior preserved).
+  int get warningCount => diagnostics.where((d) => d.severity == 'warning').length;
 
   /// Starts the configured language server and performs the LSP handshake.
   ///
@@ -326,6 +363,7 @@ class LspService extends ChangeNotifier {
 
     _documentVersions[uri] = 1;
     _documentContents[uri] = content;
+    _activeUri = uri;
 
     _sendNotification('textDocument/didOpen', <String, dynamic>{
       'textDocument': <String, dynamic>{
@@ -335,6 +373,11 @@ class LspService extends ChangeNotifier {
         'text': content,
       },
     });
+
+    // The panel and the status bar follow the active document: announce it even
+    // when no diagnostic has arrived yet, so the old document's list (or the
+    // analyzer fallback) cannot stay on screen.
+    _safeNotify();
   }
 
   void updateFile(String filePath, String content) {
@@ -347,11 +390,19 @@ class LspService extends ChangeNotifier {
       return;
     }
 
-    if (_documentContents[uri] == content) return;
+    final becameActive = _activeUri != uri;
+    if (_documentContents[uri] == content) {
+      if (becameActive) {
+        _activeUri = uri;
+        _safeNotify();
+      }
+      return;
+    }
 
     final version = (_documentVersions[uri] ?? 1) + 1;
     _documentVersions[uri] = version;
     _documentContents[uri] = content;
+    _activeUri = uri;
 
     _sendNotification('textDocument/didChange', <String, dynamic>{
       'textDocument': <String, dynamic>{'uri': uri, 'version': version},
@@ -383,9 +434,13 @@ class LspService extends ChangeNotifier {
     _documentVersions.remove(uri);
     _documentContents.remove(uri);
 
+    final wasActive = _activeUri == uri;
+    if (wasActive) _activeUri = null;
+
     // Only notify when something actually went away, so listeners are not
     // rebuilt on every tab switch that had no diagnostics.
-    if (_diagnosticsByUri.remove(uri) != null) {
+    final removed = _diagnosticsByUri.remove(uri) != null;
+    if (removed || wasActive) {
       notifyListeners();
     }
   }
@@ -594,6 +649,7 @@ class LspService extends ChangeNotifier {
     _documentVersions.clear();
     _documentContents.clear();
     _diagnosticsByUri.clear();
+    _activeUri = null;
     _workspaceFolders.clear();
 
     _status = LspConnectionStatus.stopped;
@@ -702,6 +758,19 @@ class LspService extends ChangeNotifier {
     final uri = params['uri'] as String?;
     if (uri == null) return;
 
+    // Only a document this client has open can be displayed or counted. A
+    // publish that arrives after `didClose` (clangd and pyright answer
+    // asynchronously) must not re-create the entry nobody is looking at, and a
+    // file the server analyzed on its own is not the active document.
+    final currentVersion = _documentVersions[uri];
+    if (currentVersion == null) return;
+
+    // Out-of-order answers: a list computed for older text must not replace the
+    // one for the text the server already has. Servers may omit `version`
+    // (the Dart language server does), in which case there is nothing to compare.
+    final version = params['version'];
+    if (version is int && version < currentVersion) return;
+
     final rawDiagnostics = params['diagnostics'];
     final parsed = <Diagnostic>[];
 
@@ -716,6 +785,13 @@ class LspService extends ChangeNotifier {
     _diagnosticsByUri[uri] = parsed;
     _safeNotify();
   }
+
+  /// Test seam: delivers a raw `textDocument/publishDiagnostics` payload exactly
+  /// as a server would, so the document/version filters can be verified without
+  /// spawning a process.
+  @visibleForTesting
+  void debugPublishDiagnostics(Map<String, dynamic> params) =>
+      _handlePublishDiagnostics(params);
 
   Diagnostic? _parseDiagnostic(String uri, Map<String, dynamic> raw) {
     final range = raw['range'];

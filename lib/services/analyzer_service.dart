@@ -70,7 +70,16 @@ class AnalyzerService extends ChangeNotifier {
   }
 
   void clearDiagnostics() {
+    if (_diagnostics.isEmpty) return;
     _diagnostics.clear();
+    notifyListeners();
+  }
+
+  /// Test seam: seeds a result without spawning `dart analyze`, so the UI's
+  /// fallback rules can be verified.
+  @visibleForTesting
+  void debugSetDiagnostics(List<Diagnostic> diagnostics) {
+    _diagnostics = List<Diagnostic>.of(diagnostics);
     notifyListeners();
   }
 }

@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_code_editor/flutter_code_editor.dart';
 
-import '../../models/diagnostic.dart';
 import '../../models/debugger_models.dart';
 import '../../services/dart_runner_service.dart';
 import '../../services/analyzer_service.dart';
+import '../../services/diagnostics_source.dart';
 import '../../services/lsp_service.dart';
 import '../../services/file_service.dart';
 import '../../services/theme_service.dart';
@@ -110,22 +110,12 @@ class _PanelLayoutState extends State<PanelLayout> {
     });
   }
 
-  List<Diagnostic> get _mergedDiagnostics {
-    if (widget.lspService.isConnected) {
-      return widget.lspService.diagnostics;
-    }
-    return widget.analyzerService.diagnostics;
-  }
-
-  bool get _isAnalyzing {
-    if (widget.lspService.isConnected) return false;
-    return widget.lspService.isStarting || widget.analyzerService.isAnalyzing;
-  }
-
-  String get _diagnosticsSourceLabel {
-    if (widget.lspService.isConnected) return 'LSP';
-    return 'Analyzer';
-  }
+  /// The diagnostics of the active document, from the single resolver both this
+  /// panel and the status bar use.
+  DiagnosticsView get _diagnosticsView => resolveDiagnostics(
+    lsp: widget.lspService,
+    analyzer: widget.analyzerService,
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -242,6 +232,7 @@ class _PanelLayoutState extends State<PanelLayout> {
   }
 
   Widget _buildBottomPanel() {
+    final diagnosticsView = _diagnosticsView;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -280,9 +271,9 @@ class _PanelLayoutState extends State<PanelLayout> {
               ? ConsolePanel(dartRunnerService: widget.dartRunnerService)
               : _activeBottomTab == 1
               ? DiagnosticsPanel(
-                  diagnostics: _mergedDiagnostics,
-                  isAnalyzing: _isAnalyzing,
-                  sourceLabel: _diagnosticsSourceLabel,
+                  diagnostics: diagnosticsView.diagnostics,
+                  isAnalyzing: diagnosticsView.isAnalyzing,
+                  sourceLabel: diagnosticsView.sourceLabel,
                 )
               : _activeBottomTab == 2
               ? TerminalPanel(terminalService: widget.terminalService)

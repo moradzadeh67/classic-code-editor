@@ -19,69 +19,80 @@ void main() {
   final enabled = Platform.environment[gate] == '1';
   final skip = enabled ? null : 'set $gate=1 to run against the real clangd';
 
-  test('clangd is installed and reports a version', () async {
-    final clangd = await _findClangd();
+  test(
+    'clangd is installed and reports a version',
+    () async {
+      final clangd = await _findClangd();
 
-    expect(
-      clangd,
-      isNotNull,
-      reason: 'install it with `xcode-select --install` or `brew install llvm`',
-    );
+      expect(
+        clangd,
+        isNotNull,
+        reason:
+            'install it with `xcode-select --install` or `brew install llvm`',
+      );
 
-    final version = await Process.run(clangd!, <String>['--version']);
-    expect(version.exitCode, 0);
-    expect(version.stdout.toString().toLowerCase(), contains('clangd'));
-  }, skip: skip, timeout: const Timeout(Duration(seconds: 30)));
+      final version = await Process.run(clangd!, <String>['--version']);
+      expect(version.exitCode, 0);
+      expect(version.stdout.toString().toLowerCase(), contains('clangd'));
+    },
+    skip: skip,
+    timeout: const Timeout(Duration(seconds: 30)),
+  );
 
-  test('clangd answers initialize with the arguments the spec uses', () async {
-    final clangd = await _findClangd();
-    expect(clangd, isNotNull);
+  test(
+    'clangd answers initialize with the arguments the spec uses',
+    () async {
+      final clangd = await _findClangd();
+      expect(clangd, isNotNull);
 
-    final process = await Process.start(clangd!, LspServerSpec.clangd.arguments);
-    final client = _LspClient(process);
-    addTearDown(() async {
+      final process = await Process.start(
+        clangd!,
+        LspServerSpec.clangd.arguments,
+      );
+      final client = _LspClient(process);
+      addTearDown(() async {
+        client.send(<String, dynamic>{'jsonrpc': '2.0', 'method': 'exit'});
+        process.kill(ProcessSignal.sigkill);
+        await client.dispose();
+      });
+
+      final initialize = client
+          .nextResponse(1)
+          .timeout(const Duration(seconds: 20));
       client.send(<String, dynamic>{
         'jsonrpc': '2.0',
-        'method': 'exit',
-      });
-      process.kill(ProcessSignal.sigkill);
-      await client.dispose();
-    });
-
-    final initialize = client
-        .nextResponse(1)
-        .timeout(const Duration(seconds: 20));
-    client.send(<String, dynamic>{
-      'jsonrpc': '2.0',
-      'id': 1,
-      'method': 'initialize',
-      'params': <String, dynamic>{
-        'processId': pid,
-        'clientInfo': <String, dynamic>{
-          'name': LspServerSpec.clientId,
-          'version': LspServerSpec.clientVersion,
+        'id': 1,
+        'method': 'initialize',
+        'params': <String, dynamic>{
+          'processId': pid,
+          'clientInfo': <String, dynamic>{
+            'name': LspServerSpec.clientId,
+            'version': LspServerSpec.clientVersion,
+          },
+          'rootUri': null,
+          'capabilities': <String, dynamic>{},
         },
-        'rootUri': null,
-        'capabilities': <String, dynamic>{},
-      },
-    });
+      });
 
-    final response = await initialize;
-    final result = response['result'];
-    expect(result, isA<Map<String, dynamic>>());
-    expect((result! as Map<String, dynamic>)['capabilities'], isNotNull);
+      final response = await initialize;
+      final result = response['result'];
+      expect(result, isA<Map<String, dynamic>>());
+      expect((result! as Map<String, dynamic>)['capabilities'], isNotNull);
 
-    final shutdown = client
-        .nextResponse(2)
-        .timeout(const Duration(seconds: 10));
-    client.send(<String, dynamic>{
-      'jsonrpc': '2.0',
-      'id': 2,
-      'method': 'shutdown',
-      'params': <String, dynamic>{},
-    });
-    expect((await shutdown)['error'], isNull);
-  }, skip: skip, timeout: const Timeout(Duration(seconds: 30)));
+      final shutdown = client
+          .nextResponse(2)
+          .timeout(const Duration(seconds: 10));
+      client.send(<String, dynamic>{
+        'jsonrpc': '2.0',
+        'id': 2,
+        'method': 'shutdown',
+        'params': <String, dynamic>{},
+      });
+      expect((await shutdown)['error'], isNull);
+    },
+    skip: skip,
+    timeout: const Timeout(Duration(seconds: 30)),
+  );
 }
 
 Future<String?> _findClangd() async {

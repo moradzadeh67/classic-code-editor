@@ -48,7 +48,10 @@ void main() {
         requestSender: (method, params) async {
           calls++;
           if (calls == 1) {
-            return <String, dynamic>{'isIncomplete': true, 'items': <dynamic>[]};
+            return <String, dynamic>{
+              'isIncomplete': true,
+              'items': <dynamic>[],
+            };
           }
           return <String, dynamic>{
             'items': <dynamic>[
@@ -167,6 +170,46 @@ void main() {
 
     test('does not throw for a file that was never opened', () {
       expect(() => lsp.closeDocument('/tmp/unknown.dart'), returnsNormally);
+    });
+  });
+
+  group('LspService.active-diagnostics', () {
+    test('a valid empty LSP list does not fall back to AnalyzerService', () {
+      // Register a document at version 1 and let the server publish an empty
+      // list. The new active-diagnostics read path must treat this as
+      // authoritative ("no problems") instead of switching sources.
+      final uri = 'file:///tmp/clean.dart';
+      lsp.debugSetDiagnosticsFor('/tmp/clean.dart', []);
+
+      // Simulate the server answering an open with an empty diagnostics list.
+      lsp.debugPublishDiagnostics({'uri': uri, 'diagnostics': <dynamic>[], 'version': 1});
+
+      // The LSP-published (empty) list is what the UI should show for this document.
+      // Key assertion: activeDiagnostics returns the LSP-empty, NOT the analyzer results.
+      expect(lsp.activeDiagnostics, isEmpty);
+      expect(lsp.activeErrorCount, 0);
+      expect(lsp.activeWarningCount, 0);
+    });
+
+    test('a stale-version publishDiagnostics is dropped', () {
+      // Register a document, then advance its version to 2.
+      lsp.debugSetDiagnosticsFor('/tmp/old.dart', []);
+      lsp.updateFile('/tmp/old.dart', 'var y = 2;\n');
+
+      // A late answer arrives for the OLD content (version 1). The document is
+      // now at version 2, so the version-1 publish must be dropped.
+      lsp.debugPublishDiagnostics({
+        'uri': 'file:///tmp/old.dart',
+        'diagnostics': [
+          {'range': {'start': {'line': 0, 'character': 0}},
+           'message': 'stale',
+           'severity': 1},
+        ],
+        'version': 1,
+      });
+
+      // The stale publish must not surface as current diagnostics.
+      expect(lsp.activeDiagnostics, isEmpty);
     });
   });
 }

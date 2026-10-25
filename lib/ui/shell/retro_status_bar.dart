@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../services/analyzer_service.dart';
+import '../../services/diagnostics_source.dart';
 import '../../services/lsp_service.dart';
 import '../../services/theme_service.dart';
 import '../retro/retro_border.dart';
@@ -30,23 +31,25 @@ class RetroStatusBar extends StatelessWidget {
       builder: (context, _) {
         final textColor = ThemeService.instance.uiColors['text'];
 
-        // Once the language server is connected its real-time results are the
-        // source of truth; otherwise we report the one-shot analyzer counts.
+        // The same resolver as the Diagnostics panel: a connected server owns
+        // the active document's counts, even when it reported nothing at all;
+        // the one-shot analyzer is only the fallback when no server serves this
+        // document.
         final lsp = lspService;
+        final analyzer = analyzerService;
         final int errors;
         final int warnings;
         final bool isAnalyzing;
 
-        if (lsp != null && lsp.isConnected) {
-          errors = lsp.errorCount;
-          warnings = lsp.warningCount;
-          isAnalyzing = false;
+        if (lsp != null && analyzer != null) {
+          final view = resolveDiagnostics(lsp: lsp, analyzer: analyzer);
+          errors = view.errorCount;
+          warnings = view.warningCount;
+          isAnalyzing = view.isAnalyzing;
         } else {
-          errors = analyzerService?.errorCount ?? 0;
-          warnings = analyzerService?.warningCount ?? 0;
-          isAnalyzing =
-              (lsp?.isStarting ?? false) ||
-              (analyzerService?.isAnalyzing ?? false);
+          errors = analyzer?.errorCount ?? 0;
+          warnings = analyzer?.warningCount ?? 0;
+          isAnalyzing = lsp?.isStarting ?? false;
         }
 
         final analysisText = isAnalyzing
@@ -110,7 +113,8 @@ class RetroStatusBar extends StatelessWidget {
                         height: 8,
                         decoration: BoxDecoration(
                           border: Border.all(
-                            color: ThemeService.instance.uiColors['borderDark']!,
+                            color:
+                                ThemeService.instance.uiColors['borderDark']!,
                             width: 1,
                           ),
                           borderRadius: BorderRadius.zero,

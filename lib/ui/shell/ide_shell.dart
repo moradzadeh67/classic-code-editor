@@ -102,6 +102,21 @@ class _IDEShellState extends State<IDEShell> {
   /// Incremented per sync so a slow activation cannot reopen a stale file.
   int _lspSyncToken = 0;
 
+  /// One `didChange` per burst of typing, so a fast typist cannot queue one
+  /// parse per keystroke. An empty buffer is sent immediately (the server must
+  /// publish its "no problems" answer so the counters can fall to zero), and a
+  /// queued change is flushed before a save or a run.
+  static const Duration _didChangeDebounce = Duration(milliseconds: 250);
+  Timer? _didChangeTimer;
+  LspService? _pendingChangeService;
+  String? _pendingChangePath;
+  String? _pendingChangeContent;
+
+  /// Path + content the one-shot analyzer result describes. When either changes
+  /// the result is stale, so it is dropped instead of being shown for new text.
+  String? _analyzerSnapshotPath;
+  String? _analyzerSnapshotContent;
+
   @override
   void initState() {
     super.initState();
@@ -117,6 +132,9 @@ class _IDEShellState extends State<IDEShell> {
     // opening their first file; the server for another language starts on the
     // first file that needs it.
     unawaited(_lspManager.activateFor(null));
+    // A run must see the latest text, whichever button started it (toolbar,
+    // menu or F5): the runner notifies when its state changes.
+    _dartRunnerService.addListener(_flushPendingDocumentChange);
     // macOS routes Cmd+Q and the red window button through the engine's
     // cancelable exit request, so this is the single quit guard.
     _appLifecycle = AppLifecycleListener(onExitRequested: _handleExitRequested);
@@ -147,6 +165,8 @@ class _IDEShellState extends State<IDEShell> {
   void dispose() {
     _appLifecycle.dispose();
     _shellFocusNode.dispose();
+    _dartRunnerService.removeListener(_flushPendingDocumentChange);
+    _cancelPendingDocumentChange();
     _fileService.removeListener(_onFileServiceChanged);
     _lspManager.dispose();
     _unsavedWorkspace.dispose();
@@ -162,17 +182,24 @@ class _IDEShellState extends State<IDEShell> {
   }
 
   void _onFileServiceChanged() {
-    // Only a saved file has a path a language server can work with; an unsaved
-    // buffer is reported as such instead of being handed a synthetic name.
     final path = _fileService.currentFilePath;
     final content = _fileService.fileContent;
 
+    // The one-shot analyzer result for the previous text of this file is
+    // immediately stale once the content changed — drop it, don't wait for
+    // the server.
+    if (path != null &&
+        (_analyzerSnapshotPath != path ||
+            _analyzerSnapshotContent != content)) {
+      _analyzerSnapshotPath = path;
+      _analyzerSnapshotContent = content;
+      _analyzerService.clearDiagnostics();
+    }
+
     unawaited(_syncLanguageServer(path, content));
 
-    // Keep the one-shot analyzer as a fallback while the LSP is unavailable.
-    // It shells out to `dart analyze`, so it is only meaningful for Dart files.
-    // The resolver sniffs unsaved buffers, so an untitled C++ tab is not sent to
-    // `dart analyze` just because it has no extension.
+    // Keep the one-shot analyzer running for Dart files when the LSP is still
+    // unavailable. Only run when the path has changed (not on every keystroke).
     final language = LanguageConfig.fromPathOrContent(
       path,
       content,
@@ -250,7 +277,19 @@ class _IDEShellState extends State<IDEShell> {
 
     if (content != _lspLastContent) {
       _lspLastContent = content;
-      service.updateFile(documentPath, content);
+      // Empty buffer: send now and clear the counters, never debounce.
+      if (content.isEmpty) {
+        service.updateFile(documentPath, content);
+      } else {
+        // Debounce; a run/save flushes via [_flushPendingDocumentChange].
+        _cancelPendingDocumentChange();
+        _pendingChangeService = service;
+        _pendingChangePath = documentPath;
+        _pendingChangeContent = content;
+        _didChangeTimer = Timer(_didChangeDebounce, () {
+          _flushPendingDocumentChange();
+        });
+      }
     }
   }
 
@@ -272,16 +311,38 @@ class _IDEShellState extends State<IDEShell> {
     });
   }
 
-  void _handleSave() {
+  Future<void> _handleSave() async {
+    _flushPendingDocumentChange();
     _fileService.saveCurrentFile();
   }
 
-  void _handleNewFile() {
+  Future<void> _handleNewFile() async {
     _fileService.createNewFile();
   }
 
-  void _handleRun() {
+  Future<void> _handleRun() async {
+    _flushPendingDocumentChange();
     _dartRunnerService.runActiveFile(_fileService);
+  }
+
+  /// Sends any document change the debounce timer is still holding so Run/Debug
+  /// and Save never operate on text the server has not seen yet.
+  void _flushPendingDocumentChange() {
+    final service = _pendingChangeService;
+    final path = _pendingChangePath;
+    final content = _pendingChangeContent;
+    _cancelPendingDocumentChange();
+    if (service != null && path != null && content != null) {
+      service.updateFile(path, content);
+    }
+  }
+
+  void _cancelPendingDocumentChange() {
+    _didChangeTimer?.cancel();
+    _didChangeTimer = null;
+    _pendingChangeService = null;
+    _pendingChangePath = null;
+    _pendingChangeContent = null;
   }
 
   void _handleUndo() {

@@ -690,3 +690,25 @@ starts empty. The same mechanism is why the sample's tab appears with the `ASM` 
 4. A `View`/`File` preference "Restore tabs on launch" (default off) — most explicit, most UI work.
 **Recommendation:** (1) + (3): a genuinely fresh install is empty, and a stale path from another machine/build
 can never reopen. Keep the recent-files list (it is a separate, useful feature).
+
+### TASK-056: Fix stale / false diagnostics — active-document source of truth
+**Phase:** 24
+**Status:** ✅ DONE (no version bump — bugfix, not a release)
+**Symptoms:** (a) healthy code sometimes shows a phantom error + warnings; (b) after deleting ALL code in a file the error/warning counts do not return to zero.
+
+**Step A — Root causes confirmed (verified from code; not guessed):**
+1. `PanelLayout._mergedDiagnostics` / `RetroStatusBar`: fallback triggered by `lspService.isConnected` (not by whether an active document exists) — so an empty LSP result was treated the same as "no server" and replaced with `AnalyzerService.diagnostics`, which is stale because `analyzeFile` is one-shot and never cleared on content change.
+2. `LspService.updateFile`: skipped when `_documentContents[uri] == content` (even if the document changed back), had no document version tracking, and never debounced `didChange`; an empty document (`''`) was sent only when different, so deleting all text often never reached the server.
+3. `LspService._handlePublishDiagnostics`: stored all diagnostics in `_diagnosticsByUri` keyed by URI with no version check and no active-document filter — a late `publishDiagnostics` for any file replaced the visible list.
+4. `AnalyzerService`: no `clearDiagnostics()` called when file content changed or tab closed; `ide_shell.dart` only cleared on `path != _lastAnalyzedPath` (path change), not on text change.
+
+**Step B — Fix (smallest matching change):**
+- New `diagostics_source.dart`: single `resolveDiagnostics({lsp, analyzer})` that picks LSP when `isConnected && activeDocumentPath != null` (even when the LSP list is empty — authoritative), else Analyzer. Both `PanelLayout` and `RetroStatusBar` use it.
+- `LspService`: per-document `Map<String, List<Diagnostic>>` retained; added `_activeUri`; `openFile`/`updateFile` send incrementing `version`; `_handlePublishDiagnostics` drops URIs not in `_documentVersions` and drops `version < current`; `closeDocument` clears the document's list and resets `_activeUri`; `updateFile` sends immediately for `content.isEmpty`; debounced by 250 ms (`Timer`); flushed by save/run via `_flushPendingDocumentChange()` in `ide_shell.dart`; `openFile` announces `_safeNotify()` so empty result is visible immediately.
+- `ide_shell.dart`: `_onFileServiceChanged()` clears `AnalyzerService` when path/content differs from snapshot; `_syncLanguageServer()` debounces `updateFile`; `_flushPendingDocumentChange()` before save/run; `clearConsole()` preserved (not mixed with output).
+- `LspService`: kept original `diagnostics` / `errorCount` / `warningCount` (global aggregate for backward compatibility); added `activeDiagnostics` / `activeErrorCount` / `activeWarningCount` / `activeDocumentPath` for the active document only.
+- Tests added to `test/services/lsp_service_test.dart`: "a valid empty LSP list does not fall back to AnalyzerService" + "a stale-version publishDiagnostics is dropped" (11 pass / 0 fail).
+
+**Verified:** `flutter analyze` clean; `flutter test` all green; real server probe (`clangd` / `dart language-server`) confirmed empty-document `version=2` answer clears counts and stale version-1 publish is dropped.
+
+**Not reproduced / not needed:** debugger, gutter, font metrics, syntax colors, compile_flags/untitled-buffer work untouched (explicitly excluded by rules).
