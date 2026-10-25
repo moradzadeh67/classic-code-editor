@@ -475,6 +475,10 @@ yours wins; only a file this app generated in its old broken format is repaired.
 - **Replacing a saved file's content with another language is not re-detected** — the extension of the opened
   file wins (Run, colors and the language logo). Workaround: pick the language in the toolbar dropdown instead of
   `Auto`, or use *Save As* with the right extension. Tracked as TASK-054.
+- **A re-install can reopen the last session** — the app restores the tabs from `session.json` in
+  `~/Library/Application Support/com.moradzadeh67.classicCodeEditor/`, which every build shares, so an install on a
+  machine that ran the app before can open with the previous file (e.g. the bundled ARM64 sample). Tracked as
+  TASK-055.
 - **External toolchain required** — running and debugging needs `dart`, `python3`, `clang` and `lldb` on your `PATH`; without them the editor still works but Run/Debug fails with a clear message.
 - **Language servers are optional** — C/C++ needs `clangd` and Python needs
   `pyright` or `pylsp`; without them the editor falls back to offline completion

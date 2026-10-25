@@ -661,3 +661,32 @@ on it instead of silently compiling the wrong thing —
 3. a file name with no recognised extension keeps today's behaviour.
 Ask `LanguageRunnerService.resolveLanguage` to return the *reason* so the logo, the highlighter and the runner
 can never disagree (one resolver, three consumers).
+
+### TASK-055: 🐞 OPEN — a fresh install opens with the ARM64 sample instead of an empty editor
+**Phase:** 24
+**Status:** 🐞 KNOWN ISSUE (recorded on purpose; owner asked to fix later, no release cut)
+**Reported:** after installing the app and opening it, the editor already contains
+`samples/array_sum_arm64.s`; it should start empty.
+
+**Root cause (verified):** no sample is bundled and no code opens one — `find` over the release
+`Classic Code Editor.app` finds no `.s` file, and `pubspec.yaml` ships no sample asset. The text comes from
+**session restore**: `IDEShell._restoreSession()` replays `session.json` from
+`~/Library/Application Support/com.moradzadeh67.classicCodeEditor/`, and the app-support folder is shared by
+every build (dev `flutter run` and the DMG app use the same bundle id). Measured on this Mac:
+```json
+{"openPaths":["/Users/reza/Developer/classic_code_editor/samples/array_sum_arm64.s"],
+ "activePath":"/Users/reza/Developer/classic_code_editor/samples/array_sum_arm64.s", …}
+```
+So a re-install on a machine that ever ran the app restores the last tab; only a machine that never ran it
+starts empty. The same mechanism is why the sample's tab appears with the `ASM` logo immediately.
+
+**Options (owner pick):**
+1. First-launch flag (`hasLaunched` in `editor_settings.json`) → the first launch of a build opens an empty
+   editor and only later launches restore tabs;
+2. Scope/clear `session.json` when the build number changes (`CFBundleShortVersionString`), so an update starts
+   clean while a plain restart still restores;
+3. Ignore restored paths that are outside the current project root (the sample lives in the developer's repo,
+   not in a user folder);
+4. A `View`/`File` preference "Restore tabs on launch" (default off) — most explicit, most UI work.
+**Recommendation:** (1) + (3): a genuinely fresh install is empty, and a stale path from another machine/build
+can never reopen. Keep the recent-files list (it is a separate, useful feature).
