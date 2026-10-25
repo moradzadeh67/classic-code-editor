@@ -472,6 +472,9 @@ yours wins; only a file this app generated in its old broken format is repaired.
 ## ⚠️ Known Limitations
 
 - **Unsigned / not notarized** — Gatekeeper blocks the first launch until you choose *Open Anyway*.
+- **Replacing a saved file's content with another language is not re-detected** — the extension of the opened
+  file wins (Run, colors and the language logo). Workaround: pick the language in the toolbar dropdown instead of
+  `Auto`, or use *Save As* with the right extension. Tracked as TASK-054.
 - **External toolchain required** — running and debugging needs `dart`, `python3`, `clang` and `lldb` on your `PATH`; without them the editor still works but Run/Debug fails with a clear message.
 - **Language servers are optional** — C/C++ needs `clangd` and Python needs
   `pyright` or `pylsp`; without them the editor falls back to offline completion

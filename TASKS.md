@@ -630,3 +630,34 @@ universal DMG. `flutter analyze` clean, **367 tests pass / 8 opt-in skipped**.
 compile_flags format rule), AGENTS (Rule 12 notes + file structure), RELEASE.md, `docs/RELEASE_NOTES_1.4.3.md`.
 **Release:** version `1.4.3+9`, tag `v1.4.3`, GitHub release **Classic Code Editor v1.4.3** with the universal
 DMG. `flutter analyze` clean, **368 tests pass / 8 opt-in skipped**.
+
+### TASK-054: 🐞 OPEN — replacing a saved `.s` buffer with another language still runs it as Assembly
+**Phase:** 24
+**Status:** 🐞 KNOWN ISSUE (recorded on purpose; owner asked to fix later, no release cut)
+**Reported:** an ARM64 assembly tab's content was replaced with a Dart program; the language logo stayed
+`ASM`, and Run compiled the Dart text as assembly (`main.s`, `error: invalid operand`,
+`unrecognized instruction mnemonic`, `[Compilation failed with code 1]`).
+
+**Root cause (verified, not a guess):** for a buffer that has a real path, `LanguageConfig.fromPathOrContent`
+returns the **extension match and never sniffs the content** — by design, so a `.h` file is not re-guessed on
+every keystroke. Three consumers therefore all follow the stale `.s` name:
+- `LanguageRunnerService.resolveLanguage` → runs `clang … main.s` (the console above),
+- `MultiLanguageHighlighter.createController` → assembly grammar (wrong colors),
+- `PanelLayout._detectLanguageExt()` → the `ASM` logo (path only, never content).
+Measured: `fromPathOrContent(null, dartSource)` → Dart, `fromPathOrContent('Untitled', …)` → Dart,
+`fromPathOrContent('/tmp/main.s', dartSource)` → **ARM64 Assembly**.
+**Not** a sniffing bug: the content sniffer handles this exact program correctly once the path is null.
+
+**Workaround today:** set the toolbar language dropdown from `Auto` to `Dart` (or `Save As` a `.dart` file) —
+`resolveLanguage` honours an explicit selection before any extension.
+
+**Proposed fix (when we act on it):** keep the extension authoritative but detect the clear mismatch and act
+on it instead of silently compiling the wrong thing —
+1. explicit language selection still wins (as now);
+2. otherwise, if the content sniffed from the buffer resolves to a *different* language than the extension
+   **and** the signal is unambiguous (`import 'dart:`, `void main(`, `def `/`import sys`/`import os`,
+   `#include`), treat the buffer as that language for Run/coloring/logo, or — safer — keep the extension and
+   surface a one-line Console warning ("this .s file looks like Dart — use Save As .dart");
+3. a file name with no recognised extension keeps today's behaviour.
+Ask `LanguageRunnerService.resolveLanguage` to return the *reason* so the logo, the highlighter and the runner
+can never disagree (one resolver, three consumers).
