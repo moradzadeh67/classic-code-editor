@@ -510,7 +510,7 @@ class DartHighlighter {
 /// Shared named colors for schemes that split the classic palette further.
 /// They are declared in one place so changing the Colorful accent colors is a
 /// single edit.
-const Color colorfulOperatorColor = Color(0xFFd6026c); // #d6026c
+const Color colorfulOperatorColor = Color(0xFF687d01); // #687d01
 const Color colorfulCurlyBraceColor = Color(0xFF1e64d8); // #1e64d8 (bold braces)
 const Color colorfulSquareBracketColor = Color(0xFF00796f); // #00796f (bold brackets)
 

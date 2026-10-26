@@ -413,7 +413,7 @@ one color map per scheme, so no language owns a palette:
 | built-ins / registers (`built_in`) | `#00796B` w600 | `#C2185B` |
 | function (`function`, `title`, `title.function`) | `#0D47A1` | `#0050E6` |
 | annotation (`meta`, `meta-keyword`; `#include`, `@decorator`, `.globl`) | `#7B1FA2` bold | `#4B3FE0` |
-| operator (`operator`, `symbol`; `= + - * / % \ | & ^ ~ ! ? < > , . ; :` and combined `==`, `!=`, `<=`, `>=`, `=>`, `??`, `++`, `--`, `&&`, `||`, `->`, `::`, `..`, `...`, `@` when standalone) | `#00BF69` bold | `#d6026c` bold |
+| operator (`operator`, `symbol`; `= + - * / % \ | & ^ ~ ! ? < > , . ; :` and combined `==`, `!=`, `<=`, `>=`, `=>`, `??`, `++`, `--`, `&&`, `||`, `->`, `::`, `..`, `...`, `@` when standalone) | `#00BF69` bold | `#687d01` bold |
 | curly braces (`{`, `}`) | `#031CFC` bold (same as brackets) | `#1e64d8` bold |
 | square brackets (`[`, `]`) | `#031CFC` bold (same as brackets) | `#00796f` bold |
 | brackets (`(` `)`) — parentheses unchanged | `#031CFC` bold | `#031CFC` bold |

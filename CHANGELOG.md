@@ -36,7 +36,7 @@ All notable changes to Classic Code Editor are documented here. The format follo
 - **Completion documentation appears after 2 s idle — and now works in Untitled buffers.**  
   The panel waits for `kCompletionDocPanelDelay` (2 s) with the selection unchanged and no key presses (any selection change, key press or popup close hides it at once), while the item is still resolved after 150 ms so docs and auto-imports are cached before accept. An Untitled buffer now asks the server about its virtual `untitled.dart` path instead of the tab name `Untitled`, which returned no completion items at all — the real reason the panel never showed for `print`, `List` or `DateTime`; `detail` is used as a documentation fallback.
 - **Colorful syntax colors now have distinct categories for operators, curly braces and square brackets.**  
-  The operators (`= + - * / % | & ^ ~ ! ? < > , . ; :` and combined forms) are now `#d6026c` bold; curly braces `{` `}` are `#1e64d8` bold; square brackets `[` `]` are `#00796f` bold. This split is consistent for Dart, C, C++, Python and the ARM64 grammar, and survives inside Python/C f-string or interpolation substitutions. The Standard scheme stays identical to before.
+  The operators (`= + - * / % | & ^ ~ ! ? < > , . ; :` and combined forms) are now `#687d01` bold; curly braces `{` `}` are `#1e64d8` bold; square brackets `[` `]` are `#00796f` bold. This split is consistent for Dart, C, C++, Python and the ARM64 grammar, and survives inside Python/C f-string or interpolation substitutions. The Standard scheme stays identical to before.
 
 ## [1.4.3] — 2026-10-25
 

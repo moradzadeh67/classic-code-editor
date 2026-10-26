@@ -78,7 +78,7 @@ Color? _nthColor(
 void main() {
   group('Colorful scheme: operators, braces and brackets', () {
     test('the accents are declared once', () {
-      expect(colorfulOperatorColor, const Color(0xFFd6026c));
+      expect(colorfulOperatorColor, const Color(0xFF687d01));
       expect(colorfulCurlyBraceColor, const Color(0xFF1e64d8));
       expect(colorfulSquareBracketColor, const Color(0xFF00796f));
     });

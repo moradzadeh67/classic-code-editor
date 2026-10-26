@@ -119,7 +119,7 @@ ARM64 Assembly support: highlighting, Run, and the LLDB debugger with its regist
 - **Syntax Highlighting:** Per-language syntax colors, IntelliJ-style —
   keywords purple (`#C842F5`), operators emerald green (`#00BF69`),
   comments olive (`#596E48`), brackets blue (`#031CFC`). The **Colorful** scheme
-  splits symbols further: operators magenta (`#d6026c`), curly braces
+  splits symbols further: operators olive (`#687d01`), curly braces
   (`#1e64d8`) and square brackets (`#00796f`), with parentheses kept blue
 - **Language Logos:** Real per-language icons in the panel header — including
   the `ASM` heptagon for ARM64 Assembly (with a vector fallback when an asset is
