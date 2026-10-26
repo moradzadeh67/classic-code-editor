@@ -58,6 +58,17 @@ class MultiLanguageHighlighter {
     'operator': _SyntaxCategory.operator,
     'punctuation': _SyntaxCategory.punctuation,
     'symbol': _SyntaxCategory.operator,
+    // Brackets split out of punctuation: curly and square get their own
+    // Colorful colors; Standard keeps the old bracket/punctuation color.
+    'bracket': _SyntaxCategory.punctuation,
+    '{': _SyntaxCategory.curlyBrace,
+    '}': _SyntaxCategory.curlyBrace,
+    '[': _SyntaxCategory.squareBracket,
+    ']': _SyntaxCategory.squareBracket,
+    // The patched single-character bracket rules below emit these class names
+    // so curly braces and square brackets win their own Colorful colors.
+    'curlyBrace': _SyntaxCategory.curlyBrace,
+    'squareBracket': _SyntaxCategory.squareBracket,
     // Emitted by the Dart grammar for `///` doc comments. The classic palette
     // never styled it, so Standard must keep leaving it as plain text; only
     // Colorful assigns it a category (see [_unstyledInStandard]).
@@ -112,6 +123,14 @@ class MultiLanguageHighlighter {
       color: bracketColor,
       fontWeight: FontWeight.bold,
     ),
+    _SyntaxCategory.curlyBrace: TextStyle(
+      color: bracketColor,
+      fontWeight: FontWeight.bold,
+    ),
+    _SyntaxCategory.squareBracket: TextStyle(
+      color: bracketColor,
+      fontWeight: FontWeight.bold,
+    ),
     _SyntaxCategory.comment: TextStyle(
       color: commentColor,
       fontStyle: FontStyle.italic,
@@ -146,11 +165,19 @@ class MultiLanguageHighlighter {
     _SyntaxCategory.functionTitle: TextStyle(color: Color(0xFF0050E6)),
     _SyntaxCategory.annotation: TextStyle(color: Color(0xFF4B3FE0)),
     _SyntaxCategory.operator: TextStyle(
-      color: Color(0xFF00796B),
+      color: colorfulOperatorColor,
       fontWeight: FontWeight.bold,
     ),
     _SyntaxCategory.punctuation: TextStyle(
       color: Color(0xFF031CFC),
+      fontWeight: FontWeight.bold,
+    ),
+    _SyntaxCategory.curlyBrace: TextStyle(
+      color: colorfulCurlyBraceColor,
+      fontWeight: FontWeight.bold,
+    ),
+    _SyntaxCategory.squareBracket: TextStyle(
+      color: colorfulSquareBracketColor,
       fontWeight: FontWeight.bold,
     ),
     _SyntaxCategory.comment: TextStyle(
@@ -246,7 +273,9 @@ class MultiLanguageHighlighter {
         Mode(className: 'title', begin: r'^[A-Za-z_.$][\w.$]*:', relevance: 0),
         // Separators the stock grammar leaves in the default text color.
         Mode(className: 'operator', begin: r'[,!]', relevance: 0),
-        Mode(className: 'punctuation', begin: r'[\[\]{}]', relevance: 0),
+        Mode(className: 'punctuation', begin: r'[()]', relevance: 0),
+        Mode(className: 'curlyBrace', begin: r'[\{\}]', relevance: 0),
+        Mode(className: 'squareBracket', begin: r'[\[\]]', relevance: 0),
       ],
     );
   }
@@ -263,9 +292,19 @@ class MultiLanguageHighlighter {
     _symbolsPatched = true;
 
     final fatArrow = Mode(begin: '=>', className: 'operator', relevance: 0);
-    final brackets = Mode(
-      begin: r'[()\[\]{}]',
+    final parenBrackets = Mode(
+      begin: r'[()]',
       className: 'punctuation',
+      relevance: 0,
+    );
+    final curlyBraces = Mode(
+      begin: r'[\{\}]',
+      className: 'curlyBrace',
+      relevance: 0,
+    );
+    final squareBrackets = Mode(
+      begin: r'[\[\]]',
+      className: 'squareBracket',
       relevance: 0,
     );
     final operators = Mode(
@@ -279,11 +318,6 @@ class MultiLanguageHighlighter {
     // that can match it: the mode would never close and would swallow the rest
     // of the file (that is exactly what used to happen to C++ function bodies).
     // Hence one explicit rule set per context instead of one shared set.
-    final bracketsNoBraces = Mode(
-      begin: r'[()\[\]]',
-      className: 'punctuation',
-      relevance: 0,
-    );
     final operatorsNoColon = Mode(
       begin: r'[!@#\$%^&*+=\-~<>/|?;.,\\`]',
       className: 'operator',
@@ -323,7 +357,9 @@ class MultiLanguageHighlighter {
           contains[i] = fatArrow;
         }
       }
-      contains.add(brackets);
+      contains.add(parenBrackets);
+      contains.add(curlyBraces);
+      contains.add(squareBrackets);
       contains.add(operators);
       mode.contains = contains;
       mode.compiled = false; // force a recompile including the new rules
@@ -369,7 +405,7 @@ class MultiLanguageHighlighter {
             ..addAll(contentRulesOf(pyParams))
             // The definition mode ends at `:`, so `:` stays out of its operator
             // rules or the mode could never close.
-            ..add(brackets)
+            ..add(parenBrackets)
             ..add(operatorsNoColon);
       // `,` and `=` are legal in a signature and only survived because the
       // params mode swallowed them; without relaxing this the whole `def`
@@ -413,7 +449,8 @@ class MultiLanguageHighlighter {
           List<Mode?>.from(functionMode.contains ?? const <Mode?>[])
             ..remove(paramsMode)
             ..addAll(contentRulesOf(paramsMode))
-            ..add(bracketsNoBraces)
+            ..add(parenBrackets)
+            ..add(squareBrackets)
             ..add(operatorsNoSemiEq);
       // The stock rule forbids anything but word characters, spaces, `* & : < >`
       // inside a signature; commas, parentheses and `=` are ordinary there, and
@@ -470,6 +507,13 @@ class DartHighlighter {
 /// grammars emit resolves to one of these through
 /// `MultiLanguageHighlighter._categoryByClass`, so a scheme only ever lists
 /// colors once, and no language needs its own palette.
+/// Shared named colors for schemes that split the classic palette further.
+/// They are declared in one place so changing the Colorful accent colors is a
+/// single edit.
+const Color colorfulOperatorColor = Color(0xFFd6026c); // #d6026c
+const Color colorfulCurlyBraceColor = Color(0xFF1e64d8); // #1e64d8 (bold braces)
+const Color colorfulSquareBracketColor = Color(0xFF00796f); // #00796f (bold brackets)
+
 enum _SyntaxCategory {
   keyword,
   literal,
@@ -483,6 +527,8 @@ enum _SyntaxCategory {
   params,
   operator,
   punctuation,
+  curlyBrace,
+  squareBracket,
   comment,
   annotation,
   variable,
