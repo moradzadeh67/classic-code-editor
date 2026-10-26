@@ -312,6 +312,7 @@ class _RetroAboutDialogWidgetState extends State<_RetroAboutDialogWidget> {
       ('Cmd + L', 'Go to Line'),
       ('Cmd + /', 'Toggle Comment'),
       ('Cmd + Shift + D', 'Duplicate Line'),
+      ('Ctrl + Shift + Space', 'Trigger Completion'),
       (
         'Cmd + / Cmd - / Cmd 0',
         'Editor Font Size (Increase / Decrease / Reset)',

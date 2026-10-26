@@ -68,6 +68,12 @@ class LspServerSpec {
       '--client-id=$clientId',
       '--client-version=$clientVersion',
     ],
+    // Verified with tool/probe_dart_completion_options.dart against the
+    // installed SDK: completion only includes symbols from unimported
+    // libraries when the client also advertises `workspace.applyEdit`.
+    initializationOptions: <String, dynamic>{
+      'suggestFromUnimportedLibraries': true,
+    },
     installHint:
         'install the Dart SDK (https://dart.dev/get-dart) and make '
         'sure `dart` is on PATH',

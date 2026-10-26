@@ -102,16 +102,6 @@ class _IDEShellState extends State<IDEShell> {
   /// Incremented per sync so a slow activation cannot reopen a stale file.
   int _lspSyncToken = 0;
 
-  /// One `didChange` per burst of typing, so a fast typist cannot queue one
-  /// parse per keystroke. An empty buffer is sent immediately (the server must
-  /// publish its "no problems" answer so the counters can fall to zero), and a
-  /// queued change is flushed before a save or a run.
-  static const Duration _didChangeDebounce = Duration(milliseconds: 250);
-  Timer? _didChangeTimer;
-  LspService? _pendingChangeService;
-  String? _pendingChangePath;
-  String? _pendingChangeContent;
-
   /// Path + content the one-shot analyzer result describes. When either changes
   /// the result is stale, so it is dropped instead of being shown for new text.
   String? _analyzerSnapshotPath;
@@ -166,7 +156,6 @@ class _IDEShellState extends State<IDEShell> {
     _appLifecycle.dispose();
     _shellFocusNode.dispose();
     _dartRunnerService.removeListener(_flushPendingDocumentChange);
-    _cancelPendingDocumentChange();
     _fileService.removeListener(_onFileServiceChanged);
     _lspManager.dispose();
     _unsavedWorkspace.dispose();
@@ -277,18 +266,13 @@ class _IDEShellState extends State<IDEShell> {
 
     if (content != _lspLastContent) {
       _lspLastContent = content;
-      // Empty buffer: send now and clear the counters, never debounce.
+      // `LspService` debounces the `didChange` itself and flushes it before any
+      // position-based request, so typing order can never leave the server
+      // behind the editor. An empty buffer skips the wait: its "no problems"
+      // publish is what resets the counters.
+      service.updateFile(documentPath, content);
       if (content.isEmpty) {
-        service.updateFile(documentPath, content);
-      } else {
-        // Debounce; a run/save flushes via [_flushPendingDocumentChange].
-        _cancelPendingDocumentChange();
-        _pendingChangeService = service;
-        _pendingChangePath = documentPath;
-        _pendingChangeContent = content;
-        _didChangeTimer = Timer(_didChangeDebounce, () {
-          _flushPendingDocumentChange();
-        });
+        unawaited(service.flushPendingChange(documentPath));
       }
     }
   }
@@ -325,24 +309,14 @@ class _IDEShellState extends State<IDEShell> {
     _dartRunnerService.runActiveFile(_fileService);
   }
 
-  /// Sends any document change the debounce timer is still holding so Run/Debug
+  /// Sends any document change the service's debounce still holds so Run/Debug
   /// and Save never operate on text the server has not seen yet.
   void _flushPendingDocumentChange() {
-    final service = _pendingChangeService;
-    final path = _pendingChangePath;
-    final content = _pendingChangeContent;
-    _cancelPendingDocumentChange();
-    if (service != null && path != null && content != null) {
-      service.updateFile(path, content);
+    final service = _lspOpenService;
+    final path = _lspOpenPath;
+    if (service != null && path != null) {
+      unawaited(service.flushPendingChange(path));
     }
-  }
-
-  void _cancelPendingDocumentChange() {
-    _didChangeTimer?.cancel();
-    _didChangeTimer = null;
-    _pendingChangeService = null;
-    _pendingChangePath = null;
-    _pendingChangeContent = null;
   }
 
   void _handleUndo() {
@@ -517,7 +491,15 @@ class _IDEShellState extends State<IDEShell> {
               isControlOrMeta) {
             _handleUndo();
           }
-          // 6. Editor zoom (Cmd + / Cmd - / Cmd 0)
+          // 6. Trigger Completion (Ctrl+Shift+Space, plus Ctrl+Space).
+          // Deliberately before the zoom branch below, which swallows every
+          // other Ctrl/Cmd key. Cmd+Space is *not* bound: macOS uses it to
+          // switch the keyboard input source and never delivers it here.
+          else if (event.logicalKey == LogicalKeyboardKey.space &&
+              HardwareKeyboard.instance.isControlPressed) {
+            _editorKey.currentState?.triggerCompletionFromCommand();
+          }
+          // 7. Editor zoom (Cmd + / Cmd - / Cmd 0)
           else if (isControlOrMeta) {
             final zoom = zoomActionFor(
               event.logicalKey,
@@ -569,6 +551,8 @@ class _IDEShellState extends State<IDEShell> {
                     onCloseTab: () => unawaited(_handleCloseTab()),
                     onGoToLine: () => unawaited(_handleGoToLine()),
                     onOpenRecent: (path) => unawaited(_openRecent(path)),
+                    onTriggerCompletion: () =>
+                        _editorKey.currentState?.triggerCompletionFromCommand(),
                   ),
                   // NOTE: deliberately NOT `const` so their build() re-runs when
                   // the theme changes.

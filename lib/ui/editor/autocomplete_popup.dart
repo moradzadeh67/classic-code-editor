@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../models/lsp_models.dart';
 import '../../services/theme_service.dart';
 import '../retro/retro_border.dart';
+import 'completion_doc_panel.dart';
 
 /// A retro-styled autocomplete dropdown that appears below the editor
 /// cursor when the language server provides completion suggestions.
@@ -27,8 +28,16 @@ class AutocompletePopup extends StatelessWidget {
   /// "pragma").
   final List<CompletionItem> items;
 
-  /// Top-left screen position where the dropdown should be drawn.
-  final Offset position;
+  /// The caret rectangle, in the editor's own (Stack) coordinates.
+  ///
+  /// Placement is derived from this and [bounds]; the window size is never
+  /// consulted, so a popup anchored near the bottom of a short editor cannot
+  /// end up behind the Console panel.
+  final Rect anchor;
+
+  /// Size of the editor area the popup and its documentation panel must stay
+  /// inside.
+  final Size bounds;
 
   /// Index of the currently highlighted item.
   final int selectedIndex;
@@ -48,33 +57,56 @@ class AutocompletePopup extends StatelessWidget {
   /// the retro IDEs where the typed portion is visually distinguished.
   final String currentWord;
 
+  /// Plain-text documentation for the highlighted item, or `null` when there
+  /// is nothing to show (the panel is then hidden).
+  final String? documentation;
+
+  /// Key of the dropdown container, so tests can measure its real rectangle.
+  static const Key listKey = Key('completion-popup-list');
+
+  /// Key of the documentation panel container.
+  static const Key docPanelKey = Key('completion-doc-panel-box');
+
   const AutocompletePopup({
     super.key,
     required this.items,
-    required this.position,
+    required this.anchor,
+    required this.bounds,
     required this.selectedIndex,
     required this.maxWidth,
     required this.onSelect,
     required this.onDismiss,
     this.currentWord = '',
+    this.documentation,
   });
 
   @override
   Widget build(BuildContext context) {
     if (items.isEmpty) return const SizedBox.shrink();
 
-    return Positioned(
-      left: position.dx,
-      top: position.dy,
+    // Fills the editor area so every child can be positioned in its
+    // coordinates; the Stack clips anything that would leave the editor.
+    return Positioned.fill(
       child: ListenableBuilder(
         listenable: ThemeService.instance,
         builder: (context, _) {
           final uiColors = ThemeService.instance.uiColors;
+          final placement = _CompletionPlacement.compute(
+            anchor: anchor,
+            bounds: bounds,
+            itemCount: items.length,
+            hasDetail: items.any((item) => item.detail != null),
+            maxWidth: maxWidth,
+            hasDocumentation:
+                documentation != null && documentation!.trim().isNotEmpty,
+          );
 
-          return MouseRegion(
+          final list = MouseRegion(
             cursor: SystemMouseCursors.click,
             child: Container(
-              constraints: BoxConstraints(maxHeight: 200, maxWidth: maxWidth),
+              key: listKey,
+              width: placement.listWidth,
+              constraints: BoxConstraints(maxHeight: placement.listHeight),
               decoration: RetroBorder.raised(
                 backgroundColor: uiColors['editorBackground'],
               ),
@@ -146,8 +178,177 @@ class AutocompletePopup extends StatelessWidget {
               ),
             ),
           );
+
+          final docRect = placement.docRect;
+          return Stack(
+            clipBehavior: Clip.hardEdge,
+            children: <Widget>[
+              Positioned(
+                left: placement.listRect.left,
+                top: placement.listRect.top,
+                child: list,
+              ),
+              if (docRect != null && documentation != null)
+                Positioned(
+                  left: docRect.left,
+                  top: docRect.top,
+                  width: docRect.width,
+                  child: CompletionDocPanel(
+                    key: docPanelKey,
+                    text: documentation!,
+                    maxWidth: docRect.width,
+                    maxHeight: docRect.height,
+                  ),
+                ),
+            ],
+          );
         },
       ),
+    );
+  }
+}
+
+/// Placement of the completion list and its documentation panel inside the
+/// editor area.
+///
+/// Pure geometry: anchored at the caret, flipped above when there is no room
+/// below, narrowed/clamped to the editor, and the doc panel goes right, then
+/// left, then below/above — always inside [bounds].
+class _CompletionPlacement {
+  final Rect listRect;
+  final double listWidth;
+  final double listHeight;
+  final Rect? docRect;
+
+  const _CompletionPlacement({
+    required this.listRect,
+    required this.listWidth,
+    required this.listHeight,
+    this.docRect,
+  });
+
+  /// A single row is ~24px; a row with `detail` is ~38px.
+  static const double _rowWithDetail = 38;
+  static const double _rowPlain = 24;
+  static const double _maxListHeight = 200;
+  static const double _minListHeight = 72;
+  static const double _minDocWidth = 200;
+  static const double _maxDocWidth = 320;
+  static const double _gap = 4;
+
+  static _CompletionPlacement compute({
+    required Rect anchor,
+    required Size bounds,
+    required int itemCount,
+    required bool hasDetail,
+    required double maxWidth,
+    required bool hasDocumentation,
+  }) {
+    final width = maxWidth.clamp(120.0, bounds.width).toDouble();
+    final left = anchor.left
+        .clamp(0.0, (bounds.width - width).clamp(0.0, double.infinity))
+        .toDouble();
+
+    final contentHeight =
+        itemCount * (hasDetail ? _rowWithDetail : _rowPlain) + _gap;
+    final preferred = contentHeight.clamp(_minListHeight, _maxListHeight);
+
+    final belowRoom = bounds.height - (anchor.bottom + _gap);
+    final aboveRoom = anchor.top - _gap;
+
+    double height;
+    double top;
+    if (belowRoom >= preferred) {
+      height = preferred;
+      top = anchor.bottom + _gap;
+    } else if (aboveRoom >= preferred) {
+      height = preferred;
+      top = anchor.top - _gap - preferred;
+    } else if (belowRoom >= aboveRoom) {
+      // Neither side fits the whole list: use the larger side and let the list
+      // scroll instead of drawing over the caret.
+      height = belowRoom.clamp(1.0, _maxListHeight).toDouble();
+      top = anchor.bottom + _gap;
+    } else {
+      height = aboveRoom.clamp(1.0, _maxListHeight).toDouble();
+      top = anchor.top - _gap - height;
+    }
+
+    height = height.clamp(1.0, bounds.height).toDouble();
+    top = top.clamp(0.0, (bounds.height - height).clamp(0.0, double.infinity));
+
+    final listRect = Rect.fromLTWH(left, top, width, height);
+    if (!hasDocumentation) {
+      return _CompletionPlacement(
+        listRect: listRect,
+        listWidth: width,
+        listHeight: height,
+      );
+    }
+
+    final rightRoom = bounds.width - (left + width) - _gap;
+    final leftRoom = left - _gap;
+    final rightDocWidth = rightRoom.clamp(0.0, _maxDocWidth).toDouble();
+    final leftDocWidth = leftRoom.clamp(0.0, _maxDocWidth).toDouble();
+
+    if (rightDocWidth >= _minDocWidth) {
+      final docHeight = (bounds.height - top).clamp(0.0, 200.0).toDouble();
+      return _CompletionPlacement(
+        listRect: listRect,
+        listWidth: width,
+        listHeight: height,
+        docRect: Rect.fromLTWH(
+          left + width + _gap,
+          top,
+          rightDocWidth,
+          docHeight,
+        ),
+      );
+    }
+
+    if (leftDocWidth >= _minDocWidth) {
+      final docHeight = (bounds.height - top).clamp(0.0, 200.0).toDouble();
+      return _CompletionPlacement(
+        listRect: listRect,
+        listWidth: width,
+        listHeight: height,
+        docRect: Rect.fromLTWH(
+          left - _gap - leftDocWidth,
+          top,
+          leftDocWidth,
+          docHeight,
+        ),
+      );
+    }
+
+    // No horizontal room: stack the panel under (or above) the list, still
+    // inside the editor.
+    final docWidth = (bounds.width - 2 * _gap).clamp(0.0, _maxDocWidth)
+        .toDouble();
+    final docLeft = (bounds.width - docWidth) / 2;
+    final belowDoc = bounds.height - (top + height) - _gap;
+    final aboveDoc = top - _gap;
+    double docTop;
+    double docHeight;
+    if (belowDoc >= 40) {
+      docTop = top + height + _gap;
+      docHeight = belowDoc.clamp(0.0, 200.0).toDouble();
+    } else if (aboveDoc >= 40) {
+      docHeight = aboveDoc.clamp(0.0, 200.0).toDouble();
+      docTop = top - _gap - docHeight;
+    } else {
+      return _CompletionPlacement(
+        listRect: listRect,
+        listWidth: width,
+        listHeight: height,
+      );
+    }
+
+    return _CompletionPlacement(
+      listRect: listRect,
+      listWidth: width,
+      listHeight: height,
+      docRect: Rect.fromLTWH(docLeft, docTop, docWidth, docHeight),
     );
   }
 }

@@ -3,13 +3,112 @@ import '../models/lsp_models.dart';
 /// Pure, framework-free helpers for narrowing language-server completion
 /// candidates down to what the user has actually typed, and providing fallback
 /// keyword/token completions when an LSP server is unavailable.
+/// What the editor should do right after a keystroke: nothing, a debounced
+/// completion request, or an immediate one (a trigger character was typed).
+class CompletionDecision {
+  const CompletionDecision({
+    required this.shouldRequest,
+    required this.immediate,
+    this.triggerKind = 1,
+    this.triggerCharacter,
+  });
+
+  /// No popup: do not request (and dismiss whatever is open).
+  static const CompletionDecision none = CompletionDecision(
+    shouldRequest: false,
+    immediate: false,
+  );
+
+  /// Whether a completion request should be made at all.
+  final bool shouldRequest;
+
+  /// Whether it must go out now, without the typing debounce. Only true when
+  /// the character just typed is a trigger character.
+  final bool immediate;
+
+  /// LSP `CompletionContext.triggerKind`: 1 = invoked (debounced prefix),
+  /// 2 = trigger character.
+  final int triggerKind;
+
+  /// The trigger character, when [triggerKind] is 2.
+  final String? triggerCharacter;
+}
+
+/// In-memory most-recently-used tracker for accepted completions.
+/// Capped at 200 entries; session-only (not persisted).
+class _CompletionMru {
+  static final _counter = <String, int>{};
+
+  /// Records [label] as accepted; increments its counter.
+  static void record(String label) {
+    _counter[label] = (_counter[label] ?? 0) + 1;
+    if (_counter.length > 200) {
+      // Drop the oldest (lowest counter) entry.
+      final oldest = _counter.entries
+          .reduce((a, b) => a.value <= b.value ? a : b)
+          .key;
+      _counter.remove(oldest);
+    }
+  }
+
+  /// Returns the current counter value for [label], or 0.
+  static int valueFor(String label) => _counter[label] ?? 0;
+}
+
 class CompletionFilter {
   const CompletionFilter._();
 
   /// How many identifier characters the word under the cursor needs before
-  /// completions are worth offering. Set to 1 so typing a single character
-  /// immediately offers suggestions.
+  /// completions are worth offering when a language server is connected.
+  /// Set to 1 so typing a single character immediately offers suggestions.
   static const int minimumPrefixLength = 1;
+
+  /// The same minimum for the offline fallback list (no server attached),
+  /// kept at the original TASK-011 value so an offline session does not pop
+  /// the list on every keystroke.
+  static const int offlineMinimumPrefixLength = 3;
+
+  /// Characters that open member completion regardless of what the server
+  /// advertised — `.` plus the pre-triggerCharacters `->` and `::` paths.
+  static const Set<String> legacyTriggerCharacters = {'.', '>', ':'};
+
+  /// Decides what happens after a keystroke that left the caret at [offset].
+  ///
+  /// - a trigger character (server list ∪ legacy set) with an LSP server
+  ///   attached → request immediately, `triggerKind = 2`;
+  /// - an identifier prefix of [minimumPrefixLength] (LSP) or
+  ///   [offlineMinimumPrefixLength] (fallback list) → request on the debounce;
+  /// - whitespace, closing brackets or a bare caret → nothing.
+  static CompletionDecision decide({
+    required String text,
+    required int offset,
+    required bool lspConnected,
+    required Iterable<String> triggerCharacters,
+  }) {
+    final word = currentWord(text, offset);
+    final previous = previousChar(text, offset);
+
+    final opens = <String>{...legacyTriggerCharacters, ...triggerCharacters};
+    if (lspConnected && previous != null && opens.contains(previous)) {
+      return CompletionDecision(
+        shouldRequest: true,
+        immediate: true,
+        triggerKind: 2,
+        triggerCharacter: previous,
+      );
+    }
+
+    final minimum = lspConnected
+        ? minimumPrefixLength
+        : offlineMinimumPrefixLength;
+    if (word.length >= minimum) {
+      return const CompletionDecision(
+        shouldRequest: true,
+        immediate: false,
+      );
+    }
+    return CompletionDecision.none;
+  }
 
   /// Whether completions should be offered based on [word] and [previousChar].
   static bool isTriggering(String word, {String? previousChar}) {
@@ -53,6 +152,46 @@ class CompletionFilter {
         code == 0x5F; // _
   }
 
+  /// Computes the match tier for [item] against [query].
+  /// Lower tier = better match.
+  /// Tier 1: exact case-sensitive prefix.
+  /// Tier 2: case-insensitive prefix.
+  /// Tier 3: word-start / camelCase match.
+  /// Tier 4: subsequence match (or anything else).
+  static int _matchTier(CompletionItem item, String query) {
+    final filter = item.effectiveFilter;
+    final lowerFilter = filter.toLowerCase();
+    final lowerQuery = query.toLowerCase();
+
+    // Tier 1: exact case-sensitive.
+    if (filter.startsWith(query)) return 1;
+
+    // Tier 2: case-insensitive prefix.
+    if (lowerFilter.startsWith(lowerQuery)) return 2;
+
+    // Tier 3: word-start or camelCase match (starts at a new word boundary).
+    final words = filter.split(RegExp(r'[A-Z_\s]'));
+    if (words.any((w) => w.toLowerCase().startsWith(lowerQuery))) return 3;
+
+    // Tier 4: subsequence match.
+    if (_isSubsequence(lowerFilter, lowerQuery)) return 4;
+
+    // Fallback for anything else (should not occur with current filter).
+    return 5;
+  }
+
+  static bool _isSubsequence(String text, String query) {
+    int textIdx = 0;
+    int queryIdx = 0;
+    while (textIdx < text.length && queryIdx < query.length) {
+      if (text[textIdx] == query[queryIdx]) {
+        queryIdx++;
+      }
+      textIdx++;
+    }
+    return queryIdx == query.length;
+  }
+
   /// Filters [items] to those whose match text starts with [query], ignoring
   /// case, and orders them most-relevant first.
   static List<CompletionItem> filter(List<CompletionItem> items, String query) {
@@ -65,26 +204,33 @@ class CompletionFilter {
         .toList();
 
     matches.sort((a, b) {
-      final aFilter = a.effectiveFilter;
-      final bFilter = b.effectiveFilter;
+      final tierA = _matchTier(a, query);
+      final tierB = _matchTier(b, query);
+      if (tierA != tierB) return tierA.compareTo(tierB);
 
-      final aExact = aFilter.toLowerCase() == q;
-      final bExact = bFilter.toLowerCase() == q;
-      if (aExact != bExact) return aExact ? -1 : 1;
+      // b. Recently accepted first (higher MRU counter = better).
+      final mruA = _CompletionMru.valueFor(a.displayLabel);
+      final mruB = _CompletionMru.valueFor(b.displayLabel);
+      if (mruA != mruB) return mruB.compareTo(mruA);
 
-      final aCase = aFilter.startsWith(query);
-      final bCase = bFilter.startsWith(query);
-      if (aCase && bCase && aCase != bCase) return aCase ? -1 : 1;
+      // c. Server sortText (fall back to label), alphabetical.
+      final sortA = a.sortText ?? a.displayLabel;
+      final sortB = b.sortText ?? b.displayLabel;
+      final sortCompare = sortA.compareTo(sortB);
+      if (sortCompare != 0) return sortCompare;
 
-      if (a.displayLabel.length != b.displayLabel.length) {
-        return a.displayLabel.length.compareTo(b.displayLabel.length);
-      }
-
+      // d. Label alphabetical.
       return a.displayLabel.compareTo(b.displayLabel);
     });
 
     return matches;
   }
+
+  /// Records [label] as recently accepted (increments MRU counter).
+  static void recordCompletion(String label) => _CompletionMru.record(label);
+
+  /// Returns the current counter value for [label], or 0.
+  static int mruValueFor(String label) => _CompletionMru.valueFor(label);
 
   /// Generates fallback completion items from language keywords and tokens
   /// extracted from [documentText].

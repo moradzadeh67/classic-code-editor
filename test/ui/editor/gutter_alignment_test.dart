@@ -22,7 +22,7 @@ class _OfflineLspService extends LspService {
     String filePath,
     int line,
     int column,
-  ) async => const <CompletionItem>[];
+    {String? triggerCharacter, int? triggerKind}) async => const <CompletionItem>[];
 
   @override
   Future<HoverInfo?> requestHover(

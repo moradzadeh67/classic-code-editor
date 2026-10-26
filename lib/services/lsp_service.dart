@@ -32,10 +32,20 @@ class LspService extends ChangeNotifier {
     LspServerSpec? spec,
     this._prepareWorkspace,
     @visibleForTesting this._requestSender,
+    @visibleForTesting this._notificationSender,
   }) : _rootPath = workspaceRoot ?? Directory.current.path,
        _spec = spec ?? LspServerSpec.dart;
 
   static const Duration _initializeTimeout = Duration(seconds: 20);
+
+  /// How long a `didChange` waits for more typing before it is written.
+  ///
+  /// Sending on every keystroke made the server re-analyze constantly; sending
+  /// too late is worse, because a completion request for the newest text can
+  /// then land on an older document (`-32004 invalid line number`). Every
+  /// position-based request therefore flushes the pending change first — see
+  /// [_ensureSynced].
+  static const Duration _didChangeDebounce = Duration(milliseconds: 250);
 
   /// One retry, because the first completion after `initialized` often lands
   /// while the server is still indexing and comes back empty.
@@ -65,6 +75,23 @@ class LspService extends ChangeNotifier {
   /// never be shown the union of every document the server ever published for.
   String? _activeUri;
 
+  /// Trigger characters advertised by the server's `completionProvider` in the
+  /// `initialize` response. Falls back to the LSP convention (`['.']`) when the
+  /// server sent none.
+  List<String> _triggerCharacters = const ['.'];
+
+  /// The characters that must open completion immediately when typed.
+  List<String> get triggerCharacters => _triggerCharacters;
+
+  /// Whether the server advertised `completionProvider.resolveProvider`.
+  ///
+  /// Only then may `completionItem/resolve` be sent; the Dart server uses it
+  /// to attach the automatic import and the full dartdoc to an item.
+  bool _completionResolveProvider = false;
+
+  /// Whether `completionItem/resolve` is supported by the connected server.
+  bool get supportsCompletionResolve => _completionResolveProvider;
+
   /// Workspace folder URIs already registered with the server.
   final Set<String> _workspaceFolders = <String>{};
 
@@ -76,6 +103,27 @@ class LspService extends ChangeNotifier {
     Map<String, dynamic>? params,
   )?
   _requestSender;
+
+  /// Test seam: receives notifications (didOpen/didChange/…) instead of the
+  /// JSON-RPC client, so the order between a flushed change and a request can
+  /// be asserted without spawning a server.
+  final void Function(String method, Map<String, dynamic> params)?
+  _notificationSender;
+
+  /// Content waiting for the debounce timer, per document URI.
+  final Map<String, String> _pendingContents = {};
+
+  /// The debounce timer of each document URI.
+  final Map<String, Timer> _didChangeTimers = {};
+
+  /// Context of every in-flight request, so a failed answer can name the
+  /// method and position it was for.
+  final Map<int, ({String method, Map<String, dynamic>? params})>
+  _requestContexts = {};
+
+  /// `-32004` failures already printed, keyed by method + URI: one line per
+  /// method and document, not one per keystroke.
+  final Set<String> _reportedInvalidPositions = {};
 
   /// In-flight startup, so `openFile` can wait instead of racing the handshake.
   Future<void>? _startTask;
@@ -92,6 +140,83 @@ class LspService extends ChangeNotifier {
 
   /// Whether the server has completed the `initialize` handshake.
   bool get isConnected => _status == LspConnectionStatus.connected;
+
+  /// Parses `capabilities.completionProvider.triggerCharacters` from the
+  /// `initialize` response, defaulting to `['.']`.
+  @visibleForTesting
+  static List<String> parseTriggerCharacters(Map<String, dynamic>? response) {
+    if (response == null) return const ['.'];
+    final completion = _completionProvider(response);
+    if (completion == null) return const ['.'];
+    final chars = completion['triggerCharacters'] as List<dynamic>?;
+    if (chars == null || chars.isEmpty) return const ['.'];
+    return chars.whereType<String>().toList();
+  }
+
+  /// Parses `capabilities.completionProvider.resolveProvider` from the
+  /// `initialize` response. Absent means "not supported" per the LSP spec.
+  @visibleForTesting
+  static bool parseCompletionResolveProvider(Map<String, dynamic>? response) {
+    final completion = _completionProvider(response);
+    return completion?['resolveProvider'] == true;
+  }
+
+  static Map<String, dynamic>? _completionProvider(
+    Map<String, dynamic>? response,
+  ) {
+    if (response == null) return null;
+    final caps = response['capabilities'] as Map<String, dynamic>?;
+    if (caps == null) return null;
+    return caps['completionProvider'] as Map<String, dynamic>?;
+  }
+
+  /// Reads an LSP `documentation` value: either a plain string or a
+  /// `MarkupContent` object (`{"kind": "markdown", "value": "..."}`).
+  @visibleForTesting
+  static String? parseDocumentation(dynamic value) {
+    if (value is String) return value;
+    if (value is Map) {
+      final text = value['value'];
+      if (text is String) return text;
+    }
+    return null;
+  }
+
+  /// Parses an LSP `TextEdit[]` (`additionalTextEdits`) into model objects.
+  @visibleForTesting
+  static List<CompletionTextEdit> parseTextEdits(dynamic value) {
+    if (value is! List) return const [];
+    final edits = <CompletionTextEdit>[];
+    for (final raw in value) {
+      if (raw is! Map) continue;
+      final range = raw['range'];
+      final newText = raw['newText'];
+      if (range is! Map || newText is! String) continue;
+      final start = range['start'];
+      final end = range['end'];
+      if (start is! Map || end is! Map) continue;
+      final startLine = start['line'];
+      final startCharacter = start['character'];
+      final endLine = end['line'];
+      final endCharacter = end['character'];
+      if (startLine is! int ||
+          startCharacter is! int ||
+          endLine is! int ||
+          endCharacter is! int) {
+        continue;
+      }
+      edits.add(
+        CompletionTextEdit(
+          startLine: startLine,
+          startCharacter: startCharacter,
+          endLine: endLine,
+          endCharacter: endCharacter,
+          newText: newText,
+        ),
+      );
+    }
+    return edits;
+  }
 
   /// Whether the server is in the middle of starting up.
   bool get isStarting => _status == LspConnectionStatus.starting;
@@ -280,7 +405,14 @@ class LspService extends ChangeNotifier {
           },
           'hover': <String, dynamic>{},
         },
-        'workspace': <String, dynamic>{'workspaceFolders': true},
+        'workspace': <String, dynamic>{
+          // Required by the Dart server before it includes completions from
+          // libraries that are not imported yet (it needs to be able to ask
+          // the client to add the import).
+          'applyEdit': true,
+          'configuration': true,
+          'workspaceFolders': true,
+        },
       },
       'initializationOptions': _spec.initializationOptions,
     };
@@ -302,6 +434,9 @@ class LspService extends ChangeNotifier {
 
     // Stop/Dispose may have run while we were waiting for the handshake.
     if (_disposed || _rpc == null) return;
+
+    _triggerCharacters = parseTriggerCharacters(response);
+    _completionResolveProvider = parseCompletionResolveProvider(response);
 
     _sendNotification('initialized', <String, dynamic>{});
 
@@ -391,7 +526,8 @@ class LspService extends ChangeNotifier {
     }
 
     final becameActive = _activeUri != uri;
-    if (_documentContents[uri] == content) {
+    if (_documentContents[uri] == content &&
+        !_pendingContents.containsKey(uri)) {
       if (becameActive) {
         _activeUri = uri;
         _safeNotify();
@@ -399,10 +535,46 @@ class LspService extends ChangeNotifier {
       return;
     }
 
+    _activeUri = uri;
+
+    // Debounced: typing sends one change instead of one per keystroke. A
+    // position-based request flushes it first through [_ensureSynced], so the
+    // server never answers for text it has not seen.
+    _didChangeTimers.remove(uri)?.cancel();
+    _pendingContents[uri] = content;
+    _didChangeTimers[uri] = Timer(_didChangeDebounce, () {
+      unawaited(_flushPendingChange(uri));
+    });
+
+    if (becameActive) _safeNotify();
+  }
+
+  /// Sends the debounced `didChange` for [filePath] right away.
+  ///
+  /// Used by Run/Save in the shell, which must not operate on a document the
+  /// server has not received yet.
+  Future<void> flushPendingChange(String filePath) =>
+      _flushPendingChange(_pathToUri(filePath));
+
+  /// The one sync helper: writes whatever `didChange` the debounce still holds
+  /// for [uri] and completes after the notification has been sent.
+  ///
+  /// Every request that carries a position (completion, resolve, hover) calls
+  /// this first. Without it the server can be one edit behind, which surfaces
+  /// as `[LSP] request failed: code -32004, invalid line number` or as
+  /// completion for a symbol the user has already finished typing.
+  Future<void> _ensureSynced(String uri) => _flushPendingChange(uri);
+
+  Future<void> _flushPendingChange(String uri) {
+    _didChangeTimers.remove(uri)?.cancel();
+    final content = _pendingContents.remove(uri);
+    if (content == null) return Future<void>.value();
+    if (_disposed || !isConnected) return Future<void>.value();
+    if (_documentContents[uri] == content) return Future<void>.value();
+
     final version = (_documentVersions[uri] ?? 1) + 1;
     _documentVersions[uri] = version;
     _documentContents[uri] = content;
-    _activeUri = uri;
 
     _sendNotification('textDocument/didChange', <String, dynamic>{
       'textDocument': <String, dynamic>{'uri': uri, 'version': version},
@@ -410,7 +582,13 @@ class LspService extends ChangeNotifier {
         <String, dynamic>{'text': content},
       ],
     });
+    return Future<void>.value();
   }
+
+  /// The version of the document at [filePath] as the server last received it,
+  /// or `null` when it is not open.
+  int? documentVersion(String filePath) =>
+      _documentVersions[_pathToUri(filePath)];
 
   /// Tells the server the document is closed and forgets everything we knew
   /// about it (tracked version, cached content, published diagnostics).
@@ -424,6 +602,11 @@ class LspService extends ChangeNotifier {
 
     final uri = _pathToUri(filePath);
     final wasOpen = _documentVersions.containsKey(uri);
+
+    // A change still waiting in the debounce belongs to a document the server
+    // is about to forget.
+    _didChangeTimers.remove(uri)?.cancel();
+    _pendingContents.remove(uri);
 
     if (wasOpen && isConnected) {
       _sendNotification('textDocument/didClose', <String, dynamic>{
@@ -454,6 +637,14 @@ class LspService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Test seam: pretends the `initialize` response advertised
+  /// `completionProvider.resolveProvider`, which is skipped in tests because
+  /// `startServer` short-circuits under `FLUTTER_TEST`.
+  @visibleForTesting
+  void debugSetCompletionResolveProvider(bool value) {
+    _completionResolveProvider = value;
+  }
+
   /// Requests completion items from the LSP server at [filePath], [line], [column].
   ///
   /// A completely empty result is retried once after a short delay: the first
@@ -462,10 +653,13 @@ class LspService extends ChangeNotifier {
   Future<List<CompletionItem>> requestCompletion(
     String filePath,
     int line,
-    int column,
-  ) async {
+    int column, {
+    int? triggerKind,
+    String? triggerCharacter,
+  }) async {
     if (!isConnected) return const [];
     final uri = _pathToUri(filePath);
+    await _ensureSynced(uri);
 
     final params = <String, dynamic>{
       'textDocument': <String, dynamic>{'uri': uri},
@@ -474,6 +668,15 @@ class LspService extends ChangeNotifier {
         'character': column - 1,
       },
     };
+
+    if (triggerKind != null || triggerCharacter != null) {
+      final context = <String, dynamic>{};
+      if (triggerKind != null) context['triggerKind'] = triggerKind;
+      if (triggerCharacter != null) {
+        context['triggerCharacter'] = triggerCharacter;
+      }
+      params['context'] = context;
+    }
 
     var items = await _completionAt(params);
 
@@ -507,7 +710,9 @@ class LspService extends ChangeNotifier {
       final kind = _completionKindToString(kindInt);
       final detail = item['detail'] as String?;
       final insertText = item['insertText'] as String?;
+      final insertTextFormat = item['insertTextFormat'] as int?;
       final filterText = item['filterText'] as String?;
+      final sortText = item['sortText'] as String?;
 
       String? textEditNewText;
       final textEdit = item['textEdit'];
@@ -519,14 +724,75 @@ class LspService extends ChangeNotifier {
         CompletionItem(
           label: rawLabel,
           kind: kind,
+          kindInt: kindInt,
           detail: detail,
           insertText: insertText,
           textEditNewText: textEditNewText,
           filterText: filterText,
+          insertTextFormat: insertTextFormat,
+          sortText: sortText,
+          documentation: parseDocumentation(item['documentation']),
+          additionalTextEdits: parseTextEdits(item['additionalTextEdits']),
+          raw: item,
         ),
       );
+      _logProbedItem(rawLabel, item);
     }
     return result;
+  }
+
+  /// Labels whose raw completion payload is printed once, to document what the
+  /// server really sends for the two items users report paren problems with.
+  static const Set<String> _probeLogLabels = {'print', 'setState'};
+  final Set<String> _loggedProbeItems = {};
+
+  /// One `debugPrint` per probed label and session: kind, insert text/format
+  /// and detail exactly as the server sent them.
+  void _logProbedItem(String label, Map<String, dynamic> raw) {
+    if (!_probeLogLabels.contains(label)) return;
+    if (!_loggedProbeItems.add(label)) return;
+    debugPrint(
+      '[LSP] completion "$label": kind=${raw['kind']} '
+      'insertText=${jsonEncode(raw['insertText'])} '
+      'insertTextFormat=${raw['insertTextFormat']} '
+      'textEdit=${jsonEncode(raw['textEdit'])} '
+      'detail=${jsonEncode(raw['detail'])}',
+    );
+  }
+
+  /// Asks the server to complete [item] (`completionItem/resolve`).
+  ///
+  /// Only sent when the server advertised `completionProvider.resolveProvider`;
+  /// returns `null` otherwise (and when the server has no `raw` JSON to send
+  /// back). The Dart server attaches the automatic import
+  /// (`additionalTextEdits`) and the full dartdoc here.
+  Future<ResolvedCompletionItem?> resolveCompletionItem(
+    CompletionItem item, {
+    String? filePath,
+  }) async {
+    if (!isConnected || !_completionResolveProvider) return null;
+    final raw = item.raw;
+    if (raw == null) return null;
+
+    // The import the server attaches is only valid for the document text it
+    // resolved against, so flush any pending change first and remember which
+    // version that was.
+    final uri = filePath == null ? null : _pathToUri(filePath);
+    if (uri != null) await _ensureSynced(uri);
+    final version = uri == null ? null : _documentVersions[uri];
+
+    final response = await _request(
+      'completionItem/resolve',
+      Map<String, dynamic>.from(raw),
+    );
+    if (response == null) return null;
+
+    return ResolvedCompletionItem(
+      documentation: parseDocumentation(response['documentation']),
+      detail: response['detail'] as String?,
+      additionalTextEdits: parseTextEdits(response['additionalTextEdits']),
+      documentVersion: version,
+    );
   }
 
   String _completionKindToString(int kind) {
@@ -559,7 +825,7 @@ class LspService extends ChangeNotifier {
       case 25:
         return 'interface';
       case 15:
-        return 'module';
+        return 'snippet';
       case 16:
         return 'property';
       case 18:
@@ -578,6 +844,7 @@ class LspService extends ChangeNotifier {
   Future<HoverInfo?> requestHover(String filePath, int line, int column) async {
     if (!isConnected) return null;
     final uri = _pathToUri(filePath);
+    await _ensureSynced(uri);
 
     final response = await _request('textDocument/hover', <String, dynamic>{
       'textDocument': <String, dynamic>{'uri': uri},
@@ -646,11 +913,21 @@ class LspService extends ChangeNotifier {
 
     process?.kill(ProcessSignal.sigkill);
 
+    for (final timer in _didChangeTimers.values) {
+      timer.cancel();
+    }
+    _didChangeTimers.clear();
+    _pendingContents.clear();
+    _requestContexts.clear();
+    _reportedInvalidPositions.clear();
+
     _documentVersions.clear();
     _documentContents.clear();
     _diagnosticsByUri.clear();
     _activeUri = null;
     _workspaceFolders.clear();
+    _triggerCharacters = const ['.'];
+    _completionResolveProvider = false;
 
     _status = LspConnectionStatus.stopped;
     _safeNotify();
@@ -679,6 +956,7 @@ class LspService extends ChangeNotifier {
     final id = _nextRequestId++;
     final completer = Completer<Map<String, dynamic>?>();
     _pendingRequests[id] = completer;
+    _requestContexts[id] = (method: method, params: params);
 
     final message = <String, dynamic>{
       'jsonrpc': '2.0',
@@ -692,17 +970,24 @@ class LspService extends ChangeNotifier {
       const Duration(seconds: 20),
       onTimeout: () {
         _pendingRequests.remove(id);
+        _requestContexts.remove(id);
         return null;
       },
     );
   }
 
   void _sendNotification(String method, Map<String, dynamic> params) {
-    _rpc?.send(<String, dynamic>{
+    final message = <String, dynamic>{
       'jsonrpc': '2.0',
       'method': method,
       'params': params,
-    });
+    };
+    final sender = _notificationSender;
+    if (sender != null) {
+      sender(method, params);
+      return;
+    }
+    _rpc?.send(message);
   }
 
   void _handleMessage(Map<String, dynamic> message) {
@@ -727,7 +1012,11 @@ class LspService extends ChangeNotifier {
 
     final id = message['id'];
     if (id != null) {
-      final result = method == 'workspace/configuration' ? <dynamic>[] : null;
+      if (method == 'workspace/configuration') {
+        _sendConfiguration(message, id);
+        return;
+      }
+      final result = method == 'workspace/applyEdit' ? applyEditResult() : null;
       _rpc?.send(<String, dynamic>{
         'jsonrpc': '2.0',
         'id': id,
@@ -736,22 +1025,106 @@ class LspService extends ChangeNotifier {
     }
   }
 
+  /// The `ApplyWorkspaceEditResult` sent back for a server-initiated
+  /// `workspace/applyEdit` request.
+  ///
+  /// The client advertises `workspace.applyEdit` because the Dart server only
+  /// offers completions from unimported libraries when that capability is
+  /// present, but it never applies workspace edits itself: accepting a
+  /// completion applies the item's `additionalTextEdits` directly in the
+  /// editor. The LSP spec requires a result object (not `null`), so the
+  /// request is declined explicitly instead of silently ignored.
+  @visibleForTesting
+  static Map<String, dynamic> applyEditResult() => <String, dynamic>{
+    'applied': false,
+    'failureReason': 'not supported by this client',
+  };
+
+  /// Answers a server-initiated `workspace/configuration` request.
+  ///
+  /// The Dart server reads `dart.enableSnippets` this way; the probe in
+  /// `tool/probe_dart_completion_options.dart` confirmed it is honoured.
+  /// Everything else is left out of the answer so the server keeps its own
+  /// defaults (`completeFunctionCalls` stays at its default, on purpose).
+  void _sendConfiguration(Map<String, dynamic> message, Object id) {
+    final params = message['params'];
+    final rawItems = params is Map ? params['items'] : null;
+    final items = rawItems is List ? rawItems : const <dynamic>[];
+
+    final dartSettings = <String, dynamic>{};
+    if (_spec.id == 'dart') {
+      dartSettings['enableSnippets'] = true;
+    }
+
+    _rpc?.send(<String, dynamic>{
+      'jsonrpc': '2.0',
+      'id': id,
+      'result': <dynamic>[
+        for (var i = 0; i < items.length; i++)
+          <String, dynamic>{...dartSettings},
+      ],
+    });
+  }
+
   void _handleResponse(Map<String, dynamic> message) {
     final id = message['id'];
     if (id is! int) return;
 
     final completer = _pendingRequests.remove(id);
+    final context = _requestContexts.remove(id);
     if (completer == null || completer.isCompleted) return;
 
     final error = message['error'];
     if (error != null) {
-      debugPrint('[LSP] Request $id failed: $error');
+      _reportRequestError(id, context, error);
       completer.complete(null);
       return;
     }
 
     final result = message['result'];
     completer.complete(result is Map<String, dynamic> ? result : null);
+  }
+
+  /// Logs a failed request, naming the method, position and document version
+  /// when the server says the position was invalid (`-32004`).
+  ///
+  /// The pair method + document is only reported once: a document that is out
+  /// of sync fails on every keystroke, and a wall of identical lines hides the
+  /// first one.
+  void _reportRequestError(
+    int id,
+    ({String method, Map<String, dynamic>? params})? context,
+    Object error,
+  ) {
+    final method = context?.method ?? 'request $id';
+    final params = context?.params;
+    final position = params?['position'];
+    final uri = (params?['textDocument'] as Map?)?['uri'];
+
+    int? code;
+    String? errorMessage;
+    if (error is Map) {
+      final rawCode = error['code'];
+      if (rawCode is int) code = rawCode;
+      errorMessage = error['message'] as String?;
+    }
+
+    if (code == -32004) {
+      final key = '$method|$uri';
+      if (_reportedInvalidPositions.add(key)) {
+        final line = position?['line'];
+        final character = position?['character'];
+        final version = uri is String ? _documentVersions[uri] : null;
+        debugPrint(
+          '[LSP] $method failed with -32004 (invalid position) at '
+          'line=$line character=$character documentVersion=$version'
+          '${errorMessage == null ? '' : ' — $errorMessage'}',
+        );
+      }
+      return;
+    }
+
+    debugPrint('[LSP] Request $id failed: $error');
   }
 
   void _handlePublishDiagnostics(Map<String, dynamic> params) {

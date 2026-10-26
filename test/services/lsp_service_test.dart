@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:classic_code_editor/models/diagnostic.dart';
+import 'package:classic_code_editor/models/lsp_models.dart';
 import 'package:classic_code_editor/services/lsp_service.dart';
 
 Diagnostic _diag(String file, String severity, {int line = 1}) => Diagnostic(
@@ -212,4 +213,286 @@ void main() {
       expect(lsp.activeDiagnostics, isEmpty);
     });
   });
+
+  group('LspService completion resolve', () {
+    test('parses completionProvider.resolveProvider', () {
+      expect(
+        LspService.parseCompletionResolveProvider({
+          'capabilities': {
+            'completionProvider': {'resolveProvider': true},
+          },
+        }),
+        isTrue,
+      );
+      expect(
+        LspService.parseCompletionResolveProvider({
+          'capabilities': {'completionProvider': <String, dynamic>{}},
+        }),
+        isFalse,
+      );
+      expect(LspService.parseCompletionResolveProvider(null), isFalse);
+    });
+
+    test('documentation can be a string or a MarkupContent value', () {
+      expect(LspService.parseDocumentation('plain'), 'plain');
+      expect(
+        LspService.parseDocumentation({'kind': 'markdown', 'value': '# hi'}),
+        '# hi',
+      );
+      expect(LspService.parseDocumentation(null), isNull);
+    });
+
+    test('resolve is not sent when the server does not support it', () async {
+      var calls = 0;
+      final service = LspService(
+        workspaceRoot: '/tmp/lsp_resolve_test',
+        requestSender: (method, params) async {
+          calls++;
+          return <String, dynamic>{};
+        },
+      );
+      addTearDown(service.dispose);
+      await service.startServer();
+
+      final item = CompletionItem(
+        label: 'Timer',
+        kind: 'class',
+        raw: <String, dynamic>{
+          'label': 'Timer',
+          'data': <String, dynamic>{'ref': 'dart:async;Timer'},
+        },
+      );
+
+      expect(service.supportsCompletionResolve, isFalse);
+      expect(await service.resolveCompletionItem(item), isNull);
+      expect(calls, 0);
+    });
+
+    test('resolve sends the raw item back and parses docs + import edit',
+        () async {
+      String? seenMethod;
+      Map<String, dynamic>? seenParams;
+
+      final service = LspService(
+        workspaceRoot: '/tmp/lsp_resolve_test',
+        requestSender: (method, params) async {
+          seenMethod = method;
+          seenParams = params;
+          return <String, dynamic>{
+            'documentation': {
+              'kind': 'markdown',
+              'value': 'A countdown timer.\n\nUse **Timer**.',
+            },
+            'detail': "Auto import from 'dart:async'",
+            'additionalTextEdits': [
+              {
+                'newText': "import 'dart:async';\n\n",
+                'range': {
+                  'start': {'line': 0, 'character': 0},
+                  'end': {'line': 0, 'character': 0},
+                },
+              },
+            ],
+          };
+        },
+      );
+      addTearDown(service.dispose);
+      await service.startServer();
+      service.debugSetCompletionResolveProvider(true);
+
+      final raw = <String, dynamic>{
+        'label': 'Timer',
+        'kind': 7,
+        'data': <String, dynamic>{'ref': 'dart:async;Timer'},
+      };
+      final resolved = await service.resolveCompletionItem(
+        CompletionItem(label: 'Timer', kind: 'class', raw: raw),
+      );
+
+      expect(seenMethod, 'completionItem/resolve');
+      expect(seenParams?['label'], 'Timer');
+      expect(seenParams?['data'], raw['data']);
+
+      expect(resolved, isNotNull);
+      expect(resolved!.documentation, contains('A countdown timer.'));
+      expect(resolved.detail, "Auto import from 'dart:async'");
+      expect(resolved.additionalTextEdits, hasLength(1));
+      final edit = resolved.additionalTextEdits.single;
+      expect(edit.newText, "import 'dart:async';\n\n");
+      expect(edit.startLine, 0);
+      expect(edit.startCharacter, 0);
+      expect(edit.endLine, 0);
+      expect(edit.endCharacter, 0);
+    });
+
+    test('returns null when the server answer has no result', () async {
+      final service = LspService(
+        workspaceRoot: '/tmp/lsp_resolve_test',
+        requestSender: (method, params) async => null,
+      );
+      addTearDown(service.dispose);
+      await service.startServer();
+      service.debugSetCompletionResolveProvider(true);
+
+      final resolved = await service.resolveCompletionItem(
+        CompletionItem(
+          label: 'Timer',
+          kind: 'class',
+          raw: <String, dynamic>{'label': 'Timer'},
+        ),
+      );
+      expect(resolved, isNull);
+    });
+  });
+
+  group('LspService workspace/applyEdit answer', () {
+    test('declines with a spec-shaped ApplyWorkspaceEditResult', () {
+      // The client advertises `workspace.applyEdit` (the Dart server needs it
+      // for unimported-library completions) but never applies the server's
+      // edits, so the answer must be an explicit "not applied" result rather
+      // than `null`.
+      expect(LspService.applyEditResult(), <String, dynamic>{
+        'applied': false,
+        'failureReason': 'not supported by this client',
+      });
+    });
+  });
+
+  group('LspService document sync before position requests', () {
+    test('a pending didChange is sent before completion', () async {
+      final events = <String>[];
+      final service = LspService(
+        workspaceRoot: '/tmp/lsp_sync_test',
+        notificationSender: (method, params) {
+          if (!method.startsWith('textDocument/')) return;
+          final version =
+              (params['textDocument'] as Map?)?['version'];
+          events.add('$method@$version');
+        },
+        requestSender: (method, params) async {
+          events.add(method);
+          return <String, dynamic>{
+            'items': <dynamic>[
+              <String, dynamic>{'label': 'Timer', 'kind': 7},
+            ],
+          };
+        },
+      );
+      addTearDown(service.dispose);
+      await service.startServer();
+      await service.openFile('/tmp/lsp_sync_test/main.dart', 'void f() {}');
+
+      // Typing is debounced, so this change is still pending.
+      service.updateFile('/tmp/lsp_sync_test/main.dart', 'void f() { Tim }');
+
+      final items = await service.requestCompletion(
+        '/tmp/lsp_sync_test/main.dart',
+        1,
+        12,
+      );
+
+      expect(items, isNotEmpty);
+      expect(
+        events,
+        <String>[
+          'textDocument/didOpen@1',
+          'textDocument/didChange@2',
+          'textDocument/completion',
+        ],
+        reason: 'the server must see the newest text before being asked',
+      );
+    });
+
+    test('a pending didChange is sent before completionItem/resolve', () async {
+      final events = <String>[];
+      final service = LspService(
+        workspaceRoot: '/tmp/lsp_sync_test',
+        notificationSender: (method, params) {
+          if (!method.startsWith('textDocument/')) return;
+          final version = (params['textDocument'] as Map?)?['version'];
+          events.add('$method@$version');
+        },
+        requestSender: (method, params) async {
+          events.add(method);
+          return <String, dynamic>{
+            'additionalTextEdits': <dynamic>[
+              <String, dynamic>{
+                'newText': "import 'dart:async';\n\n",
+                'range': <String, dynamic>{
+                  'start': <String, dynamic>{'line': 0, 'character': 0},
+                  'end': <String, dynamic>{'line': 0, 'character': 0},
+                },
+              },
+            ],
+          };
+        },
+      );
+      addTearDown(service.dispose);
+      await service.startServer();
+      await service.openFile('/tmp/lsp_sync_test/main.dart', 'void f() {}');
+      service.debugSetCompletionResolveProvider(true);
+
+      service.updateFile('/tmp/lsp_sync_test/main.dart', 'Timer');
+
+      final item = CompletionItem(
+        label: 'Timer',
+        kind: 'class',
+        kindInt: 7,
+        raw: <String, dynamic>{
+          'label': 'Timer',
+          'data': <String, dynamic>{'ref': 'dart:async;Timer'},
+        },
+      );
+      final resolved = await service.resolveCompletionItem(
+        item,
+        filePath: '/tmp/lsp_sync_test/main.dart',
+      );
+
+      expect(
+        events,
+        <String>[
+          'textDocument/didOpen@1',
+          'textDocument/didChange@2',
+          'completionItem/resolve',
+        ],
+      );
+      expect(service.documentVersion('/tmp/lsp_sync_test/main.dart'), 2);
+      expect(resolved?.documentVersion, 2);
+      expect(resolved?.additionalTextEdits, hasLength(1));
+    });
+
+    test('an unchanged document sends no extra didChange', () async {
+      final events = <String>[];
+      final service = LspService(
+        workspaceRoot: '/tmp/lsp_sync_test',
+        notificationSender: (method, params) {
+          if (method.startsWith('textDocument/')) events.add(method);
+        },
+        requestSender: (method, params) async {
+          events.add(method);
+          return <String, dynamic>{
+            'items': <dynamic>[
+              <String, dynamic>{'label': 'print', 'kind': 3},
+            ],
+          };
+        },
+      );
+      addTearDown(service.dispose);
+      await service.startServer();
+      await service.openFile('/tmp/lsp_sync_test/main.dart', 'pri');
+
+      await service.requestCompletion('/tmp/lsp_sync_test/main.dart', 1, 4);
+      await service.requestCompletion('/tmp/lsp_sync_test/main.dart', 1, 4);
+
+      expect(
+        events,
+        <String>[
+          'textDocument/didOpen',
+          'textDocument/completion',
+          'textDocument/completion',
+        ],
+      );
+    });
+  });
+
 }

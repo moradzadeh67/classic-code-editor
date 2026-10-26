@@ -34,6 +34,7 @@ class RetroMenuBar extends StatelessWidget {
 
   /// Opens a file from the "Open Recent" section of the File menu.
   final ValueChanged<String>? onOpenRecent;
+  final VoidCallback? onTriggerCompletion;
   final FileService? fileService;
   final AnalyzerService? analyzerService;
   final DartRunnerService? dartRunnerService;
@@ -53,6 +54,7 @@ class RetroMenuBar extends StatelessWidget {
     this.analyzerService,
     this.dartRunnerService,
     this.codeEditorController,
+    this.onTriggerCompletion,
   });
 
   @override
@@ -134,6 +136,11 @@ class RetroMenuBar extends StatelessWidget {
                   shortcut: 'Cmd + L',
                 ),
                 RetroMenuItem<String>(
+                  value: 'trigger_completion',
+                  label: 'Trigger Completion',
+                  shortcut: 'Ctrl + Shift + Space',
+                ),
+                RetroMenuItem<String>(
                   value: 'toggle_comment',
                   label: 'Toggle Comment',
                   shortcut: 'Cmd + /',
@@ -159,6 +166,8 @@ class RetroMenuBar extends StatelessWidget {
                   _selectAllText();
                 } else if (value == 'go_to_line') {
                   onGoToLine?.call();
+                } else if (value == 'trigger_completion') {
+                  onTriggerCompletion?.call();
                 } else if (value == 'toggle_comment') {
                   _toggleComment();
                 } else if (value == 'duplicate_line') {

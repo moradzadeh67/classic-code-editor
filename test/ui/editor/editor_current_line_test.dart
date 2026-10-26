@@ -18,7 +18,7 @@ class _QuietLspService extends LspService {
     String filePath,
     int line,
     int column,
-  ) async => const [];
+    {String? triggerCharacter, int? triggerKind}) async => const [];
 
   @override
   Future<HoverInfo?> requestHover(

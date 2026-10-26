@@ -15,8 +15,13 @@ import '../../services/theme_service.dart';
 import '../../services/editor_settings_service.dart';
 import '../../services/base_debugger.dart';
 import '../../utils/completion_filter.dart';
+import '../../utils/completion_docs.dart';
+import '../../utils/completion_edit_applier.dart';
+import '../../utils/completion_insert.dart';
+import '../../utils/dart_snippets.dart';
 import '../../utils/multi_language_highlighter.dart';
 import 'autocomplete_popup.dart';
+import 'completion_doc_panel.dart';
 import 'hover_tooltip.dart';
 
 /// Font size of the code editor's text.
@@ -148,6 +153,10 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
   final FocusNode _focusNode = FocusNode();
   final GlobalKey _editorKey = GlobalKey();
 
+  /// The panel's own Stack: popups are positioned in *its* coordinates, not in
+  /// window coordinates (a `Positioned` inside a Stack is relative to it).
+  final GlobalKey _editorStackKey = GlobalKey();
+
   Offset _cursorScreenOffset = Offset.zero;
   List<CompletionItem> _completionItems = [];
   int _selectedCompletionIndex = 0;
@@ -159,6 +168,32 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
   bool _isTyping = false;
   int _completionRequestId = 0;
   String? _programmaticText;
+
+  /// Debounce for *resolving* the highlighted completion item. Deliberately
+  /// short: the resolved docs and `additionalTextEdits` must be cached before
+  /// the user accepts. Showing the panel waits for [kCompletionDocPanelDelay].
+  static const Duration _docDebounceDelay = Duration(milliseconds: 150);
+  Timer? _docDebounce;
+
+  /// Waits for the idle period before the documentation panel is shown.
+  Timer? _docPanelTimer;
+
+  /// Documentation shown beside the completion list (plain text, already
+  /// truncated by `formatCompletionDocumentation`).
+  String? _completionDoc;
+
+  /// Guards against a slow `completionItem/resolve` for an older selection
+  /// overwriting the documentation of the current one.
+  int _docRequestId = 0;
+
+  /// Resolved items for the current popup (documentation + additional edits).
+  final Map<CompletionItem, ResolvedCompletionItem> _resolvedItems = {};
+  final Map<CompletionItem, Future<ResolvedCompletionItem?>> _resolveRequests =
+      {};
+
+  /// True while an accept is waiting for `completionItem/resolve`, so a second
+  /// Enter/Tab cannot insert the item twice.
+  bool _acceptingCompletion = false;
 
   /// Last buffer contents seen by [_onTextChanged], so a selection-only change
   /// (a mouse click) never opens the completion popup.
@@ -186,6 +221,18 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
   bool get _showHover => _hoverInfo != null;
   String get _filePath =>
       widget.fileService.currentFilePath ?? widget.fileService.fileName;
+
+  /// Path the connected language server actually has the document open under.
+  ///
+  /// An Untitled buffer is registered with the server under its virtual temp
+  /// path (`.../untitled.dart`), never under the tab's display name. Sending a
+  /// position-based request for `Untitled` makes the server answer for a
+  /// document it does not have: no completion items, nothing to resolve, and
+  /// therefore no documentation panel.
+  String get _lspDocumentPath {
+    if (!widget.lspService.isConnected) return _filePath;
+    return widget.lspService.activeDocumentPath ?? _filePath;
+  }
   int? _lastActiveTabIndex;
 
   @override
@@ -240,6 +287,8 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
     _completionDebounce?.cancel();
     _hoverDebounce?.cancel();
     _typingTimer?.cancel();
+    _docDebounce?.cancel();
+    _docPanelTimer?.cancel();
     _controller.removeListener(_onTextChanged);
     _controller.removeListener(_onCaretMoved);
     widget.fileService.removeListener(_onFileServiceChanged);
@@ -313,6 +362,27 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
         });
       }
     });
+
+    // Check whether the last change was a trigger character that requires an
+    // immediate completion request (no debounce).  Use the same logic as
+    // CompletionFilter.decide() so the behavior matches.
+    final lspConnected = widget.lspService.isConnected;
+    final decision = CompletionFilter.decide(
+      text: _controller.text,
+      offset: _controller.text.length,
+      lspConnected: lspConnected,
+      triggerCharacters: lspConnected
+          ? widget.lspService.triggerCharacters
+          : const <String>{},
+    );
+
+    if (decision.immediate) {
+      // Request immediately and set state without the 150ms debounce.
+      _completionDebounce?.cancel();
+      _completionDebounce = null;
+      _requestCompletion();
+      return;
+    }
 
     _completionDebounce?.cancel();
     _completionDebounce = Timer(const Duration(milliseconds: 150), () {
@@ -629,6 +699,58 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
     }
   }
 
+  /// Size of the editor area the popups must stay inside.
+  Size _editorBounds() {
+    final box =
+        _editorStackKey.currentContext?.findRenderObject() as RenderBox?;
+    if (box != null && box.hasSize) return box.size;
+    final media = MediaQuery.maybeOf(context);
+    return media?.size ?? const Size(800, 600);
+  }
+
+  /// The caret rectangle in the editor Stack's coordinates.
+  ///
+  /// Uses the renderer's own caret rect (the same source as the current-line
+  /// band) and converts it from global to Stack-local space, which is what a
+  /// `Positioned` child expects.
+  Rect _caretAnchorRect() {
+    final stackBox =
+        _editorStackKey.currentContext?.findRenderObject() as RenderBox?;
+    final editable = _renderEditable();
+    if (stackBox != null &&
+        editable != null &&
+        editable.hasSize &&
+        !editable.debugNeedsLayout) {
+      final selection = _controller.selection;
+      final offset = selection.isValid ? selection.start : 0;
+      final clamped = offset.clamp(0, _controller.text.length);
+      final local = editable.getLocalRectForCaret(
+        TextPosition(offset: clamped),
+      );
+      final global = editable.localToGlobal(local.topLeft);
+      final localInStack = stackBox.globalToLocal(global);
+      final height = local.height > 0 ? local.height : _metrics.lineHeight;
+      return Rect.fromLTWH(
+        localInStack.dx,
+        localInStack.dy,
+        local.width > 0 ? local.width : 1,
+        height,
+      );
+    }
+
+    // Before the first layout: fall back to the estimated caret position.
+    final global = _computeCursorScreenPosition();
+    final localInStack = stackBox == null
+        ? global
+        : stackBox.globalToLocal(global);
+    return Rect.fromLTWH(
+      localInStack.dx,
+      localInStack.dy,
+      1,
+      _metrics.lineHeight,
+    );
+  }
+
   void _requestCompletion() async {
     // Only suggest while the user is actually typing. Opening a file (or the
     // first mouse move over the editor) must not pop the list on its own.
@@ -647,48 +769,79 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
         ? selection.start
         : _controller.text.length;
 
-    final currentWord = CompletionFilter.currentWord(_controller.text, offset);
-    final prevChar = CompletionFilter.previousChar(_controller.text, offset);
+    final lspConnected = widget.lspService.isConnected;
+    final decision = CompletionFilter.decide(
+      text: _controller.text,
+      offset: offset,
+      lspConnected: lspConnected,
+      triggerCharacters: lspConnected
+          ? widget.lspService.triggerCharacters
+          : const <String>{},
+    );
 
-    if (!CompletionFilter.isTriggering(currentWord, previousChar: prevChar)) {
+    if (!decision.shouldRequest) {
       _dismissCompletion();
       return;
     }
 
+    // A trigger character (e.g. `.`) must open the list immediately, without
+    // waiting for the typing debounce — the caller already skipped the
+    // debounce for this case.
     final requestId = ++_completionRequestId;
     final (line, column) = _offsetToLineColumn(_controller.text, offset);
 
     List<CompletionItem> items = [];
-    if (widget.lspService.isConnected) {
+    if (lspConnected) {
       items = await widget.lspService.requestCompletion(
-        filePath,
+        _lspDocumentPath,
         line + 1,
         column + 1,
+        triggerKind: decision.triggerKind,
+        triggerCharacter: decision.triggerCharacter,
+      );
+    }
+    // Fall back to the offline keyword/token list when no server is attached
+    // or the server returned nothing.
+    if (items.isEmpty) {
+      items = CompletionFilter.generateFallbackCompletions(
+        _controller.text,
+        CompletionFilter.currentWord(_controller.text, offset),
+        language,
       );
     }
 
     if (!mounted || requestId != _completionRequestId) return;
 
-    List<CompletionItem> filtered = CompletionFilter.filter(items, currentWord);
-
-    if (filtered.isEmpty && items.isEmpty) {
-      filtered = CompletionFilter.generateFallbackCompletions(
-        _controller.text,
-        currentWord,
-        language,
-      );
-    }
+    final currentWord = CompletionFilter.currentWord(_controller.text, offset);
+    // Built-in Dart snippets are offered by both the LSP and the offline path,
+    // but never after member access (`.`).
+    items = mergeSnippets(
+      items,
+      snippetCompletions(
+        prefix: currentWord,
+        language: language,
+        previousChar: CompletionFilter.previousChar(_controller.text, offset),
+      ),
+    );
+    final List<CompletionItem> filtered = CompletionFilter.filter(
+      items,
+      currentWord,
+    );
 
     if (filtered.isEmpty) {
       _dismissCompletion();
       return;
     }
 
+    _hideCompletionDoc();
+    _resolvedItems.clear();
+    _resolveRequests.clear();
     setState(() {
       _completionItems = filtered;
       _selectedCompletionIndex = 0;
       _cursorScreenOffset = _computeCursorScreenPosition();
     });
+    _scheduleCompletionDoc();
   }
 
   String _currentWordAtCursor() => CompletionFilter.currentWord(
@@ -714,9 +867,122 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
       final newIndex = _selectedCompletionIndex + delta;
       _selectedCompletionIndex = newIndex.clamp(0, _completionItems.length - 1);
     });
+    _scheduleCompletionDoc();
   }
 
-  void _acceptSelected() {
+  /// Resolves [item] once per popup and caches the answer.
+  ///
+  /// Resolving is what brings the automatic import (`additionalTextEdits`) and
+  /// the full dartdoc in; when the server does not advertise
+  /// `resolveProvider` this returns `null` immediately.
+  Future<ResolvedCompletionItem?> _resolveFor(CompletionItem item) {
+    final cached = _resolvedItems[item];
+    if (cached != null) return Future<ResolvedCompletionItem?>.value(cached);
+    final inFlight = _resolveRequests[item];
+    if (inFlight != null) return inFlight;
+
+    final future = widget.lspService
+        .resolveCompletionItem(item, filePath: _lspDocumentPath)
+        .then((value) {
+          if (value != null) _resolvedItems[item] = value;
+          return value;
+        })
+        .whenComplete(() {
+          _resolveRequests.remove(item);
+        });
+    _resolveRequests[item] = future;
+    return future;
+  }
+
+  /// Restarts the documentation pipeline for the selected row.
+  ///
+  /// Two independent clocks:
+  /// * [_docDebounceDelay] (150 ms) resolves the item, so the docs and the
+  ///   automatic import are cached well before an accept;
+  /// * [kCompletionDocPanelDelay] (2 s) shows the panel, but only if the
+  ///   selection is still on the same item and nothing has been pressed.
+  ///
+  /// Any selection change or key press calls [_hideCompletionDoc] and starts
+  /// again from zero.
+  void _scheduleCompletionDoc() {
+    _hideCompletionDoc();
+    if (!mounted || _completionItems.isEmpty) return;
+
+    final item = _completionItems[_selectedCompletionIndex];
+    final requestId = ++_docRequestId;
+
+    _docDebounce = Timer(_docDebounceDelay, () {
+      unawaited(
+        _resolveFor(item).then((resolved) {
+          _debugLogDoc(item, resolved);
+        }),
+      );
+    });
+
+    _docPanelTimer = Timer(kCompletionDocPanelDelay, () async {
+      final resolved = await _resolveFor(item);
+      if (!mounted || requestId != _docRequestId) return;
+      if (_completionItems.isEmpty ||
+          _completionItems[_selectedCompletionIndex] != item) {
+        return;
+      }
+      _setCompletionDoc(_documentationFor(item, resolved));
+    });
+  }
+
+  /// Hides the panel immediately and invalidates any pending resolve/display.
+  ///
+  /// The per-popup resolve cache is kept: resolving early is what makes accept
+  /// fast, and moving the selection away and back must not need a new request.
+  void _hideCompletionDoc() {
+    _docDebounce?.cancel();
+    _docDebounce = null;
+    _docPanelTimer?.cancel();
+    _docPanelTimer = null;
+    _docRequestId++;
+    if (_completionDoc != null && mounted) {
+      setState(() => _completionDoc = null);
+    }
+  }
+
+  /// One line per resolved item, so a missing panel can be traced to the server
+  /// answer instead of guessed at.
+  void _debugLogDoc(CompletionItem item, ResolvedCompletionItem? resolved) {
+    final doc = resolved?.documentation;
+    debugPrint(
+      '[completion-doc] "${item.displayLabel}" resolved=${resolved != null} '
+      'documentation=${doc == null ? 'none' : '${doc.length} chars'} '
+      'detail=${resolved?.detail == null ? 'none' : 'present'}',
+    );
+  }
+
+  /// Plain-text documentation: the resolved docs first, then the server's
+  /// `detail` (some items only carry their text there), then whatever came
+  /// with the list itself.
+  String? _documentationFor(
+    CompletionItem item,
+    ResolvedCompletionItem? resolved,
+  ) {
+    final candidates = <String?>[
+      resolved?.documentation,
+      resolved?.detail,
+      item.documentation,
+    ];
+    for (final raw in candidates) {
+      if (raw != null && raw.trim().isNotEmpty) {
+        return formatCompletionDocumentation(raw);
+      }
+    }
+    return null;
+  }
+
+  void _setCompletionDoc(String? doc) {
+    if (_completionDoc == doc) return;
+    setState(() => _completionDoc = doc);
+  }
+
+  Future<void> _acceptSelected() async {
+    if (_acceptingCompletion) return;
     if (_completionItems.isEmpty) return;
 
     final item = _completionItems[_selectedCompletionIndex];
@@ -742,19 +1008,218 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
       }
     }
 
-    final newText = text.replaceRange(wordStart, offset, insertText);
-    final newOffset = wordStart + insertText.length;
+    _acceptingCompletion = true;
+    try {
+      // The automatic import (if any) only arrives from resolve.
+      final resolved = await _resolveFor(item);
+      if (!mounted) return;
 
-    _programmaticText = newText;
-    _controller.text = newText;
-    _controller.selection = TextSelection.collapsed(offset: newOffset);
+      // The document moved on while we waited: do not apply a stale edit.
+      final currentSelection = _controller.selection;
+      if (_controller.text != text ||
+          !currentSelection.isValid ||
+          !currentSelection.isCollapsed ||
+          currentSelection.start != offset) {
+        return;
+      }
 
-    _dismissCompletion();
+      // 3./4. Snippet expansion and the parentheses rule live in one pure
+      // helper so both are table-testable.
+      final insertion = buildCompletionInsertion(
+        insertText: insertText,
+        kindInt: item.kindInt,
+        kind: item.kind,
+        insertTextFormat: item.insertTextFormat,
+        indent: _currentLineIndent(),
+        nextCharIsParen: offset < text.length && text[offset] == '(',
+      );
+
+      // 5. Main insertion plus every server edit (the auto-import lands above
+      // the caret, so the caret is shifted past it).
+      final edits = <CompletionEdit>[
+        CompletionEdit(
+          start: wordStart,
+          end: offset,
+          newText: insertion.text,
+        ),
+      ];
+      final additional = _usableAdditionalEdits(item, resolved);
+      for (final edit in additional) {
+        edits.add(
+          CompletionEdit(
+            start: offsetFromLineCharacter(
+              text,
+              line: edit.startLine,
+              character: edit.startCharacter,
+            ),
+            end: offsetFromLineCharacter(
+              text,
+              line: edit.endLine,
+              character: edit.endCharacter,
+            ),
+            newText: edit.newText,
+          ),
+        );
+      }
+
+      final (newText, newOffset) = applyCompletionEdits(
+        text: text,
+        edits: edits,
+        primaryIndex: 0,
+        caretOffsetInPrimary: insertion.caretOffset,
+      );
+
+      _programmaticText = newText;
+      _controller.text = newText;
+      _controller.selection = TextSelection.collapsed(offset: newOffset);
+
+      // Record accepted completion for MRU ranking.
+      CompletionFilter.recordCompletion(item.displayLabel);
+    } finally {
+      _acceptingCompletion = false;
+      if (mounted) _dismissCompletion();
+    }
+  }
+
+  /// The additional (auto-import) edits that are still safe to apply.
+  ///
+  /// The server computed them for the document version it resolved against.
+  /// If the buffer has moved on since, the ranges describe text that no longer
+  /// exists, so the import is skipped instead of corrupting the buffer.
+  List<CompletionTextEdit> _usableAdditionalEdits(
+    CompletionItem item,
+    ResolvedCompletionItem? resolved,
+  ) {
+    final edits = (resolved != null && resolved.additionalTextEdits.isNotEmpty)
+        ? resolved.additionalTextEdits
+        : item.additionalTextEdits;
+    if (edits.isEmpty) return const [];
+
+    final resolvedVersion = resolved?.documentVersion;
+    if (resolvedVersion == null) return edits;
+
+    final currentVersion = widget.lspService.documentVersion(
+      _lspDocumentPath,
+    );
+    if (currentVersion != null && currentVersion != resolvedVersion) {
+      return const [];
+    }
+    return edits;
+  }
+
+  /// Returns the indentation (leading whitespace) of the line containing the caret.
+  String _currentLineIndent() {
+    final text = _controller.text;
+    final offset = _controller.selection.start;
+    int lineStart = text.lastIndexOf('\n', offset - 1);
+    lineStart = (lineStart == -1) ? 0 : lineStart + 1;
+    final line = text.substring(lineStart, offset);
+    final match = RegExp(r'^[ \t]*').firstMatch(line);
+    return match?.group(0) ?? '';
+  }
+
+  /// Public entry for the Edit > "Trigger Completion" command and for
+  /// the Ctrl+Shift+Space / Ctrl+Space shortcuts.  Ignores the minimum-prefix /
+  /// debounce rules, uses `triggerKind = 1` (Invoked) and keeps the existing
+  /// stale-response / out-of-focus dismissal.
+  void triggerCompletion() {
+    setState(() => _isTyping = true);
+    _completionDebounce?.cancel();
+    // Force an immediate request with an empty/any prefix.
+    _requestCompletionWithTrigger(triggerKind: 1);
+  }
+
+  /// The menu/shortcut entry point: a menu takes the focus away from the text
+  /// field, so the focus is restored first (after the menu has closed) and the
+  /// popup then opens at the caret the editor had before it was unfocused.
+  void triggerCompletionFromCommand() {
+    _focusNode.requestFocus();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _focusNode.requestFocus();
+      triggerCompletion();
+    });
+    // A post-frame callback only runs when a frame is produced; an idle
+    // editor has nothing else to schedule one.
+    WidgetsBinding.instance.scheduleFrame();
+  }
+
+  /// Same code path as automatic triggering but with caller-specified
+  /// trigger kind (used by the manual command above).
+  void _requestCompletionWithTrigger({required int triggerKind}) async {
+    if (!_isTyping) {
+      _dismissCompletion();
+      return;
+    }
+    final filePath = _filePath;
+    final config = LanguageConfig.fromPathOrContent(filePath, _controller.text);
+    final language = config.highlightLanguage;
+    final selection = _controller.selection;
+    final offset = (selection.isValid && selection.isCollapsed && selection.start >= 0)
+        ? selection.start
+        : _controller.text.length;
+    final requestId = ++_completionRequestId;
+    final (line, column) = _offsetToLineColumn(_controller.text, offset);
+
+    List<CompletionItem> items = [];
+    final lspConnected = widget.lspService.isConnected;
+    if (lspConnected) {
+      items = await widget.lspService.requestCompletion(
+        _lspDocumentPath, line + 1, column + 1,
+        triggerKind: triggerKind,
+      );
+      // A connected server that has nothing to offer means "nothing": the
+      // manual command must not fill the list with offline keywords the server
+      // deliberately did not suggest.
+      if (items.isEmpty) {
+        if (mounted && requestId == _completionRequestId) {
+          _dismissCompletion();
+        }
+        return;
+      }
+    }
+    if (items.isEmpty) {
+      items = CompletionFilter.generateFallbackCompletions(
+        _controller.text,
+        CompletionFilter.currentWord(_controller.text, offset),
+        language,
+      );
+    }
+    if (!mounted || requestId != _completionRequestId) return;
+    final currentWord = CompletionFilter.currentWord(_controller.text, offset);
+    items = mergeSnippets(
+      items,
+      snippetCompletions(
+        prefix: currentWord,
+        language: language,
+        previousChar: CompletionFilter.previousChar(_controller.text, offset),
+      ),
+    );
+    final List<CompletionItem> filtered = CompletionFilter.filter(
+      items,
+      currentWord,
+    );
+    if (filtered.isEmpty) {
+      _dismissCompletion();
+      return;
+    }
+    _hideCompletionDoc();
+    _resolvedItems.clear();
+    _resolveRequests.clear();
+    setState(() {
+      _completionItems = filtered;
+      _selectedCompletionIndex = 0;
+      _cursorScreenOffset = _computeCursorScreenPosition();
+    });
+    _scheduleCompletionDoc();
   }
 
   void _dismissCompletion() {
     _completionRequestId++;
     _completionDebounce?.cancel();
+    _hideCompletionDoc();
+    _resolvedItems.clear();
+    _resolveRequests.clear();
     if (_completionItems.isEmpty && _selectedCompletionIndex == 0) return;
     setState(() {
       _completionItems = [];
@@ -857,6 +1322,155 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
     _dismissHover();
   }
 
+  /// Tab / Shift+Tab inside the editor.
+  ///
+  /// Tab never leaves the editor: it inserts two spaces at the caret, indents
+  /// every line of a multi-line selection, or — with Shift — outdents by up to
+  /// two spaces. The popup case is handled by the caller (it accepts the
+  /// selected item instead).
+  void _handleTabPressed({required bool shift}) {
+    final text = _controller.text;
+    final selection = _controller.selection;
+    if (!selection.isValid) return;
+
+    var start = selection.start;
+    var end = selection.end;
+    if (start > end) {
+      final swap = start;
+      start = end;
+      end = swap;
+    }
+
+    final firstLineStart = _lineStartOffset(start);
+    var lastLineStart = _lineStartOffset(end);
+    // A selection that ends exactly at the start of a line does not include
+    // that line.
+    if (end > start && lastLineStart == end) {
+      lastLineStart = _lineStartOffset(end - 1);
+    }
+
+    if (firstLineStart == lastLineStart) {
+      if (shift) {
+        _outdentLines(text, selection, <int>[firstLineStart]);
+      } else if (selection.isCollapsed) {
+        _replaceRange(start, end, '  ', caret: start + 2);
+        _dismissHover();
+      } else {
+        // A selection inside one line is replaced by the indentation, like a
+        // plain Tab in a text field.
+        _replaceRange(start, end, '  ', caret: start + 2);
+        _dismissHover();
+      }
+      return;
+    }
+
+    final lineStarts = <int>[];
+    var lineStart = firstLineStart;
+    while (lineStart <= lastLineStart) {
+      lineStarts.add(lineStart);
+      final newline = text.indexOf('\n', lineStart);
+      if (newline == -1) break;
+      lineStart = newline + 1;
+    }
+
+    if (shift) {
+      _outdentLines(text, selection, lineStarts);
+    } else {
+      _indentLines(text, selection, lineStarts);
+    }
+    _dismissHover();
+  }
+
+  /// Adds two spaces at every start in [lineStarts] and keeps the selection
+  /// covering the same characters (shifted right by the inserted spaces).
+  void _indentLines(
+    String text,
+    TextSelection selection,
+    List<int> lineStarts,
+  ) {
+    var newText = text;
+    for (final start in lineStarts.reversed) {
+      newText = newText.replaceRange(start, start, '  ');
+    }
+
+    var deltaStart = 0;
+    var deltaEnd = 0;
+    for (final start in lineStarts) {
+      if (start <= selection.start) deltaStart += 2;
+      if (start <= selection.end) deltaEnd += 2;
+    }
+
+    _programmaticText = newText;
+    _controller.text = newText;
+    _controller.selection = TextSelection(
+      baseOffset: (selection.start + deltaStart).clamp(0, newText.length),
+      extentOffset: (selection.end + deltaEnd).clamp(0, newText.length),
+    );
+  }
+
+  /// Removes up to two leading spaces (or one tab) from every start in
+  /// [lineStarts], adjusting the selection for the removed characters.
+  void _outdentLines(
+    String text,
+    TextSelection selection,
+    List<int> lineStarts,
+  ) {
+    final removals = <int, int>{}; // lineStart -> characters removed
+    for (final start in lineStarts) {
+      if (start >= text.length) {
+        removals[start] = 0;
+      } else if (text.startsWith('\t', start)) {
+        removals[start] = 1;
+      } else if (text.startsWith('  ', start)) {
+        removals[start] = 2;
+      } else if (text.startsWith(' ', start)) {
+        removals[start] = 1;
+      } else {
+        removals[start] = 0;
+      }
+    }
+
+    var newText = text;
+    for (final start in lineStarts.reversed) {
+      final remove = removals[start]!;
+      if (remove > 0) {
+        newText = newText.replaceRange(start, start + remove, '');
+      }
+    }
+
+    var deltaStart = 0;
+    var deltaEnd = 0;
+    for (final start in lineStarts) {
+      final remove = removals[start]!;
+      if (remove == 0) continue;
+      // Deltas are cumulative, so apply from the first line onwards.
+      if (start <= selection.start) deltaStart += remove;
+      if (start <= selection.end) deltaEnd += remove;
+    }
+
+    _programmaticText = newText;
+    _controller.text = newText;
+    _controller.selection = TextSelection(
+      baseOffset: (selection.start - deltaStart).clamp(0, newText.length),
+      extentOffset: (selection.end - deltaEnd).clamp(0, newText.length),
+    );
+  }
+
+  /// Replaces `[start, end)` with [replacement] and puts the caret at [caret].
+  void _replaceRange(
+    int start,
+    int end,
+    String replacement, {
+    required int caret,
+  }) {
+    final text = _controller.text;
+    final newText = text.replaceRange(start, end, replacement);
+    final newCaret = caret.clamp(0, newText.length);
+    _programmaticText = newText;
+    _controller.text = newText;
+    _controller.selection = TextSelection.collapsed(offset: newCaret);
+  }
+
   bool _tryHandleClosingBracket(String bracket) {
     final selection = _controller.selection;
     if (!selection.isValid || !selection.isCollapsed) return false;
@@ -888,6 +1502,9 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
 
   KeyEventResult _handleKeyEvent(KeyEvent event) {
     if (event is KeyDownEvent) {
+      // Any key press resets the documentation idle clock (and hides the panel
+      // at once); navigation keys re-arm it through _scheduleCompletionDoc.
+      _hideCompletionDoc();
       if (event.logicalKey == LogicalKeyboardKey.arrowDown &&
           _showAutocomplete) {
         _moveSelection(1);
@@ -902,6 +1519,17 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
         } else {
           _handleEnterPressed();
         }
+        return KeyEventResult.handled;
+      } else if (event.logicalKey == LogicalKeyboardKey.tab) {
+        if (_showAutocomplete) {
+          _acceptSelected();
+        } else {
+          _handleTabPressed(
+            shift: HardwareKeyboard.instance.isShiftPressed,
+          );
+        }
+        // Tab always belongs to the editor: returning `ignored` here let
+        // Flutter's default focus traversal move the caret out of the field.
         return KeyEventResult.handled;
       } else if (event.logicalKey == LogicalKeyboardKey.escape &&
           _showAutocomplete) {
@@ -1238,6 +1866,7 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
         ),
       ),
       child: Stack(
+        key: _editorStackKey,
         children: [
           Container(
             color: ThemeService.instance.colors.editorBackground,
@@ -1642,10 +2271,12 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
           if (_showAutocomplete)
             AutocompletePopup(
               items: _completionItems,
-              position: _cursorScreenOffset,
+              anchor: _caretAnchorRect(),
+              bounds: _editorBounds(),
               selectedIndex: _selectedCompletionIndex,
               maxWidth: 300,
               currentWord: _currentWordAtCursor(),
+              documentation: _completionDoc,
               onSelect: (index) {
                 if (index == _selectedCompletionIndex) {
                   _acceptSelected();
@@ -1653,6 +2284,7 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
                   setState(() {
                     _selectedCompletionIndex = index;
                   });
+                  _scheduleCompletionDoc();
                 }
               },
               onDismiss: _dismissCompletion,

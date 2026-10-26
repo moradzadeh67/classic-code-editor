@@ -1,4 +1,5 @@
 import 'package:classic_code_editor/models/lsp_models.dart';
+import 'package:classic_code_editor/services/lsp_service.dart';
 import 'package:classic_code_editor/utils/completion_filter.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -20,6 +21,162 @@ void main() {
       expect(CompletionFilter.previousChar('ptr->field', 10), equals('>'));
       expect(CompletionFilter.previousChar('std::string', 11), equals(':'));
       expect(CompletionFilter.previousChar('print', 5), isNull);
+    });
+
+    test('decide() — LSP on: trigger character opens immediately', () {
+      // typing `Strin` then `.`: previous char is '.', triggerKind 2.
+      final decision = CompletionFilter.decide(
+        text: 'Strin.',
+        offset: 6,
+        lspConnected: true,
+        triggerCharacters: const ['.', ','],
+      );
+      expect(decision.shouldRequest, isTrue);
+      expect(decision.immediate, isTrue);
+      expect(decision.triggerKind, equals(2));
+      expect(decision.triggerCharacter, equals('.'));
+    });
+
+    test('decide() — LSP on: one identifier letter opens on the debounce', () {
+      final decision = CompletionFilter.decide(
+        text: 'a',
+        offset: 1,
+        lspConnected: true,
+        triggerCharacters: const ['.'],
+      );
+      expect(decision.shouldRequest, isTrue);
+      expect(decision.immediate, isFalse);
+      expect(decision.triggerKind, equals(1));
+    });
+
+    test('decide() — LSP on: whitespace does not open the popup', () {
+      // Caret right after the space (offset 4 in 'foo bar'), word is empty,
+      // previous char is space → should not trigger.
+      final decision = CompletionFilter.decide(
+        text: 'foo bar',
+        offset: 4,
+        lspConnected: true,
+        triggerCharacters: const ['.'],
+      );
+      expect(decision.shouldRequest, isFalse);
+    });
+
+    test('decide() — LSP on: closing bracket does not open the popup', () {
+      for (final bracket in ['}', ')', ']']) {
+        final decision = CompletionFilter.decide(
+          text: 'foo$bracket',
+          offset: 4,
+          lspConnected: true,
+          triggerCharacters: const ['.'],
+        );
+        expect(decision.shouldRequest, isFalse, reason: 'bracket $bracket');
+      }
+    });
+
+    test('decide() — LSP off: single letter does NOT open (offline min 3)', () {
+      final decision = CompletionFilter.decide(
+        text: 'a',
+        offset: 1,
+        lspConnected: false,
+        triggerCharacters: const ['.'],
+      );
+      expect(decision.shouldRequest, isFalse);
+    });
+
+    test('decide() — LSP off: two letters do NOT open', () {
+      final decision = CompletionFilter.decide(
+        text: 'ab',
+        offset: 2,
+        lspConnected: false,
+        triggerCharacters: const ['.'],
+      );
+      expect(decision.shouldRequest, isFalse);
+    });
+
+    test('decide() — LSP off: three letters open on the debounce', () {
+      final decision = CompletionFilter.decide(
+        text: 'abc',
+        offset: 3,
+        lspConnected: false,
+        triggerCharacters: const ['.'],
+      );
+      expect(decision.shouldRequest, isTrue);
+      expect(decision.immediate, isFalse);
+    });
+
+    test('decide() — LSP off: trigger character does NOT open (offline fallback list)', () {
+      final decision = CompletionFilter.decide(
+        text: 'foo.',
+        offset: 4,
+        lspConnected: false,
+        triggerCharacters: const ['.'],
+      );
+      expect(decision.shouldRequest, isFalse);
+    });
+
+    test('decide() — server-announced trigger characters are honoured', () {
+      // clangd advertises `.,:>`; typing `>` must fire immediately.
+      final decision = CompletionFilter.decide(
+        text: 'ptr>',
+        offset: 4,
+        lspConnected: true,
+        triggerCharacters: const ['.', ':', '>'],
+      );
+      expect(decision.shouldRequest, isTrue);
+      expect(decision.immediate, isTrue);
+      expect(decision.triggerCharacter, equals('>'));
+    });
+
+    test('parseTriggerCharacters defaults to ["."]', () {
+      expect(LspService.parseTriggerCharacters(null), const ['.']);
+      expect(LspService.parseTriggerCharacters(<String, dynamic>{}), const ['.']);
+      expect(
+        LspService.parseTriggerCharacters(<String, dynamic>{
+          'capabilities': <String, dynamic>{},
+        }),
+        const ['.'],
+      );
+      expect(
+        LspService.parseTriggerCharacters(<String, dynamic>{
+          'capabilities': <String, dynamic>{
+            'completionProvider': <String, dynamic>{},
+          },
+        }),
+        const ['.'],
+      );
+    });
+
+    test('parseTriggerCharacters reads the server-announced list', () {
+      final result = LspService.parseTriggerCharacters(<String, dynamic>{
+        'capabilities': <String, dynamic>{
+          'completionProvider': <String, dynamic>{
+            'triggerCharacters': ['.', ',', ':', '>'],
+          },
+        },
+      });
+      expect(result, const ['.', ',', ':', '>']);
+    });
+
+    test('parseTriggerCharacters ignores non-string entries', () {
+      final result = LspService.parseTriggerCharacters(<String, dynamic>{
+        'capabilities': <String, dynamic>{
+          'completionProvider': <String, dynamic>{
+            'triggerCharacters': ['.', 42, null, ':'],
+          },
+        },
+      });
+      expect(result, const ['.', ':']);
+    });
+
+    test('parseTriggerCharacters falls back when the list is empty', () {
+      final result = LspService.parseTriggerCharacters(<String, dynamic>{
+        'capabilities': <String, dynamic>{
+          'completionProvider': <String, dynamic>{
+            'triggerCharacters': <dynamic>[],
+          },
+        },
+      });
+      expect(result, const ['.']);
     });
 
     test('filter ranks and narrows items accurately', () {
@@ -73,6 +230,44 @@ void main() {
 
       final labels = completions.map((c) => c.label).toList();
       expect(labels, contains('score'));
+    });
+
+    test('ranking: exact case-sensitive first, then case-insensitive', () {
+      final items = [
+        CompletionItem(label: 'alpha', kind: 'method'),
+        CompletionItem(label: 'Alpha', kind: 'method'),
+        CompletionItem(label: 'alphabet', kind: 'function'),
+      ];
+      final sorted = CompletionFilter.filter(items, 'Alpha');
+      expect(sorted.map((i) => i.label), equals(['Alpha', 'alpha', 'alphabet']));
+    });
+
+    test('MRU: accepted item moves up within same tier', () {
+      final items = [
+        CompletionItem(label: 'alpha', kind: 'variable'),
+        CompletionItem(label: 'alpha_beta', kind: 'variable'),
+      ];
+      // First call: alphabetical.
+      final first = CompletionFilter.filter(items, 'alp');
+      expect(first.map((i) => i.label), equals(['alpha', 'alpha_beta']));
+
+      // Record 'alpha_beta' as accepted.
+      CompletionFilter.recordCompletion('alpha_beta');
+
+      // Second call: 'alpha_beta' should now come first (same tier, higher MRU).
+      final second = CompletionFilter.filter(items, 'alp');
+      expect(second.map((i) => i.label), equals(['alpha_beta', 'alpha']));
+    });
+
+    test('MRU cap: oldest entry dropped after 200', () {
+      // Fill with 201 distinct labels that all match the same prefix.
+      final labels = List.generate(201, (i) => 'item$i');
+      for (final label in labels) {
+        CompletionFilter.recordCompletion(label);
+      }
+      // First label should have been dropped.
+      expect(CompletionFilter.mruValueFor('item0'), equals(0));
+      expect(CompletionFilter.mruValueFor('item1'), greaterThan(0));
     });
   });
 }

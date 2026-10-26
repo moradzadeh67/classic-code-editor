@@ -66,6 +66,17 @@ void main() {
       expect(LspServerSpec.pylsp.usesCompileFlags, isFalse);
     });
 
+    test('only Dart asks for suggestions from unimported libraries', () {
+      expect(
+        LspServerSpec.dart
+            .initializationOptions['suggestFromUnimportedLibraries'],
+        isTrue,
+      );
+      expect(LspServerSpec.clangd.initializationOptions, isEmpty);
+      expect(LspServerSpec.pyright.initializationOptions, isEmpty);
+      expect(LspServerSpec.pylsp.initializationOptions, isEmpty);
+    });
+
     test('every real server ships a usable install hint', () {
       for (final spec in <LspServerSpec>[
         LspServerSpec.dart,
