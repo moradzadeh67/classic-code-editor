@@ -6,7 +6,8 @@
 - Style: Retro 1990s (Borland C++, Visual C++ 6, Windows 95/98)
 - Language: Dart
 - Framework: Flutter
-- Themes (3): VC++ 6.0 (gray), Borland Delphi (beige), Visual Basic 6.0
+- Themes (4): VC++ 6.0 (gray), Borland Delphi (beige), Visual Basic 6.0,
+  Turbo Pascal 7.0 (DOS navy)
 - UI metrics are tuned to authentic Windows 9x / Delphi 6 (96-DPI) values.
 
 ## Critical Rules
@@ -153,19 +154,44 @@
 - `MultiLanguageHighlighter` owns the only color logic: `_categoryByClass`
   (token class → palette category) plus one color map per `SyntaxScheme`
   (`standard` = the classic palette, must stay byte-identical; `colorful` = the
-  11-color palette). A new language or token class is added to the map only —
+  twelve-color palette). A new language or token class is added to the map only —
   never with its own colors, and never per theme (all four themes share it)
 - A grammar patch must **never** put a `contains` rule that can match the
   enclosing mode's `end` character: `contains` wins over `end`, so the mode
   would never close (a `)` rule inside a C++ `params` mode swallowed the rest of
-  the file). Use the per-context rule sets (`bracketsNoBraces`,
-  `operatorsNoColon`, `operatorsNoSemiEq`)
+  the file). Use the per-context rule sets (`operatorsNoColon`,
+  `operatorsNoSemiEq`)
 - A paren-owning mode (`params`, or any `begin: "\("` / `end: "\)"`) can never
   render its own parentheses in the bracket color. Remove that child mode, keep
-  its literal/comment rules, and let the shared bracket rule do the work
+  its literal/comment rules, and let the shared paren rule do the work
+- Parentheses, curly braces and square brackets are **three** categories
+  (`punctuation`, `curlyBrace`, `squareBracket`). The patched single-character
+  rules emit the brace/bracket class names directly, and Standard maps all three
+  onto the same `#031CFC` so the classic palette stays byte-identical. Never
+  collapse them back into one rule or Colorful loses its accent colors
 - Verify a grammar change on a **whole small file** (function bodies included),
   not on a snippet: a mode that fails to close only shows up when the next lines
   lose their colors
+
+### Rule 14: Completion is two clocks, and the server must be able to add imports
+- The item is resolved fast (150 ms debounce) so documentation **and**
+  `additionalTextEdits` (the auto-import) are cached before the user accepts;
+  accepting must never wait for the network. Only the **display** of the doc
+  panel waits `kCompletionDocPanelDelay` (2 s) with the selection unchanged and
+  no key press — any selection change, key press or popup close hides it at once
+  through `_hideCompletionDoc()`
+- `workspace.applyEdit` must stay advertised even though the client never applies
+  an edit: the Dart server only offers completions from libraries that are not
+  imported yet when it can ask for the import. Declining is a spec-shaped
+  `ApplyWorkspaceEditResult` (`{"applied": false, "failureReason": ...}`), never
+  `null`
+- Position-based requests (completion, `completionItem/resolve`, hover) use the
+  document path the **server** has open (`LspService.activeDocumentPath`), not a
+  tab's display name. An Untitled tab is `untitled.<ext>` in a temp workspace;
+  asking for `Untitled` returns zero items and the panel silently disappears
+- Documentation is rendered from `documentation`, then the resolved `detail`,
+  then the item's own documentation — never from the offline fallback list, which
+  carries no `raw` item to resolve (the synthesized keyword list is not resolved)
 
 ## File Structure (MUST follow)
 
@@ -200,6 +226,7 @@ lib/
 │   │   ├── editor_metrics.dart      (font-size driven metrics)
 │   │   ├── tab_bar.dart             (multi-file tab strip)
 │   │   ├── autocomplete_popup.dart  (LSP + offline completion popup)
+│   │   ├── completion_doc_panel.dart (doc panel + kCompletionDocPanelDelay)
 │   │   └── hover_tooltip.dart       (LSP hover docs)
 │   │
 │   ├── console/ ← ConsolePanel (program + debug output)
@@ -244,6 +271,11 @@ lib/
 └── utils/ ← Helpers, constants
     ├── app_shortcuts.dart
     ├── completion_filter.dart
+    ├── completion_docs.dart         (completionItem documentation → plain text)
+    ├── completion_insert.dart       (insert text / snippet / additionalTextEdits)
+    ├── completion_edit_applier.dart (apply completion TextEdits to a buffer)
+    ├── dart_snippets.dart           (built-in Dart/Flutter snippets)
+    ├── snippet_expander.dart        (LSP snippet syntax → text + caret)
     ├── dart_highlighter.dart
     ├── json_rpc_client.dart
     ├── line_edit.dart               (pure: duplicate line / selection)

@@ -712,3 +712,261 @@ can never reopen. Keep the recent-files list (it is a separate, useful feature).
 **Verified:** `flutter analyze` clean; `flutter test` all green; real server probe (`clangd` / `dart language-server`) confirmed empty-document `version=2` answer clears counts and stale version-1 publish is dropped.
 
 **Not reproduced / not needed:** debugger, gutter, font metrics, syntax colors, compile_flags/untitled-buffer work untouched (explicitly excluded by rules).
+
+### TASK-057: Open autocomplete on trigger characters and from first typed character
+**Phase:** 24
+**Status:** ✅ DONE
+
+**Requirements (from user prompt):**
+1. `LspService` reads `capabilities.completionProvider.triggerCharacters` from `initialize` response; stored with default `['.']`; `parseTriggerCharacters` test seam added.
+2. Editor trigger logic (`CompletionFilter.decide`) fires immediately (`triggerKind=2`, `triggerCharacter` set) on server trigger chars (`.` / server-advertised); debounced (`triggerKind=1`) when an identifier prefix reaches `minimumPrefixLength`. 
+3. LSP connected → `minimumPrefixLength = 1`; LSP not connected → `offlineMinimumPrefixLength = 3`. Existing debounce / stale-response / out-of-focus preserved.
+4. Offline fallback list keeps existing 3-char minimum unchanged.
+5. Skip whitespace / closing bracket contexts (`_endsWithNonTrigger` logic replaced by `CompletionFilter.decide`; whitespace words have length < min, closing brackets don't match word); if editor already knows comment/string, skip (editor's existing token-class check not altered; no new logic needed because `isTriggering` already relies on word/prefix only and the editor does not expose comment/state to filter).
+
+**Tests added:** `test/utils/completion_filter_test.dart` — `decide()` cases (`.` trigger, `a` prefix, whitespace skip, closing-bracket skip, offline single/two/three-letter, server-advertised trigger chars) + `parseTriggerCharacters` (default, list read, non-string ignored, empty falls back).
+
+**Verified:** `flutter analyze` clean (0 errors); `flutter test test/utils/completion_filter_test.dart` 19 pass.
+
+### TASK-058: Manual "Trigger Completion" command (Ctrl+Space / Edit menu / About shortcuts)
+**Phase:** 24
+**Status:** ✅ DONE
+
+**Requirements:**
+1. `CodeEditorPanel.triggerCompletion()` — public method calling same code path as automatic triggering but with `triggerKind=1` (Invoked), ignoring minimum-prefix/debounce rules. If caret is on empty prefix it still requests.
+2. `RetroMenuBar`: `Edit > "Trigger Completion"` item (`value: 'trigger_completion'`, label: 'Trigger Completion', shortcut: 'Ctrl + Space'), wired through `onTriggerCompletion` callback.
+3. `IDEShell`: keyboard listener handles `LogicalKeyboardKey.space` + `isControlOrMeta` (`isControlOrMeta` covers both platforms) and calls `_editorKey.currentState?.triggerCompletion()`.
+4. If popup already open, `triggerCompletion()` refreshes it (same `requestId` increment / `setState` flow as automatic path); if closed, opens it.
+5. `retro_about_dialog.dart`: 'Ctrl + Space / Cmd + Space' added to `_buildShortcutsTab` shortcuts list.
+6. `README.md`: added to keyboard shortcuts section.
+
+**Tests added:** `test/ui/editor/code_editor_panel_test.dart` — `triggerCompletion() opens popup with empty prefix (manual trigger)` (10 existing + 1 new = 11 pass for that file). `flutter test` full suite passes.
+
+**Verified:** `flutter analyze` clean (2 info-only null-aware lint comments, 0 errors); full `flutter test` 383 pass (including new widget test).
+
+### TASK-059: Accept selected completion with Tab (same as Enter)
+**Phase:** 24
+**Status:** ✅ DONE
+
+**Requirements:** When popup visible, `Tab` calls `_acceptSelected()` same as `Enter`; when hidden, `Tab` lets Flutter's default indentation work (ignored event).
+
+**Changes:** `_handleKeyEvent()` added `LogicalKeyboardKey.tab` branch; `README.md` updated (`Enter` / `Tab`); `About` already has `Enter / Tab`.
+
+**Tests:** `test/ui/editor/code_editor_panel_test.dart` — 'Tab accepts selected completion when popup is visible' + 'Tab keeps current behavior (indent) when popup is hidden' (both pass).
+
+**Verified:** `flutter analyze` clean; full `flutter test` 385 pass.
+
+### TASK-060: Correct caret placement after accepting a completion (function calls and server snippets)
+**Phase:** 24
+**Status:** ✅ DONE
+
+**Requirements:**
+1. `snippet_expander.dart`: pure helper that expands LSP snippet syntax (`$0`, `$1`, `${1:default}`, `$$`). Multi-line: prefix new lines with current indentation.
+2. When item `insertTextFormat == 2`, expand `insertText` through expander; caret at first tab stop (`$1` before `$2`, before `$0`); if none, at `$0`; if none, at end.
+3. When item is callable (`kind` = method/function/constructor = 2/3/4/5/6/22) and text doesn't already contain `(`, insert `()` with caret between parens; skip if next char is `(`.
+4. Keep `textEdit` behavior (replace range) unchanged.
+
+**Changes:** `lib/utils/snippet_expander.dart` (new); `lib/models/lsp_models.dart` (+`insertTextFormat`); `lib/services/lsp_service.dart` (parse `insertTextFormat`); `lib/ui/editor/code_editor_panel.dart` (`_acceptSelected()` now uses expander + callable logic + `_currentLineIndent()`); `README.md` updated (`Enter` / `Tab` for autocomplete).
+
+**Tests:** `test/utils/snippet_expander_test.dart` (7 tests — plain, $0, $1, ${1:default}, same-index, escaped $, multi-line+indent); `test/ui/editor/code_editor_panel_test.dart` — callable method test (`accepting a callable method inserts paren pair with caret inside`).
+
+**Verified:** `flutter analyze` clean (0 errors); full `flutter test` 386 pass.
+
+### TASK-061: Improve completion ranking (CompletionFilter) — match tiers, MRU, sortText
+**Phase:** 24
+**Status:** ✅ DONE
+
+**Requirements:**
+1. Keep current filtering (`startsWith` case-insensitive). Change only ranking order:
+   a. tier: exact case-sensitive prefix (1) < case-insensitive prefix (2) < word-start/camelCase (3) < subsequence (4)
+   b. recently accepted first (in-memory MRU)
+   c. server `sortText` (fall back to label)
+   d. label alphabetical
+2. MRU: `Map<String,int>` label → counter, capped at 200 (drop oldest, lowest counter), session-only.
+3. Pure helper/class in `lib/utils/completion_filter.dart`. No UI changes.
+
+**Changes:** `lib/utils/completion_filter.dart` (+`_CompletionMru`, `recordCompletion()`, `_matchTier()`, `_isSubsequence()`, updated `filter()` ranking); `lib/models/lsp_models.dart` (+`sortText`); `lib/services/lsp_service.dart` (parse `sortText`); `lib/ui/editor/code_editor_panel.dart` (`_acceptSelected()` calls `recordCompletion()`); `CHANGELOG.md` updated.
+
+**Tests:** `test/utils/completion_filter_test.dart` — ranking tier test + MRU move-up test + MRU cap-200 test (all pass). Full suite: 397 pass, 0 fail.
+
+**Verified:** `flutter analyze` clean; full `flutter test` 397 pass.
+
+### TASK-062: Built-in Dart/Flutter snippets in the completion list
+**Phase:** 24
+**Status:** ✅ DONE
+
+**Requirements:**
+1. New `lib/utils/dart_snippets.dart` with a const list of snippets (prefix, label, description, LSP-syntax body) — exactly 8: `stless`, `stful`, `main`, `fori`, `forin`, `try`, `init`, `dispose`.
+2. Append matching snippets in the completion pipeline for Dart files only, both with an LSP server and offline, kind = Snippet (15).
+3. Accepting a snippet expands it through `SnippetExpander` with the current line's indentation.
+4. No snippets for other languages, and none after member access (`.`).
+
+**Changes:** `lib/utils/dart_snippets.dart` (new: `DartSnippet`, `dartSnippets`, `snippetCompletions()`, `mergeSnippets()`); `lib/ui/editor/code_editor_panel.dart` (both completion paths — `_requestCompletion()` and `_requestCompletionWithTrigger()` — now fall back to the offline list when the item pool is empty, then merge snippets, then filter); `CHANGELOG.md` updated.
+
+**Tests:** `test/utils/dart_snippets_test.dart` (8 tests — prefix match case-insensitive, empty prefix, snippet kind/format, non-Dart excluded, `.` excluded, `stless` expansion + caret on class name, `fori` expansion + first tab stop, `mergeSnippets` dedupe); `test/ui/editor/code_editor_panel_test.dart` — `typing stless and pressing Enter inserts a StatelessWidget snippet`.
+
+**Verified:** `flutter analyze` clean; full `flutter test` passing.
+
+### TASK-063: Completion documentation panel (completionItem/resolve)
+**Phase:** 24
+**Status:** ✅ DONE
+
+**Requirements:**
+1. `LspService` stores `completionProvider.resolveProvider` and sends `completionItem/resolve` only when true; each item keeps its original JSON (including `data`) so it can be sent back unchanged.
+2. Selected row change → 150 ms debounce → resolve; a stale answer is ignored; results cached per item for the popup's lifetime.
+3. Documentation may be a String or `MarkupContent {kind, value}`; rendered as plain text (backticks, `**`, link targets, heading markers stripped; line breaks kept; 12 lines then `…`).
+4. Retro sunken panel, theme colours, `maxWidth` 320, right of the list (below when there is no horizontal room), hidden without documentation, no focus or keyboard changes.
+5. Resolve unsupported/failed → fall back to the item's own `documentation`, else nothing.
+
+**Changes:** `lib/models/lsp_models.dart` (`CompletionTextEdit`, `ResolvedCompletionItem`, `CompletionItem.documentation`/`additionalTextEdits`/`raw`/`needsResolve`); `lib/services/lsp_service.dart` (`parseCompletionResolveProvider`, `parseDocumentation`, `parseTextEdits`, `resolveCompletionItem()`, `supportsCompletionResolve`, `debugSetCompletionResolveProvider()`); `lib/utils/completion_docs.dart` (new); `lib/ui/editor/completion_doc_panel.dart` (new); `lib/ui/editor/autocomplete_popup.dart` (`documentation` parameter, right/below placement); `lib/ui/editor/code_editor_panel.dart` (150 ms doc debounce, stale-response guard, per-popup resolve cache, fallback docs); `CHANGELOG.md` updated.
+
+**Tests:** `test/utils/completion_docs_test.dart` (6 — inline code/bold/links, headings + line breaks, fenced code, 12-line truncation, plain text, empty); `test/services/lsp_service_test.dart` — resolve group (5 — capability parse, String/MarkupContent docs, no call without capability, raw item echoed back + docs/import parsed, null answer); `test/ui/editor/code_editor_panel_test.dart` — 5 widget tests (docs after pause + follows selection, stale answer ignored, auto-import insertion, no panel without docs, fallback to item documentation).
+
+**Verified:** `flutter analyze` clean; full `flutter test` passing.
+
+### TASK-064: Useful Dart LSP completion options (verified, then enabled)
+**Phase:** 24
+**Status:** ✅ DONE
+
+**Step A — probe findings** (`tool/probe_dart_completion_options.dart`, installed Dart SDK 3.13.2 at
+`/Users/reza/dev/flutter_sdk/bin/cache/dart-sdk/bin/dart`, scratch package in a temp dir so the file is
+outside this repo's `tool/**` analysis exclusion):
+- Server advertises `completionProvider = {completionItem: {labelDetailsSupport: true}, resolveProvider: true, triggerCharacters: [".", "=", "(", "$", "\"", "'", "{", "/", ":"]}`.
+- `workspace.applyEdit` is the gate for unimported symbols: with `applyEdit: false`, typing `Timer` (no `dart:async` import) returned 2 unrelated items; with `applyEdit: true` + `initializationOptions.suggestFromUnimportedLibraries: true`, `Timer`, `Uint8List`, `Random` and `StreamController` all appeared.
+- `suggestFromUnimportedLibraries: false` (with `applyEdit: true`) removed them again → the option is honoured.
+- The completion list carries **no** `additionalTextEdits`; `completionItem/resolve` on `Timer` returned
+  `additionalTextEdits: [{newText: "import 'dart:async';\n\n", range: 0:0–0:0}]`, `detail: "Auto import from 'dart:async'"` and the full dartdoc → resolve is required for the auto-import.
+- `dart.enableSnippets: false` via `workspace/configuration` removed all kind-15 items (`for`, `for in`); with `true`/unset they are present → the setting is honoured and defaults to on.
+- `dart.completeFunctionCalls: true` produced no observable change (`print` label stayed `print(…)`); the server default is already on. It is therefore **not** sent — the caret task's `()` logic stays the only paren source.
+
+**Step B — changes:**
+1. `LspServerSpec.dart.initializationOptions = {'suggestFromUnimportedLibraries': true}` (other specs untouched).
+2. `LspService` now advertises `workspace.applyEdit` and `workspace.configuration`; answers `workspace/configuration` with `{'enableSnippets': true}` for the Dart spec only (other servers keep the previous empty answer) and leaves `completeFunctionCalls` alone.
+3. Accepting an item applies `additionalTextEdits` (from the resolved item, else the list item) together with the main insertion: LSP ranges → offsets, edits applied bottom-up, caret shifted by every edit above it (`lib/utils/completion_edit_applier.dart`).
+4. LSP `CompletionItemKind` 15 now maps to `snippet` (was `module`), so server snippets reach the existing `SnippetExpander`; server snippets themselves are unchanged/default-on.
+
+**Tests:** `test/utils/completion_edit_applier_test.dart` (6 — line/character mapping, clamping, import-above-the-caret caret shift with fixed LSP-shaped input, multi-edit bottom-up, no edits, invalid edit ignored); `test/services/lsp_server_spec_test.dart` (+1 — only Dart asks for unimported libraries); `test/services/lsp_service_test.dart` (+resolve group above); `test/ui/editor/code_editor_panel_test.dart` — `accepting an auto-import item inserts the import above` (document gains `import 'dart:async';` and the caret stays after `Timer`).
+
+**Verified:** `flutter analyze` clean; full `flutter test` passing.
+
+### TASK-065: Answer `workspace/applyEdit` with a spec-shaped result
+**Phase:** 24
+**Status:** ✅ DONE
+
+**Requirement:** The client advertises `workspace.applyEdit` (the Dart server needs it before it offers completions from unimported libraries), but every server-initiated request other than `workspace/configuration` was answered with `result: null`. The LSP spec requires an `ApplyWorkspaceEditResult` object for `workspace/applyEdit`.
+
+**Changes:** `lib/services/lsp_service.dart` — new `applyEditResult()` (static, unit-testable) returning `{'applied': false, 'failureReason': 'not supported by this client'}`; `_handleMessage` now sends that object for `workspace/applyEdit` and keeps the existing `null` answer for any other server request. The edit itself is deliberately **not** applied: accepting a completion already applies the item's `additionalTextEdits` in the editor, and the advertised capability is kept unchanged so unimported-library completions keep working.
+
+**Tests:** `test/services/lsp_service_test.dart` — one unit test asserting the exact response shape (`applied` false, `failureReason` text).
+
+**Verified:** `flutter analyze` clean; full `flutter test` passing.
+
+### TASK-066: Sync the document before position-based requests (-32004 / auto-import in Untitled buffers)
+**Phase:** 24
+**Status:** ✅ DONE
+
+**Problem:** the debounced `didChange` lived in `ide_shell` (250 ms), so a completion / `completionItem/resolve` / hover request for the newest text could reach the server while it still had the previous version → `[LSP] request failed: code -32004, invalid line number`, and `Timer` in an Untitled Dart buffer never offered its `dart:async` import.
+
+**Changes:**
+1. The debounce moved into `LspService.updateFile` (same 250 ms), which also makes it the service's own pending state. `_ensureSynced(uri)` is the one helper that flushes that pending change and completes after the notification is written; it is called first by `requestCompletion`, `resolveCompletionItem(item, filePath:)` and `requestHover`. (Signature help does not exist in this client yet, so there is nothing to call it from.)
+2. `resolveCompletionItem` records the document version it resolved against (`ResolvedCompletionItem.documentVersion`); the editor applies `additionalTextEdits` only while `LspService.documentVersion(path)` still equals it, otherwise the auto-import is skipped instead of corrupting text.
+3. A `-32004` answer now prints one line per method + document: method, line, character, document version and the server message (`_reportRequestError`, `_requestErrors` context map).
+4. `ide_shell` no longer keeps its own timer/pending fields: `updateFile` is called on every change (debounced inside the service), empty buffers are flushed at once, and Run/Save flush through `flushPendingChange`.
+
+**Probe (real Dart server 3.13.2, `tool/probe_untitled_import.dart`), virtual `untitled.dart` in a temp workspace:**
+
+| scenario | `Timer` in list | resolve `additionalTextEdits` |
+|---|---|---|
+| A. bare temp dir (`compile_flags.txt` only), `rootUri` = temp dir | **yes** (9 items) | `import 'dart:async';\n\n` (0:0) |
+| B. A + `pubspec.yaml` + `dart pub get` | yes (9 items) | `import 'dart:async';\n\n` (0:0) |
+| C. bare temp dir, `rootUri` = repository (app's workspaceRoot) | no (2 unrelated items) | — |
+| D. C + temp dir added via `workspace/didChangeWorkspaceFolders` | **yes** (9 items) | `import 'dart:async';\n\n` (0:0) |
+| E. D + pubspec | yes (9 items) | same |
+
+**Conclusion:** the temp workspace does **not** need a `pubspec.yaml` — `compile_flags.txt` plus registering the temp directory as a workspace folder (which `_ensureWorkspaceFolder` already does in `openFile`, before `didOpen`) is enough. Scenario C is what the request looked like before the folder registration/debounce fixes could take effect.
+
+**Tests:** `test/services/lsp_service_test.dart` — new group (3): pending `didChange` is sent before `completion`; before `completionItem/resolve` (plus the version recorded on the resolved item); an unchanged document sends no extra `didChange`. `test/ui/editor/code_editor_panel_test.dart` keeps the auto-import insertion test green.
+
+**Verified:** `flutter analyze` clean; full `flutter test` passing.
+
+### TASK-067: Tab/Shift+Tab belong to the editor
+**Phase:** 24
+**Status:** ✅ DONE
+
+**Problem:** with the popup hidden the Tab key returned `KeyEventResult.ignored`, so Flutter's default focus traversal moved focus out of the `TextField` and the caret disappeared.
+
+**Changes:** `_handleKeyEvent` now always returns `handled` for Tab. With the popup open it accepts the selected item (same path as Enter); otherwise `_handleTabPressed` inserts two spaces at the caret, indents every line of a multi-line selection, and Shift+Tab outdents those lines by up to two spaces (one `\t` or up to two spaces per line, selection offsets adjusted). Enter, Esc, arrows and the closing-bracket logic are untouched.
+
+**Tests:** four widget tests in `test/ui/editor/code_editor_panel_test.dart` — Tab inserts two spaces and the editor keeps `hasPrimaryFocus`; Shift+Tab outdents `    four` to `  four`; Tab indents both lines of a selection; the pre-existing "Tab accepts selected completion" test still passes.
+
+**Verified:** `flutter analyze` clean; full `flutter test` passing.
+
+### TASK-068: Parentheses for function/method completions
+**Phase:** 24
+**Status:** ✅ DONE
+
+**Changes:** `CompletionItem.kindInt` now keeps the raw LSP `CompletionItemKind` (plus `detail`/`insertText`/`insertTextFormat` as before); the accept logic moved into a pure helper, `lib/utils/completion_insert.dart` (`buildCompletionInsertion`): a plain item whose raw kind is 2/3/4 gets `()` with the caret between unless the text already has `(`, the document already has `(` after the caret, or the item is a snippet (the server's snippet is authoritative — `setState` arrives as a snippet with its own parentheses). Built-in snippets now carry `kindInt: 15`. `print`/`setState` log their raw payload once per session.
+
+**What the server actually sends (probe `tool/probe_print_setstate_items.dart`, Flutter scratch package):**
+
+| label | kind | insertText | insertTextFormat | textEdit.newText | detail |
+|---|---|---|---|---|---|
+| `print(…)` (`filterText: print`) | 3 | — | — | `print` | `(Object? object) → void` |
+| `setState(() {});` (`filterText: setState`) | 2 | — | 2 | `setState(() {\n      $0\n    });` | `(void Function() fn) → void` |
+
+So `print` needs the pair added by the client (kind 3, no parentheses anywhere) while `setState` is a snippet that already contains them and must not get another pair.
+
+**Tests:** `test/utils/completion_insert_test.dart` (11): table for `print`, `setState`, a field, a class, an existing `(` after the caret, text that already has `(`, snippet with parentheses, snippet without, plus kind-name fallback, kinds 3/4, snippet indentation. Existing widget accept tests stay green.
+
+**Verified:** `flutter analyze` clean; full `flutter test` passing.
+
+### TASK-069: Completion popup and doc panel anchored inside the editor
+**Phase:** 24
+**Status:** ✅ DONE
+
+**Problem:** `AutocompletePopup` was a `Positioned` child of the editor Stack but received a **global** caret offset, and the doc panel decided "right or below" from the window width. The list appeared shifted by the panel's global origin and its lower rows could be hidden under the Console.
+
+**Changes:** `CodeEditorPanelState` now has `_editorStackKey`; `_caretAnchorRect()` converts the renderer's caret rect into Stack-local coordinates and `_editorBounds()` supplies the Stack's size. `AutocompletePopup` takes `anchor` + `bounds` instead of `position` and computes everything with `_CompletionPlacement` (pure geometry): left clamped inside the editor, below the caret, flipped above when below does not fit, otherwise the larger side with a scrolling list; the doc panel goes right, else left, else below/above, always inside the bounds. The popup is a `Positioned.fill` Stack with `Clip.hardEdge`, so nothing can paint outside the editor. Gutter, line height and `EditorMetrics` untouched.
+
+**Tests:** two widget tests in `test/ui/editor/code_editor_panel_test.dart` — a 160 px-tall editor with the caret on the last line puts the list above the caret and inside the panel; a 700 px editor with the caret near the right edge puts the doc panel left of the list and inside the panel.
+
+**Verified:** `flutter analyze` clean; full `flutter test` passing.
+
+### TASK-070: "Trigger Completion" that actually works
+**Phase:** 24
+**Status:** ✅ DONE
+
+**Problems:** macOS consumes `Cmd+Space` (input-source switch), the shell's key handler tested `isControlOrMeta` *before* the completion branch (so Ctrl+Space fell into the zoom branch and did nothing), and the menu callback could not reopen the popup because the menu had taken the focus.
+
+**Changes:**
+1. New main shortcut **Ctrl+Shift+Space**; Ctrl+Space stays bound. The completion branch now runs before the zoom branch and checks `HardwareKeyboard.instance.isControlPressed`, so Cmd+Space is no longer bound. Menu label and About shortcuts tab show `Ctrl + Shift + Space`; README updated.
+2. Edit > Trigger Completion calls `CodeEditorPanelState.triggerCompletionFromCommand()`, which restores the editor's focus and, after the next frame (scheduled explicitly, since an idle editor has no frame pending), opens completion at the last known caret.
+3. With a connected LSP, an empty server answer now means an empty list: no offline fallback and no error. The offline keyword list is still used when no server is attached.
+
+**Tests:** two widget tests — the command refocuses an unfocused editor (primary focus restored, `triggerKind = 1`, popup visible) and an empty server answer shows no popup and no exception.
+
+**Verified:** `flutter analyze` clean; full `flutter test` passing.
+
+### TASK-071: Documentation panel after 2 s idle — and why it never appeared for an Untitled buffer
+**Phase:** 24
+**Status:** ✅ DONE
+
+**Cause found (probe `tool/probe_untitled_resolve_docs.dart`):** the panel was not a timing problem at all — for an Untitled tab the editor asked the server about the document path `Untitled` (the tab's display name), while the server has that buffer open under its virtual temp path (`.../untitled.dart`), so completion returned 0 items and the list shown was the offline keyword/token fallback with no `raw` JSON to resolve; the same probe resolves `print`, `List` and `DateTime` on the open document and gets `documentation` (538 / 3974 / 4304 chars) with `detail` only as the signature (`(Object? object) → void`), i.e. the server sends the text in `documentation`, never in `detail` alone.
+
+**Changes:** `CodeEditorPanelState._lspDocumentPath` (the service's `activeDocumentPath`, falling back to the tab path) is now used for completion and `completionItem/resolve`, so Untitled buffers talk to the document the server really has open. (Hover was left untouched: it does not feed the panel.) The doc pipeline was split into two clocks: resolve after the existing 150 ms debounce (so docs and `additionalTextEdits` are cached before an accept — accept unchanged), display after `kCompletionDocPanelDelay` = 2 s. `_hideCompletionDoc()` cancels both timers, invalidates pending answers and hides the panel immediately on any selection change, key press or popup close. Documentation resolves from `documentation`, then the resolved `detail`, then the item's own `documentation`. A `[completion-doc] "<label>" resolved=… documentation=… detail=…` line is printed once per resolved item.
+
+**Tests:** `test/ui/editor/code_editor_panel_test.dart` — panel absent at 1.9 s and present at 2.0 s idle (plus selection change hides it and restarts the clock); a key press hides it and restarts the clock; `detail` fallback; and an Untitled buffer requests completion/resolve with the virtual `.../untitled.dart` path instead of `Untitled`. Previous doc-panel tests updated for the new delay.
+
+**Verified:** `flutter analyze` clean; full `flutter test` passing (454 pass, 8 skipped).
+
+### TASK-072: Colorful scheme: own colors for operators, curly braces and square brackets
+**Phase:** 24
+**Status:** ✅ DONE
+
+**Changes:** in the Colorful scheme only, split the shared bracket/punctuation category into three — parentheses keep `punctuation` (`#031CFC`, unchanged), while `{` `}` and `[` `]` now resolve to new `curlyBrace` / `squareBracket` categories via the patched single-character rules in `MultiLanguageHighlighter.patchSymbolModes()` (applied to Dart, C, C++, Python and the ARM64 grammar, so the split is consistent for all five languages and survives inside Python/C f-string/interpolation substitution). Named constants `colorfulOperatorColor = #d6026c`, `colorfulCurlyBraceColor = #1e64d8` and `colorfulSquareBracketColor = #00796f` hold the Colorful accents in one place; Standard maps the new categories onto the old bracket color so it stays byte-for-byte identical.
+
+**Tests:** new `test/utils/colorful_syntax_colors_test.dart` paints the three sample lines through the real `SpanBuilder` path and asserts operators `#d6026c`, braces `#1e64d8`, square brackets `#00796f`, parentheses still `#031CFC` (Dart, Python, C), that Standard stays on `#031CFC`/`#00BF69`, and that text inside plain strings and comments is never recolored. One existing assertion in `asm_syntax_colors_test.dart` was updated to the new category (still `bracketColor` there) — no test was weakened.
+
+**Note:** the task brief listed `#408fff` / `#06baab` in the "verify manually" sentence but `#1e64d8` / `#00796f` in the NEW COLORS block; the NEW COLORS block was followed.
+
+**Verified:** `flutter analyze` clean; full `flutter test` passing (454 pass, 8 skipped).

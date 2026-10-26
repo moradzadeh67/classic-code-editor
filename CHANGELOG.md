@@ -4,6 +4,40 @@ All notable changes to Classic Code Editor are documented here. The format follo
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Autocomplete opens immediately on trigger characters (`.`) for LSP-backed files.**  
+  The client now reads `capabilities.completionProvider.triggerCharacters` from the server's `initialize` response and fires completion on any trigger character with `triggerKind = 2`. Minimum 1-character prefix (vs 3 offline) for LSP-connected files.
+- **Manual "Trigger Completion" command (`Ctrl+Space` / `Cmd+Space`).**  
+  Edit > Trigger Completion menu item, keyboard shortcut, and About > Shortcuts entry. Calls the same completion code path with `triggerKind = 1` (Invoked), ignores the minimum-prefix rule and debounce, works on empty prefix. Refreshes popup if already open.
+- **Tab accepts selected autocomplete item** — same code path as `Enter` when popup is visible; hidden-popup behavior (indentation) unchanged.
+- **Correct caret placement after accepting a completion.**  
+  `snippet_expander.dart` handles LSP snippet syntax (`$0`, `$1`, `${n:...}`); callable items (`method`/`function`/`constructor`) get `()` with caret between; snippet format uses first tab stop (`$1`) then final (`$0`).
+- **Improved completion ranking** — match tiers (exact prefix → case-insensitive → word-start/camelCase → subsequence), in-memory MRU (200-entry cap), server `sortText` fallback, label alphabetical. No UI changes; pure `lib/utils/completion_filter.dart`.
+- **Built-in Dart/Flutter snippets in the completion list.**  
+  Eight snippets (`stless`, `stful`, `main`, `fori`, `forin`, `try`, `init`, `dispose`) are offered by both the LSP and offline completion paths in Dart files only, and never after `.`. Accepting one expands its LSP-syntax body through `snippet_expander.dart` with the current line's indentation, caret on the first tab stop.
+- **Completion documentation panel.**  
+  The item under the selection is resolved (`completionItem/resolve`) after a 150 ms pause; its dartdoc is shown in a retro sunken panel beside the list (below it when there is no horizontal room) as plain text. Stale answers are dropped, results are cached per popup, and an item's own `documentation` is shown when resolve is unsupported. No focus or keyboard changes. (The panel's *display* later became a 2 s idle delay — see below.)
+- **Dart completions from unimported libraries, verified against the installed SDK.**  
+  The Dart spec asks for `suggestFromUnimportedLibraries` and the client advertises `workspace.applyEdit` (required before the server includes those items) plus `workspace.configuration` for `enableSnippets`. Accepting such an item now applies the server's `additionalTextEdits`, so `Timer` without an import inserts `import 'dart:async';` and keeps the caret on the symbol. `completeFunctionCalls` is left at the server default; LSP kind 15 now maps to `snippet` so server snippets use the snippet expander.
+- **`workspace/applyEdit` requests are now answered properly.**  
+  The client keeps advertising `workspace.applyEdit` (the Dart server requires it for completions from unimported libraries) and replies with a spec-shaped `ApplyWorkspaceEditResult` — `{"applied": false, "failureReason": "not supported by this client"}` — instead of `null`. The edit is not applied, because accepting a completion already applies the item's own `additionalTextEdits` in the editor.
+- **Document sync before position-based requests (`-32004`, auto-import in Untitled buffers).**  
+  The `didChange` debounce now lives in `LspService`; a single `_ensureSynced` helper flushes the pending change before every completion, `completionItem/resolve` and hover request, so the server can no longer answer for older text. A `-32004` failure is logged once with its method, position and document version, and the auto-import is applied only while the document is still at the version that was resolved. `Timer` in an Untitled Dart buffer now offers `Timer` and inserts `import 'dart:async';` (probe: the temp workspace needs no `pubspec.yaml`, only the workspace-folder registration it already gets).
+- **Tab and Shift+Tab stay in the editor.**  
+  Tab accepts the highlighted completion, otherwise inserts two spaces (indenting every line of a selection); Shift+Tab outdents by up to two spaces. The caret can no longer be moved out of the editor by focus traversal.
+- **Function and method completions insert `()` with the caret inside.**  
+  Raw `CompletionItemKind` is kept on the model, so `print` (kind 3, no parentheses) becomes `print(|)` while `setState` (a snippet that already carries its own `() {}`) is expanded unchanged.
+- **Autocomplete popup and documentation panel are anchored to the caret inside the editor.**  
+  Placement uses the editor Stack's own bounds instead of the window size: below the caret, flipped above when there is no room, clamped horizontally, list scrolls when neither side fits; the doc panel goes right, left, or below/above and never paints outside the editor (previously it could sit behind the Console panel).
+- **"Trigger Completion" works, with a shortcut macOS does not intercept.**  
+  New `Ctrl+Shift+Space` (Ctrl+Space still bound, `Cmd+Space` removed from the docs and About); the Edit menu command restores editor focus and opens the popup at the caret, and an empty server answer now shows nothing instead of an offline keyword list.
+- **Completion documentation appears after 2 s idle — and now works in Untitled buffers.**  
+  The panel waits for `kCompletionDocPanelDelay` (2 s) with the selection unchanged and no key presses (any selection change, key press or popup close hides it at once), while the item is still resolved after 150 ms so docs and auto-imports are cached before accept. An Untitled buffer now asks the server about its virtual `untitled.dart` path instead of the tab name `Untitled`, which returned no completion items at all — the real reason the panel never showed for `print`, `List` or `DateTime`; `detail` is used as a documentation fallback.
+- **Colorful syntax colors now have distinct categories for operators, curly braces and square brackets.**  
+  The operators (`= + - * / % | & ^ ~ ! ? < > , . ; :` and combined forms) are now `#d6026c` bold; curly braces `{` `}` are `#1e64d8` bold; square brackets `[` `]` are `#00796f` bold. This split is consistent for Dart, C, C++, Python and the ARM64 grammar, and survives inside Python/C f-string or interpolation substitutions. The Standard scheme stays identical to before.
+
 ## [1.4.3] — 2026-10-25
 
 ### Added

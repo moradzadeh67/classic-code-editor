@@ -58,6 +58,17 @@ Borland Delphi (beige), Visual Basic 6.0, and Turbo Pascal 7.0 (DOS navy).
   `WebSocket`, used by `DartDebugger` to talk to the Dart VM Service
 - `completion_filter.dart` — client-side completion matching/ranking plus a
   per-language offline fallback list
+- `completion_docs.dart` — `completionItem` documentation (String or
+  MarkupContent, `markdown`/`plaintext`) → the plain text the panel renders
+- `snippet_expander.dart` — LSP snippet syntax (`$1`, `${1:name}`, `$0`) → text
+  plus caret offset, used for both server snippets and built-in ones
+- `completion_insert.dart` — one accept path: plain insert, snippet expansion,
+  `textEdit` range replacement, then the item's `additionalTextEdits`
+- `completion_edit_applier.dart` — pure helper that applies completion
+  `TextEdit`s (including `insert`-only forms) to a buffer and returns the new
+  text + selection
+- `dart_snippets.dart` — the built-in Dart/Flutter snippet list merged into the
+  server's answer (`mergeSnippets`)
 
 ## Data Flow
 
@@ -89,6 +100,47 @@ generated `compile_flags.txt` (never overwriting a user file; one argument per
 line and no comment header — clangd has no comment syntax there and a `#` line
 silently breaks the whole command) before its `initialize`, and an empty first completion is retried once while a server is
 still indexing.
+
+### Completion (Phase 24):
+Typing (or `Ctrl+Shift+Space` / Edit > Trigger Completion)
+→ `CompletionFilter` decides the trigger and the current word
+→ `LspService.requestCompletion()` (after a `didChange` flush, so the server
+  answers for the text on screen) or the offline keyword/API list
+→ `mergeSnippets()` adds the built-in Dart/Flutter snippets, `CompletionFilter`
+  filters and ranks (server `sortText`, then match tier, then MRU)
+→ `AutocompletePopup` paints the list inside the editor's own bounds (below the
+  caret, flipped above, clamped horizontally) with the documentation panel to the
+  right, left, or below/above
+
+Accepting goes through `CompletionInsert` only: `textEdit` range replacement or
+plain insert, snippet expansion (`SnippetExpander`), and finally the item's
+`additionalTextEdits` — the auto-import. `CompletionEditApplier` keeps that pure
+and testable.
+
+Two clocks, on purpose:
+
+| Clock | Delay | What it does |
+|---|---|---|
+| resolve | 150 ms | `completionItem/resolve` → docs + `additionalTextEdits`, cached per popup, so Accept never waits |
+| display | `kCompletionDocPanelDelay` = 2 s | shows the doc panel, but only if the same row is still selected and no key was pressed |
+
+Any selection change, key press or popup close calls `_hideCompletionDoc()`:
+both timers are cancelled, in-flight answers invalidated, the panel hidden at
+once — the resolve cache is kept, so moving away and back needs no new request.
+A late answer for a row that is no longer selected is dropped.
+
+The client advertises `workspace.applyEdit` but never applies a server edit (the
+completion item's `additionalTextEdits` are applied by the editor itself); it
+answers `workspace/applyEdit` with
+`{"applied": false, "failureReason": "not supported by this client"}`. The
+capability has to stay advertised: the Dart server only offers completions from
+libraries that are not imported yet when it can ask the client to add the import.
+
+Position-based requests use `LspService.activeDocumentPath` — the document the
+server actually has open — not the tab's display name. An Untitled buffer lives
+as `untitled.<ext>` in `UnsavedBufferWorkspace`; asking the server about
+`Untitled` returns no items at all, and a synthesized offline list has no `raw`
+item to resolve, so the documentation panel could never appear.
 
 ### Static analysis fallback (Phase 09):
 Used while the language server is unavailable
@@ -361,8 +413,10 @@ one color map per scheme, so no language owns a palette:
 | built-ins / registers (`built_in`) | `#00796B` w600 | `#C2185B` |
 | function (`function`, `title`, `title.function`) | `#0D47A1` | `#0050E6` |
 | annotation (`meta`, `meta-keyword`; `#include`, `@decorator`, `.globl`) | `#7B1FA2` bold | `#4B3FE0` |
-| operator (`operator`, `symbol`) | `#00BF69` bold | `#00796B` bold |
-| brackets (`punctuation`) | `#031CFC` bold | `#031CFC` bold |
+| operator (`operator`, `symbol`; `= + - * / % \ | & ^ ~ ! ? < > , . ; :` and combined `==`, `!=`, `<=`, `>=`, `=>`, `??`, `++`, `--`, `&&`, `||`, `->`, `::`, `..`, `...`, `@` when standalone) | `#00BF69` bold | `#d6026c` bold |
+| curly braces (`{`, `}`) | `#031CFC` bold (same as brackets) | `#1e64d8` bold |
+| square brackets (`[`, `]`) | `#031CFC` bold (same as brackets) | `#00796f` bold |
+| brackets (`(` `)`) — parentheses unchanged | `#031CFC` bold | `#031CFC` bold |
 | comment (`comment`) | `#596E48` italic | `#596E48` italic |
 | identifiers (`params`, `variable`) | `#283593` / `#1A237E` | default text |
 
@@ -379,13 +433,20 @@ only mapped in Colorful.
 >    a bracket rule that can match a mode's own end character — the mode then
 >    never closes (a `)` rule inside a `params` mode swallowed the rest of a C++
 >    file). Each patch therefore uses a rule set without that character
->    (`bracketsNoBraces`, `operatorsNoColon`, `operatorsNoSemiEq`).
+>    (`operatorsNoColon`, `operatorsNoSemiEq`).
 > 2. **Paren-owning modes are removed, not patched.** The bundled grammars wrap
 >    a parameter list in a `params` mode (`begin: "\(", end: "\)"`) that owns
 >    its own parentheses, so those two characters could never be the bracket
 >    color. Python's `def`/`class` mode and C++'s `function` mode drop that
->    child, keep its literal/comment rules, and let the shared bracket rule
->    color every parenthesis.
+>    child, keep its literal/comment rules, and let the shared paren rule color
+>    every parenthesis.
+> 3. **Braces and square brackets are their own classes.** The patched rules emit
+>    `curlyBrace` / `squareBracket` (not one shared `punctuation` class) so only
+>    Colorful can give them their own colors while Standard maps both back onto
+>    the old bracket color. Inside plain strings / comments, and inside Dart
+>    `${…}` / Python `{…}` interpolation, those characters keep the enclosing
+>    string color — the rules are `contains` entries of the grammar, so a string
+>    mode still wins.
 > Strings, comments, numbers, `#include` (meta) and Python `#` comments keep
 > their own colors.
 

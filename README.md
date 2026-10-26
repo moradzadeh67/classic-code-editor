@@ -118,7 +118,9 @@ ARM64 Assembly support: highlighting, Run, and the LLDB debugger with its regist
   Apple Silicon)
 - **Syntax Highlighting:** Per-language syntax colors, IntelliJ-style —
   keywords purple (`#C842F5`), operators emerald green (`#00BF69`),
-  comments olive (`#596E48`), brackets blue (`#031CFC`)
+  comments olive (`#596E48`), brackets blue (`#031CFC`). The **Colorful** scheme
+  splits symbols further: operators magenta (`#d6026c`), curly braces
+  (`#1e64d8`) and square brackets (`#00796f`), with parentheses kept blue
 - **Language Logos:** Real per-language icons in the panel header — including
   the `ASM` heptagon for ARM64 Assembly (with a vector fallback when an asset is
   missing)
@@ -128,6 +130,14 @@ ARM64 Assembly support: highlighting, Run, and the LLDB debugger with its regist
   for Python. Servers are started once and stay warm while you switch tabs, and
   an untitled buffer is analyzed too (it is exposed to the server under a
   lowercase `untitled.<ext>` name in a temp workspace).
+- **Completion:** Server completions ranked by `sortText`, match tier and MRU,
+  with built-in Dart/Flutter snippets, `()` inserted with the caret inside for
+  functions and auto-import via the item's `additionalTextEdits`. Accept with
+  `Enter` or `Tab`; `Ctrl+Shift+Space` triggers it manually
+- **Documentation Panel:** the selected item's docs appear next to the list after
+  the selection has stayed put for 2 s (`kCompletionDocPanelDelay`); any key press
+  or move hides it, while the item itself is resolved in 150 ms so accepting is
+  instant
 - **Offline Completion:** Falls back to a built-in per-language keyword/API list
   when the language server is unavailable
 - **Breakpoint Gutter:** Click line number to toggle breakpoints; numbers sit on
@@ -146,8 +156,8 @@ ARM64 Assembly support: highlighting, Run, and the LLDB debugger with its regist
 - **Editor Font:** `View > Font` picks **Menlo** (default) or **Recursive Mono Casual**;
   the choice is remembered and applies to the code *and* the gutter line numbers
 - **Syntax Colors:** `View > Syntax Colors` switches the code palette between **Standard**
-  (the classic colors, default) and **Colorful** (11 high-contrast colors) live in all four
-  themes and for every language; the choice is remembered
+  (the classic colors, default) and **Colorful** (twelve high-contrast colors) live in all
+  four themes and for every language; the choice is remembered
 
 ### 🐛 Real Multi-Language Debuggers
 - **Debug Controls:** Debug, Stop, Step Over, Step Into, Step Out, Continue
@@ -199,8 +209,9 @@ ARM64 Assembly support: highlighting, Run, and the LLDB debugger with its regist
 - `Cmd+Shift+D` — Duplicate line
 - `Cmd+` / `Cmd-` / `Cmd0` — Editor font size (increase / decrease / reset)
 - `↑` / `↓` — Navigate autocomplete
-- `Enter` — Accept autocomplete
+- `Enter` / `Tab` — Accept autocomplete
 - `Esc` — Dismiss autocomplete
+- `Ctrl+Shift+Space` — Trigger Completion (manual autocomplete). `Ctrl+Space` also works, but macOS may use it to switch keyboard input sources.
 
 > `Cmd+Q` is left to macOS: like every Mac app it terminates the app. Modified buffers are protected
 > when closing a *tab*; quitting with unsaved tabs is the user's call.
@@ -241,7 +252,7 @@ The suite runs fully offline — no language server, compiler or VM is spawned.
 # Static analysis must report zero issues
 flutter analyze
 
-# Unit + widget tests (329 tests; 6 opt-in integration tests are skipped)
+# Unit + widget tests (460 tests; 8 opt-in integration tests are skipped)
 flutter test
 
 # Opt-in: really spawn a Dart VM and attach over a real WebSocket
