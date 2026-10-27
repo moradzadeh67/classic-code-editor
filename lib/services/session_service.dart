@@ -26,10 +26,39 @@ class SessionService extends ChangeNotifier {
   List<String> _openPaths = [];
   String? _activePath;
   List<String> _recentFiles = [];
+  String? _openFolderPath;
 
   List<String> get openPaths => List.unmodifiable(_openPaths);
   String? get activePath => _activePath;
   List<String> get recentFiles => List.unmodifiable(_recentFiles);
+
+  /// Folder shown in the explorer, or null when none is open.
+  String? get openFolderPath => _openFolderPath;
+
+  /// The saved paths a launch should reopen.
+  ///
+  /// Restoring tabs is opt-in ([restoreTabsOnLaunch], the persisted
+  /// `restoreTabsOnLaunch` setting): while it is off the app starts with a
+  /// single empty editor and `session.json` is only written, never replayed.
+  /// Even when it is on, a path that no longer exists on disk is skipped
+  /// silently — a stale session must never fail a launch.
+  List<String> pathsToRestore({required bool restoreTabsOnLaunch}) {
+    if (!restoreTabsOnLaunch) return const <String>[];
+    return [
+      for (final path in _openPaths)
+        if (File(path).existsSync()) path,
+    ];
+  }
+
+  /// Remembers (or forgets) the explorer's folder.
+  void setOpenFolderPath(String? path) {
+    final exists = path != null && Directory(path).existsSync();
+    final next = exists ? path : null;
+    if (next == _openFolderPath) return;
+    _openFolderPath = next;
+    notifyListeners();
+    _save();
+  }
 
   static const String _fileName = 'session.json';
   File? _cachedFile;
@@ -117,6 +146,11 @@ class SessionService extends ChangeNotifier {
         _activePath = File(path).existsSync() ? path : null;
       }
 
+      if (data['openFolderPath'] is String) {
+        final path = data['openFolderPath'] as String;
+        _openFolderPath = Directory(path).existsSync() ? path : null;
+      }
+
       if (data['recentFiles'] is List) {
         _recentFiles = (data['recentFiles'] as List)
             .cast<String>()
@@ -139,6 +173,7 @@ class SessionService extends ChangeNotifier {
         'openPaths': _openPaths,
         'activePath': _activePath,
         'recentFiles': _recentFiles,
+        'openFolderPath': _openFolderPath,
       };
       final content = jsonEncode(data);
 

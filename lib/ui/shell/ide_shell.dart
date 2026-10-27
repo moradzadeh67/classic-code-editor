@@ -8,6 +8,7 @@ import 'package:flutter_code_editor/flutter_code_editor.dart';
 
 import '../../services/theme_service.dart';
 import '../../services/dart_runner_service.dart';
+import '../../services/file_explorer_service.dart';
 import '../../services/file_service.dart';
 import '../../services/analyzer_service.dart';
 import '../../services/lsp_server_manager.dart';
@@ -42,6 +43,7 @@ class _IDEShellState extends State<IDEShell> {
   bool _showDiagnostics = true;
   final DartRunnerService _dartRunnerService = DartRunnerService();
   final FileService _fileService = FileService();
+  final FileExplorerService _explorerService = FileExplorerService();
   final AnalyzerService _analyzerService = AnalyzerService();
 
   /// Picks the language server per file (Dart, clangd, pyright/pylsp) and keeps
@@ -63,7 +65,7 @@ class _IDEShellState extends State<IDEShell> {
   /// Owns one debugger per language and swaps the active one as tabs change.
   late final DebuggerManager _debuggerManager = DebuggerManager(
     _fileService,
-    preferredLanguage: () => _dartRunnerService.preferredLanguage,
+    preferredLanguage: () => _fileService.activeLanguageOverride,
   );
 
   /// Forwards every language debugger's output into the shared Console stream.
@@ -225,6 +227,7 @@ class _IDEShellState extends State<IDEShell> {
           path ??
           await _unsavedWorkspace.pathFor(
             LanguageConfig.fromPathOrContent(path, content),
+            bufferName: _fileService.activeTab?.fileName,
           );
     } on FileSystemException catch (e) {
       debugPrint('Unsaved buffer workspace unavailable: $e');
@@ -297,7 +300,36 @@ class _IDEShellState extends State<IDEShell> {
 
   Future<void> _handleSave() async {
     _flushPendingDocumentChange();
-    _fileService.saveCurrentFile();
+    await _fileService.saveCurrentFile();
+    // A save can add or rename nothing (no create/rename in this task), but the
+    // file's size and timestamp changed: re-read the expanded folders.
+    final savedPath = _fileService.currentFilePath;
+    if (savedPath != null && _explorerService.contains(savedPath)) {
+      unawaited(_explorerService.refresh());
+    }
+  }
+
+  /// File > "Open Folder..." / the explorer's empty-state button.
+  Future<void> _handleOpenFolder() async {
+    final path = await _explorerService.pickFolder();
+    if (path != null) SessionService.instance.setOpenFolderPath(path);
+  }
+
+  /// File > "Close Folder": forgets the folder in this and the next session.
+  void _handleCloseFolder() {
+    _explorerService.closeFolder();
+    SessionService.instance.setOpenFolderPath(null);
+  }
+
+  /// Double-click in the explorer: the one open path, with the size/binary
+  /// guards in front of it.
+  Future<void> _openFileFromExplorer(String path) async {
+    final content = await _explorerService.readFileForOpen(path);
+    if (content == null) {
+      _dartRunnerService.emitOutput('Not opened: binary or too large');
+      return;
+    }
+    _fileService.restoreFile(path, content);
   }
 
   Future<void> _handleNewFile() async {
@@ -375,14 +407,31 @@ class _IDEShellState extends State<IDEShell> {
     );
   }
 
-  /// Restores the previous session: only files that still exist, and the active
-  /// tab by path. Untitled buffers are never restored.
+  /// Restores the previous session when the user asked for it: only files that
+  /// still exist, and the active tab by path. Untitled buffers are never
+  /// restored.
+  ///
+  /// Reopening tabs is opt-in (View > Restore Tabs on Launch, persisted as
+  /// `restoreTabsOnLaunch`). While it is off the app starts on a single empty
+  /// editor instead of replaying `session.json`; the explorer's folder and the
+  /// recent-files list are remembered either way.
   Future<void> _restoreSession() async {
     await SessionService.instance.load();
     if (!mounted) return;
 
-    for (final path in SessionService.instance.openPaths) {
+    // Re-open the explorer's folder only when it still exists.
+    final folder = SessionService.instance.openFolderPath;
+    if (folder != null && Directory(folder).existsSync()) {
+      await _explorerService.openFolder(folder);
+    }
+
+    final paths = SessionService.instance.pathsToRestore(
+      restoreTabsOnLaunch: EditorSettingsService.instance.restoreTabsOnLaunch,
+    );
+    for (final path in paths) {
       final file = File(path);
+      // The helper already filters missing paths; keep the guard so a file
+      // deleted between the check and the read is skipped, not fatal.
       if (!file.existsSync()) continue;
       try {
         _fileService.restoreFile(path, await file.readAsString());
@@ -392,11 +441,17 @@ class _IDEShellState extends State<IDEShell> {
     }
 
     final activePath = SessionService.instance.activePath;
-    if (activePath != null) {
+    if (activePath != null && paths.contains(activePath)) {
       final index = _fileService.openTabs.indexWhere(
         (tab) => tab.filePath == activePath,
       );
       if (index >= 0) _fileService.switchTab(index);
+    }
+
+    // Never start with an empty tab strip: nothing restored (setting off, an
+    // empty session, or every saved file gone) means one Untitled buffer.
+    if (_fileService.openTabs.isEmpty) {
+      _fileService.createNewFile();
     }
     _persistSession();
   }
@@ -465,7 +520,13 @@ class _IDEShellState extends State<IDEShell> {
               isControlOrMeta) {
             unawaited(_handleCloseTab());
           }
-          // 2c. Open File (Cmd+O).
+          // 2c. Open Folder (Cmd+Shift+O) — before the plain Cmd+O branch.
+          else if (event.logicalKey == LogicalKeyboardKey.keyO &&
+              isControlOrMeta &&
+              HardwareKeyboard.instance.isShiftPressed) {
+            unawaited(_handleOpenFolder());
+          }
+          // 2d. Open File (Cmd+O).
           else if (event.logicalKey == LogicalKeyboardKey.keyO &&
               isControlOrMeta) {
             unawaited(_fileService.openFile());
@@ -551,6 +612,8 @@ class _IDEShellState extends State<IDEShell> {
                     onCloseTab: () => unawaited(_handleCloseTab()),
                     onGoToLine: () => unawaited(_handleGoToLine()),
                     onOpenRecent: (path) => unawaited(_openRecent(path)),
+                    onOpenFolder: () => unawaited(_handleOpenFolder()),
+                    onCloseFolder: _handleCloseFolder,
                     onTriggerCompletion: () =>
                         _editorKey.currentState?.triggerCompletionFromCommand(),
                   ),
@@ -571,7 +634,11 @@ class _IDEShellState extends State<IDEShell> {
                       analyzerService: _analyzerService,
                       lspService: _lspService,
                       fileService: _fileService,
+                      explorerService: _explorerService,
                       terminalService: _terminalService,
+                      activeFilePath: _fileService.currentFilePath,
+                      onOpenFile: (path) => unawaited(_openFileFromExplorer(path)),
+                      onOpenFolder: () => unawaited(_handleOpenFolder()),
                       debugger: _debuggerManager.activeDebugger,
                       codeEditorController: _codeController,
                       editorKey: _editorKey,

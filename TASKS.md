@@ -631,9 +631,9 @@ compile_flags format rule), AGENTS (Rule 12 notes + file structure), RELEASE.md,
 **Release:** version `1.4.3+9`, tag `v1.4.3`, GitHub release **Classic Code Editor v1.4.3** with the universal
 DMG. `flutter analyze` clean, **368 tests pass / 8 opt-in skipped**.
 
-### TASK-054: 🐞 OPEN — replacing a saved `.s` buffer with another language still runs it as Assembly
+### TASK-054: Replacing a saved `.s` buffer with another language no longer runs it as Assembly
 **Phase:** 24
-**Status:** 🐞 KNOWN ISSUE (recorded on purpose; owner asked to fix later, no release cut)
+**Status:** ✅ DONE (no version bump — bugfix, not a release)
 **Reported:** an ARM64 assembly tab's content was replaced with a Dart program; the language logo stayed
 `ASM`, and Run compiled the Dart text as assembly (`main.s`, `error: invalid operand`,
 `unrecognized instruction mnemonic`, `[Compilation failed with code 1]`).
@@ -651,20 +651,23 @@ Measured: `fromPathOrContent(null, dartSource)` → Dart, `fromPathOrContent('Un
 **Workaround today:** set the toolbar language dropdown from `Auto` to `Dart` (or `Save As` a `.dart` file) —
 `resolveLanguage` honours an explicit selection before any extension.
 
-**Proposed fix (when we act on it):** keep the extension authoritative but detect the clear mismatch and act
-on it instead of silently compiling the wrong thing —
-1. explicit language selection still wins (as now);
-2. otherwise, if the content sniffed from the buffer resolves to a *different* language than the extension
-   **and** the signal is unambiguous (`import 'dart:`, `void main(`, `def `/`import sys`/`import os`,
-   `#include`), treat the buffer as that language for Run/coloring/logo, or — safer — keep the extension and
-   surface a one-line Console warning ("this .s file looks like Dart — use Save As .dart");
-3. a file name with no recognised extension keeps today's behaviour.
-Ask `LanguageRunnerService.resolveLanguage` to return the *reason* so the logo, the highlighter and the runner
-can never disagree (one resolver, three consumers).
+**Resolved (safe variant):** `LanguageConfig.resolve(filePath, content, preferredLanguage:)` is now the one
+resolver and returns a `LanguageResolution` carrying **both** the language and a `mismatch` (`null` when none).
+The extension stays authoritative and an explicit toolbar selection still wins; a mismatch is reported only for a
+recognised extension and an unambiguous signal (Dart: `import 'dart:` / `import 'package:` / a `void main(` line;
+Python: a `def ` line or `import sys` / `import os` / `from … import` with no `{`/`;` line ending in the first 20
+lines; C/C++: `#include <` together with `int main(`), and never when the content is plausible for the extension
+(`#include` in `.s`, C++ markers in `.c`, or the extension's own language). Two different signals at once means
+"no mismatch". `LanguageRunnerService.runCode()` refuses such a buffer before spawning anything — it clears the
+Console, prints one line (`main.s looks like Dart, not ARM64 Assembly. Use Save As with a .dart extension, or
+choose Dart in the language dropdown.`) and stays idle (`isRunning == false`); the Debug button answers the same
+way through the same resolver, as do `MultiLanguageHighlighter.createController` and
+`PanelLayout._detectLanguageExt` (so colors and logo can never disagree with Run/Debug). Untitled buffers and
+paths with no recognised extension keep today's sniffing.
 
-### TASK-055: 🐞 OPEN — a fresh install opens with the ARM64 sample instead of an empty editor
+### TASK-055: ✅ DONE — a fresh install opens with the ARM64 sample instead of an empty editor
 **Phase:** 24
-**Status:** 🐞 KNOWN ISSUE (recorded on purpose; owner asked to fix later, no release cut)
+**Status:** ✅ DONE (no version bump — bugfix, not a release cut)
 **Reported:** after installing the app and opening it, the editor already contains
 `samples/array_sum_arm64.s`; it should start empty.
 
@@ -690,6 +693,26 @@ starts empty. The same mechanism is why the sample's tab appears with the `ASM` 
 4. A `View`/`File` preference "Restore tabs on launch" (default off) — most explicit, most UI work.
 **Recommendation:** (1) + (3): a genuinely fresh install is empty, and a stale path from another machine/build
 can never reopen. Keep the recent-files list (it is a separate, useful feature).
+
+**Fix (owner picked option 4 — the explicit preference):**
+- `EditorSettingsService` gained a persisted `restoreTabsOnLaunch` (`editor_settings.json`, default **false**).
+  Only a literal JSON `true` turns it on; a missing key (older file), corrupt JSON or a non-bool value all fall
+  back to OFF. `setRestoreTabsOnLaunch()` notifies and saves immediately, like the font/scheme setters.
+- `RetroMenuBar`'s **View** menu has a checked **Restore Tabs on Launch** row right after the panel toggles. Its
+  `checked` flag is read from the live service inside `itemBuilder` (Rule 8), so the mark follows a change
+  without rebuilding the bar.
+- `SessionService.pathsToRestore({required bool restoreTabsOnLaunch})` is the single decision point: OFF returns
+  an empty list (session.json is not replayed at all), ON returns only the saved paths that still exist on disk.
+  `IDEShell._restoreSession()` consumes it and additionally skips the active-tab switch when that path was not
+  restored, so a deleted file is never an error. If nothing was restored the shell calls
+  `FileService.createNewFile()`, so a launch never shows an empty tab strip — OFF therefore starts on one empty
+  **Untitled** buffer.
+- Unchanged on purpose: `session.json` is still written on every tab change (so the setting can be turned back on
+  later), the recent-files list and the explorer's remembered folder are handled exactly as before.
+- Tests: `test/services/editor_settings_service_test.dart` (default OFF, save/load round-trip, corrupt/unknown
+  value ⇒ OFF), `test/services/session_service_test.dart` (OFF ⇒ no paths, ON ⇒ saved files, ON + missing file ⇒
+  skipped silently) and `test/ui/shell/restore_tabs_menu_test.dart` (row lives in View, mark follows, selection
+  persists). No new packages, no debugger/gutter/completion/color changes.
 
 ### TASK-056: Fix stale / false diagnostics — active-document source of truth
 **Phase:** 24
@@ -970,3 +993,159 @@ So `print` needs the pair added by the client (kind 3, no parentheses anywhere) 
 **Note:** the task brief listed `#408fff` / `#06baab` in the "verify manually" sentence but `#1e64d8` / `#00796f` in the NEW COLORS block; the NEW COLORS block was followed.
 
 **Verified:** `flutter analyze` clean; full `flutter test` passing (454 pass, 8 skipped).
+
+### TASK-073: Editor surface `#fbfbf9` for every theme, grey Colorful comments
+**Phase:** 24
+**Status:** ✅ DONE
+
+**Changes:** the code surface moved from `#E8F1FF` to `#fbfbf9` in all four themes and both syntax schemes, and now lives in one named constant — `kEditorBackgroundColor` in `lib/services/theme_service.dart` — which every `ThemeColorsData` and therefore every `editorBackground` reader (editor container, empty-editor message, tab bar, hover tooltip, completion popup, doc panel, About/Go-to-Line fields) picks up. In the Colorful scheme only, comments moved from `#596E48` to `#666666` (new `colorfulCommentColor`, still italic); Standard is byte-for-byte identical.
+
+**Untouched on purpose:** everything tuned against the old surface — current-line band (`colors.selection` at alpha 0.14 fill + 0.45 hairline: `#316AC5` / `#A08035` / `#1B3260` / `#000080`), editor selection `#000080` + `#FFFFFF`, paused line `#FFF0A0` / `#E9D9A5` / `#DCDCA8` / `#DCDCA8`, popup/doc-panel/hover borders and backgrounds (they inherit `kEditorBackgroundColor`), and every other token color.
+
+**Docs:** ARCHITECTURE (four theme blocks, the shared-surface note, palette comment row), README (theme table, syntax bullet), `docs/RETRO_DESIGN.md`, and one CHANGELOG `[Unreleased]` line.
+
+**Tests:** no new tests; no assertion pinned the old values (the Standard comment assertion `#596E48` still holds). `flutter analyze` clean; full `flutter test` passing (460 pass, 8 skipped).
+
+
+### TASK-074: The editor surface is the console surface — and why it is one constant
+**Phase:** 24
+**Status:** ✅ DONE
+
+**What was tried and reverted:** binding `editorBackground` to each theme's `panel` color (`#ECE9D8` / `#DFCD9B` / `#C0C0C0` / `#8FB8B8`) looked wrong and made the gutter disappear, because the gutter already paints `editorLineNumberBg` with those same three values (`#ECE9D8` / `#DFCD9B` / `#C0C0C0`) and has no separator line of its own — editor and gutter became one flat block. Reverted to the single shared `kEditorBackgroundColor`; the gutter colors are untouched and visible again.
+
+**What stayed:** the editor surface is one constant for all four themes and both schemes — `kEditorBackgroundColor` = `#fbfbf9` — and the console's output area paints that same constant instead of a hard-coded pure `#FFFFFF`. The two panes are therefore exactly the same near-white surface; there is no second constant to drift.
+
+**Untouched:** gutter (`editorLineNumberBg`: `#ECE9D8` / `#DFCD9B` / `#C0C0C0` / `#00A8A8`), current-line band, selection, paused line, popup/hover/doc-panel borders, the console chrome (`panel`) and the stdin bar (`#FFFFFF` while running, `#F0F0F0` when idle). Colorful strings stayed `#409175`, Colorful comments `#666666`, Standard byte-for-byte identical.
+
+**Tests:** no new tests, no assertion pinned these values. `flutter analyze` clean; full `flutter test` passing (460 pass, 8 skipped).
+
+### TASK-075: 2.5 px caret that blinks 300 ms on / 300 ms off
+**Phase:** 24
+**Status:** ✅ DONE
+
+**Step A — findings:**
+1. The editor is a plain Material `TextField` (`code_editor_panel.dart`, inside the editor `Stack`), not a `CodeField`, so the public `cursorWidth` and `showCursor` parameters are available; the controller is a `CodeController` and the theme/strut come from `EditorMetrics`.
+2. In the installed Flutter 3.47.2 SDK the blink period is **not** configurable: `packages/flutter/lib/src/widgets/editable_text.dart` declares `const Duration _kCursorBlinkHalfPeriod = Duration(milliseconds: 500)` and only exposes it through a `@visibleForTesting` getter (`cursorBlinkInterval`). There is no `TextField`/`EditableText` parameter for it.
+
+**Step B — implementation:** `cursorWidth: kEditorCaretWidth` (2.5) on the field, and `showCursor: false` because the period cannot be retimed. A new `EditorCaret` stateful widget paints the caret into the editor's inner `Stack` with `Positioned` + `IgnorePointer`:
+- a `Timer.periodic(kEditorCaretBlinkInterval)` (300 ms) toggles it on/off;
+- `resetToken` (a counter bumped by every text change in `_onTextChanged` and every caret move in `_onCaretMoved`) makes it solid again and restarts the clock, so typing never shows a blinking-off caret;
+- `active` is false without focus or with a non-collapsed selection, so no caret is painted then (and the timer stops);
+- the rect is `_caretAnchorRect()` — the same live `RenderEditable` measurement used for the popup anchor — refreshed in the existing `_queueBandUpdate()` post-frame pass, which is already wired to text, caret, scroll, zoom and font-change notifications, so it follows scrolling, zoom, fonts and RTL;
+- the color is `RenderEditable.cursorColor`, i.e. exactly what the built-in caret painted; the timer is cancelled in `dispose()`.
+
+**Tests:** new `test/ui/editor/editor_caret_blink_test.dart` — visible at 0 ms, hidden at 300 ms, visible again at 600 ms, and visible immediately after a key press. `flutter analyze` clean; full `flutter test` passing (462 pass, 8 skipped).
+
+### TASK-076: Gutter separator, current-line emphasis, diagnostic markers and marker tooltip
+**Phase:** 24
+**Status:** ✅ DONE
+
+**Scope guard:** the gutter's width (`EditorMetrics.gutterWidth`), row height, line-number advance and the `_rowsFromRenderer()` row model are untouched; every existing gutter alignment/baseline test passes unchanged. No change to the debugger, completion, syntax colors or `EditorMetrics`.
+
+**Changes:**
+- **Separator** — the gutter `Container` now holds a `Stack`: the existing `ListView` plus a `Positioned` 1 px pair (`borderDark`, then `borderLight`) on its right edge. It is drawn *inside* the gutter's width, so nothing moves, and it derives from the theme borders already in `ThemeColorsData`, so all four themes get it with no new palette entry.
+- **Current line** — its number is bold in `colors.text`; its row tint changed from `selection @ 0.10` to `selection @ 0.14`, the exact band fill. Other numbers paint `editorLineNumberText.withValues(alpha: 0.7)`, but lines carrying a diagnostic marker (or the paused line) keep full strength.
+- **Diagnostic markers** — `_diagnosticsByLine()` groups `LspService.activeDiagnostics` (the existing per-URI map; no new analysis) by 1-based line, errors sorting before warnings. The worst severity paints an 8x8 square at the inner edge — `kGutterErrorMarkerColor` `#D32F2F`, `kGutterWarningMarkerColor` `#F9A825` — appended last in the row's right-hand group so the breakpoint bullet stays to its left. Continuation rows (`gutterRows[index] == 0`) still return early, so a wrapped line has exactly one marker. `CodeEditorPanel` now listens to the `LspService` (added/replaced/removed in `initState`/`didUpdateWidget`/`dispose`), so a `publishDiagnostics` — including an empty list — and a tab switch both repaint.
+- **Tooltip** — the marker is wrapped in a `MouseRegion` (hover only, no gesture handler, so the row's opaque `GestureDetector` still toggles the breakpoint). `GutterDiagnosticTooltip` paints up to three messages, errors first, each collapsed to one line and ellipsized at 60 characters, with `RetroBorder.raised` on the editor surface (the `HoverTooltip` look) and an `IgnorePointer`, so it takes neither focus nor taps.
+
+**Tests:** new `test/ui/editor/gutter_diagnostics_test.dart` — a fake `LspService` publishes an error line, a warning line, a clean line and a 600-character line that really wraps (asserted via the gutter's own geometry); the markers are red/amber/absent/single, and all disappear when the list is cleared. Two old assertions that pinned the previous look were updated (`editor_current_line_test.dart`): gutter tint `0.10` -> `0.14` and the caret-line number colour `selection` -> `colors.text`. `flutter analyze` clean; full `flutter test` passing (463 pass, 8 skipped).
+
+### TASK-077: Real File Explorer — lazy tree, open folder, markers of the active tab
+**Phase:** 24
+**Status:** ✅ DONE
+
+**Built:**
+- `lib/models/file_node.dart` — `path`, `name`, `isDirectory`, `children`, `childrenLoaded`, `expanded`, `isTruncationNotice`; pure Dart.
+- `lib/services/file_explorer_service.dart` — one directory per call (children read only when a folder is expanded), folders first then case-insensitive names, dot names + `build` / `.dart_tool` / `node_modules` / `__pycache__` / `.DS_Store` hidden, `maxEntries = 2000` plus a "… N more not shown" row, `FileSystemException` → empty folder and never a crash. Also `refresh()`, `revealFile()`, `contains()` and `readFileForOpen()` (2 MB / NUL-in-first-4-KB guard). Reads are **synchronous internally** with async signatures: a `Directory.list()` future created inside a widget callback never completes under the widget test's fake clock, which made the tree untestable and could stall the UI pass.
+- `lib/ui/explorer/file_explorer_panel.dart` — sunken retro panel: folder name header, ⟳ refresh, `Open Folder...` empty state, rows with disclosure triangle, language logo (`LanguageLogo`) or folder/file glyph and depth indentation, single click selects + toggles a folder, double-click opens a file through `onOpenFile`, active tab bold + tinted, parents expanded.
+- Shell: `FileExplorerService` instance, `File > Open Folder...` (`Cmd+Shift+O`, bound before the plain `Cmd+O` branch) and `Close Folder`, explorer double-click → guards → `FileService.restoreFile` (the one existing open path, so an already-open file just switches tab), Console line `Not opened: binary or too large` on refusal, refresh after a save, session restore of the folder.
+- `SessionService.openFolderPath` — persisted in `session.json`, restored only when the directory still exists.
+
+**Scope:** no create / rename / delete / drag-and-drop.
+
+**Tests:** `test/services/file_explorer_service_test.dart` (sorting, hidden names, lazy children, 2000 cap, unreadable folder, binary/oversized refusal) and `test/ui/explorer/file_explorer_panel_test.dart` (folder click expands, double-click calls the open callback, active file bold). `flutter analyze` clean; full `flutter test` passing (470 pass, 8 skipped).
+
+### TASK-078: A `.s` file holding C/C++ is reported as C/C++, not compiled as assembly
+**Phase:** 24
+**Status:** ✅ DONE
+
+**Cause:** TASK-054's blanket guard ("`#include` in an assembly file is never a mismatch") also swallowed a
+real C/C++ program: `#include <iostream>` + `std::` was handed to `clang -arch arm64` as assembly and failed
+with `'iostream' file not found`.
+
+**Fix (resolver only):** `_assemblyMismatch()` replaces that guard for `armasm` buffers. A bare `#include` —
+quoted (`#include "macros.h"`) or angle-bracket alone — is still preprocessed assembly and reports nothing.
+`#include <` **together with** `int main(` / `void main(`, `std::`, `using namespace`, `<iostream>`, `<vector>`
+or `<string>` is a C/C++ mismatch: **C++** when one of those C++ markers is present, otherwise **C**. Dart
+(`import 'dart:` / `import 'package:` / `void main(`) and Python signals remain mismatches exactly as before.
+All other extensions go through the unchanged TASK-054 path. The Console message is still the one
+`LanguageResolution.mismatchMessage()` line and now names the detected language.
+
+**Tests:** `test/models/language_resolution_test.dart` — `#include "macros.h"` alone → none; `#include <iostream>`
++ `int main()` → C++; `#include <cstdio>` + `using namespace std` → C++; `#include <stdio.h>` + `int main()` → C;
+the real `samples/array_sum_arm64.s` → none; Dart in `main.s` → Dart (unchanged). `flutter analyze` clean; full
+`flutter test` passing (487 pass, 8 skipped).
+
+### TASK-079: Per-tab language selection drives Run, Debug, colors and the logo
+**Phase:** 24
+**Status:** ✅ DONE
+
+**Symptoms:** the toolbar dropdown was app-wide, so choosing Python on one tab left "Python" selected on a `.c`
+tab and Run executed the C file as Python; an explicit choice on `main.s` steered Run but not the colors or the
+language logo, which still came from the extension.
+
+**Changes:**
+- `TabFile.languageOverride` (default `'Auto'`, **in memory only**, never in the session). `FileService`
+  exposes `activeLanguageOverride` / `setActiveLanguage()` and preserves the value across `saveFile`,
+  `saveTab` and `saveFileAs`; a new tab starts at Auto and a closed tab drops it.
+- One function — `LanguageConfig.resolveTab(tab)` — returns `LanguageResolution` with the tab's explicit
+  selection first, otherwise the existing extension/content resolver (and its mismatch rules, unchanged).
+- Consumers: `LanguageRunnerService.runActiveFile()`, the toolbar's Run callback (`runCode(...,
+  preferredLanguage:)`), the Debug button, `MultiLanguageHighlighter.createController(preferredLanguage:)`,
+  `CodeEditorPanel` (`languageOverride`) and `PanelLayout._detectLanguageExt` (logo).
+- The dropdown reads/writes the active tab. Changing it swaps only the grammar through `_applyGrammar()` —
+  text, caret and scroll position are untouched — and the logo repaints in the same frame. `PanelLayout`
+  rebuilds only when the active tab index or its override changes, not on every keystroke.
+- **Follow-up (owner feedback):** Material's `DropdownButton` enforces a 48 px item height, taller than the
+  44 px panel header. It is now a compact `PopupMenuButton`: a sunken 28 px field (12 px label + 18 px caret,
+  `popupMenuPosition.under`) and 30 px retro menu rows with the current value in bold. Keys:
+  `kLanguageDropdownKey` / `kLanguageDropdownLabelKey`.
+
+**Known limitation:** the language server for a tab is still chosen from its extension/content (the existing
+`LspServerManager.activateFor` path), not from the per-tab selection. Choosing Dart on `main.s` changes Run,
+colors and the logo, but diagnostics keep coming from the server that the `.s` extension picked.
+
+**Tests:** new `test/ui/shell/per_tab_language_test.dart` — tab A (Python) + tab B (Auto, `.c`): B shows Auto and
+its Run path resolves to C; switching back to A shows Python and passes it to Run; selecting Dart on a `.s` tab
+changes `controller.language` and the logo to Dart while keeping text and caret, and Auto returns to assembly.
+`flutter analyze` clean; full `flutter test` passing (487 pass, 8 skipped).
+
+### TASK-080: Explorer "Open Folder..." matches the Console header buttons
+**Phase:** 24
+**Status:** ✅ DONE
+
+`RetroButton` now owns `kRetroHeaderButtonHeight = 22` (its own default), and the Console header's
+Copy All / Copy Errors / Clear pass that constant instead of a literal `22`. The explorer label dropped its
+local `fontSize: 11` override so it uses the same `RetroButton` text style. **Follow-up (owner feedback):** the
+empty-state **Open Folder...** button must read as the panel's main action, so it now fills the panel width and
+is a little taller — `kOpenFolderButtonHeight = 28` — with the label centered horizontally and vertically by
+`RetroButton`. Verified in all four themes. No new tests.
+
+### TASK-081: "+" tab button, distinct Untitled names and distinct virtual documents
+**Phase:** 24
+**Status:** ✅ DONE
+
+- `TabBarWidget` draws a `RetroButton` "+" (`kNewTabButtonKey`, tooltip **New File**) in a `Row` outside the
+  horizontal tab `SingleChildScrollView`, so it stays pinned at the strip's right edge when tabs overflow. Its
+  height is `kEditorTabHeight` (28), the same constant the tab container now uses; the glyph itself was made
+  bigger on owner feedback (bold, 18 px, `height: 1.0`).
+- The click calls `fileService.createNewFile()` — the same path as **File > New** and the toolbar's New button.
+- `createNewFile()` names tabs `Untitled`, `Untitled 2`, `Untitled 3`, … (first free name among open tabs).
+- `UnsavedBufferWorkspace.pathFor(config, bufferName:)` slugifies the tab name, so two Untitled tabs are
+  `untitled.dart` and `untitled-2.dart` (and `untitled.py` / `untitled-2.py`): separate LSP documents, so
+  neither overwrites the other's diagnostics. The shell passes `_fileService.activeTab?.fileName`.
+
+**Tests:** new `test/ui/editor/tab_bar_new_file_test.dart` — tapping "+" adds and activates an Untitled tab,
+tapping twice gives `Untitled` + `Untitled 2`; the two get `untitled` / `untitled-2` virtual documents; closing
+a tab drops its language selection; with 12 tabs the "+" stays inside the strip at `kEditorTabHeight`.
+`flutter analyze` clean; full `flutter test` passing (487 pass, 8 skipped).

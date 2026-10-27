@@ -29,10 +29,23 @@ class UnsavedBufferWorkspace {
 
   /// Stable virtual path for an unsaved buffer of [config].
   ///
+  /// [bufferName] is the tab's own name, so two untitled tabs get two documents
+  /// (`untitled.dart`, `untitled-2.dart`) instead of overwriting each other's
+  /// diagnostics. Without a name the original `untitled` document is used.
+  ///
   /// Throws [FileSystemException] when no writable directory is available.
-  Future<String> pathFor(LanguageConfig config) async {
+  Future<String> pathFor(LanguageConfig config, {String? bufferName}) async {
     final dir = _directory ?? await (_creating ??= _create());
-    return '${dir.path}/untitled${config.extension}';
+    return '${dir.path}/${_documentSlug(bufferName)}${config.extension}';
+  }
+
+  /// Lowercase, server-safe document name (`"Untitled 2"` -> `untitled-2`).
+  static String _documentSlug(String? bufferName) {
+    final slug = (bufferName ?? '')
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
+        .replaceAll(RegExp(r'^-+|-+$'), '');
+    return slug.isEmpty ? 'untitled' : slug;
   }
 
   Future<Directory> _create() async {

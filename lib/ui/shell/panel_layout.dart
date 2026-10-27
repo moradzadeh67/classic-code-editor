@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_code_editor/flutter_code_editor.dart';
 
 import '../../models/debugger_models.dart';
+import '../../models/language_config.dart';
 import '../../services/dart_runner_service.dart';
 import '../../services/analyzer_service.dart';
 import '../../services/diagnostics_source.dart';
 import '../../services/lsp_service.dart';
+import '../../services/file_explorer_service.dart';
 import '../../services/file_service.dart';
 import '../../services/theme_service.dart';
 import '../../services/base_debugger.dart';
@@ -15,12 +17,30 @@ import '../console/console_panel.dart';
 import '../analyzer/diagnostics_panel.dart';
 import '../terminal/terminal_panel.dart';
 import '../debugger/debugger_sidebar.dart';
+import '../explorer/file_explorer_panel.dart';
 import '../../services/terminal_service.dart';
 import '../retro/retro_border.dart';
 import '../retro/retro_watch_window.dart';
 import '../retro/language_logo.dart';
+import 'retro_menu_item.dart';
 import 'vertical_splitter.dart';
 import 'horizontal_splitter.dart';
+
+/// Keys of the compact language selector, for widget tests and tooling.
+const Key kLanguageDropdownKey = ValueKey<String>('language-dropdown');
+const Key kLanguageDropdownLabelKey = ValueKey<String>(
+  'language-dropdown-label',
+);
+
+/// Every value the language dropdown offers, in display order.
+const List<String> kLanguageOptions = [
+  'Auto',
+  'Dart',
+  'Python',
+  'C',
+  'C++',
+  'ARM64 Assembly',
+];
 
 class PanelLayout extends StatefulWidget {
   final bool showFileExplorer;
@@ -30,7 +50,17 @@ class PanelLayout extends StatefulWidget {
   final AnalyzerService analyzerService;
   final LspService lspService;
   final FileService fileService;
+  final FileExplorerService explorerService;
   final TerminalService terminalService;
+
+  /// Path of the active tab, highlighted in the explorer.
+  final String? activeFilePath;
+
+  /// Double-clicked file in the explorer: the shell opens it.
+  final ValueChanged<String> onOpenFile;
+
+  /// "Open Folder..." in the explorer's empty state.
+  final VoidCallback onOpenFolder;
   final BaseDebugger? debugger;
   final CodeController? codeEditorController;
 
@@ -50,7 +80,11 @@ class PanelLayout extends StatefulWidget {
     required this.analyzerService,
     required this.lspService,
     required this.fileService,
+    required this.explorerService,
     required this.terminalService,
+    required this.activeFilePath,
+    required this.onOpenFile,
+    required this.onOpenFolder,
     this.debugger,
     this.codeEditorController,
     this.editorKey,
@@ -65,12 +99,18 @@ class _PanelLayoutState extends State<PanelLayout> {
   double _explorerWidth = 200;
   double _consoleHeight = 240;
   int _activeBottomTab = 0; // 0: Console, 1: Diagnostics, 2: Terminal, 3: Watch
-  String _selectedLanguage = 'Auto';
+
+  /// Last tab whose dropdown value this panel painted, so a tab switch (or a
+  /// dropdown change) rebuilds it without rebuilding on every keystroke.
+  int _lastTabIndex = -1;
+  String _lastLanguageOverride = 'Auto';
 
   @override
   void initState() {
     super.initState();
     widget.debugger?.addListener(_onDebuggerChanged);
+    _syncLanguageFromTab();
+    widget.fileService.addListener(_onFileChanged);
   }
 
   @override
@@ -81,12 +121,36 @@ class _PanelLayoutState extends State<PanelLayout> {
       oldWidget.debugger?.removeListener(_onDebuggerChanged);
       widget.debugger?.addListener(_onDebuggerChanged);
     }
+    if (oldWidget.fileService != widget.fileService) {
+      oldWidget.fileService.removeListener(_onFileChanged);
+      widget.fileService.addListener(_onFileChanged);
+    }
+    _syncLanguageFromTab();
   }
 
   @override
   void dispose() {
+    widget.fileService.removeListener(_onFileChanged);
     widget.debugger?.removeListener(_onDebuggerChanged);
     super.dispose();
+  }
+
+  /// Rebuilds only when the dropdown really has to change: another tab became
+  /// active, or that tab's own language selection changed. Typing notifies the
+  /// same service on every keystroke and must not rebuild this panel.
+  void _onFileChanged() {
+    if (!mounted) return;
+    final tab = widget.fileService.activeTab;
+    final index = widget.fileService.activeTabIndex;
+    final override = tab?.languageOverride ?? 'Auto';
+    if (index != _lastTabIndex || override != _lastLanguageOverride) {
+      setState(_syncLanguageFromTab);
+    }
+  }
+
+  void _syncLanguageFromTab() {
+    _lastTabIndex = widget.fileService.activeTabIndex;
+    _lastLanguageOverride = widget.fileService.activeLanguageOverride;
   }
 
   /// Rebuilds when a session starts or ends so the debugger sidebar appears
@@ -141,33 +205,10 @@ class _PanelLayoutState extends State<PanelLayout> {
                 if (widget.showFileExplorer) ...[
                   SizedBox(
                     width: _explorerWidth,
-                    child: Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: RetroBorder.sunken(
-                        backgroundColor:
-                            ThemeService.instance.uiColors['panel'],
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'File Explorer',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                              color: ThemeService.instance.uiColors['text'],
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            '[Project Root]',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: ThemeService.instance.uiColors['text'],
-                            ),
-                          ),
-                        ],
-                      ),
+                    child: FileExplorerPanel(
+                      service: widget.explorerService,
+                      activeFilePath: widget.activeFilePath,
+                      onOpenFile: widget.onOpenFile,
                     ),
                   ),
                   const SizedBox(width: 2),
@@ -199,6 +240,8 @@ class _PanelLayoutState extends State<PanelLayout> {
                             lspService: widget.lspService,
                             debugger: widget.debugger,
                             controller: widget.codeEditorController,
+                            languageOverride:
+                                widget.fileService.activeLanguageOverride,
                             onCaretChanged: widget.onCaretChanged,
                           ),
                         ),
@@ -287,99 +330,89 @@ class _PanelLayoutState extends State<PanelLayout> {
   /// extension when available and falling back to sniffing the file content
   /// (so untitled buffers still show the right icon).
   String _detectLanguageExt() {
-    final path = widget.fileService.currentFilePath ?? '';
-    final source = path.isNotEmpty ? path : widget.fileService.fileName;
-    final dot = source.lastIndexOf('.');
-    var ext = '';
-    if (dot >= 0 && dot < source.length - 1) {
-      ext = source.substring(dot + 1).toLowerCase();
-    }
+    final tab = widget.fileService.activeTab;
+    // The one resolver the runner and the highlighter also use: the tab's own
+    // selection wins, then the extension, then content sniffing. The logo can
+    // therefore never contradict Run/Debug.
+    final hasExtension = LanguageConfig.fromExtensionOrNull(
+      tab?.filePath ?? tab?.fileName,
+    ) != null;
+    if (!hasExtension && (tab?.content ?? '').trim().isEmpty) return '';
 
-    switch (ext) {
+    switch (LanguageConfig.resolveTab(tab).language.highlightLanguage) {
       case 'dart':
         return 'dart';
-      case 'py':
+      case 'python':
         return 'py';
       case 'c':
         return 'c';
       case 'cpp':
-      case 'cc':
-      case 'cxx':
-      case 'h':
-      case 'hpp':
         return 'cpp';
-      case 's':
+      case 'armasm':
         return 'asm';
-    }
-
-    // No usable extension (e.g. "Untitled") -> sniff the buffer content.
-    final content = widget.fileService.fileContent;
-    if (content.isEmpty) return '';
-    if (content.contains("import '") ||
-        content.contains('import "') ||
-        content.contains('void main(') ||
-        content.contains('extends ')) {
-      return 'dart';
-    }
-    if (content.contains('#include')) {
-      return (content.contains('std::') ||
-              content.contains('namespace') ||
-              content.contains('cout') ||
-              content.contains('iostream'))
-          ? 'cpp'
-          : 'c';
-    }
-    if (RegExp(r'^\s*def\s+\w+\s*\(', multiLine: true).hasMatch(content) ||
-        RegExp(r'^\s*print\s*\(', multiLine: true).hasMatch(content)) {
-      return 'py';
-    }
-    // ARM64 assembly saved without an extension: assembled source always
-    // carries at least one directive or a `_main:` entry label.
-    if (RegExp(
-      r'^\s*(\.globl|\.global|\.text|\.section|\.p2align|_main:|main:)',
-      multiLine: true,
-    ).hasMatch(content)) {
-      return 'asm';
     }
     return '';
   }
 
-  /// Dropdown that lets the user pick the run/debug language explicitly
-  /// ("Auto" keeps the automatic content/extension detection).
+  /// Compact retro language selector ("Auto" keeps the automatic
+  /// content/extension detection).
+  ///
+  /// Deliberately not a [DropdownButton]: Material forces an item height of at
+  /// least 48 px, which was taller than the 44 px panel header. A
+  /// [PopupMenuButton] with a sunken 28 px field keeps the header tidy while
+  /// the menu itself uses the app's retro popup border.
   Widget _buildLanguageDropdown() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 4),
-      decoration: RetroBorder.sunken(
-        backgroundColor: ThemeService.instance.uiColors['panel'],
-      ),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<String>(
-          value: _selectedLanguage,
-          isDense: true,
-          items: const ['Auto', 'Dart', 'Python', 'C', 'C++', 'ARM64 Assembly']
-              .map(
-                (lang) => DropdownMenuItem<String>(
-                  value: lang,
-                  child: Text(
-                    lang,
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: ThemeService.instance.uiColors['text'],
-                    ),
-                  ),
-                ),
-              )
-              .toList(),
-          onChanged: (value) {
-            setState(() => _selectedLanguage = value ?? 'Auto');
-            widget.dartRunnerService.setPreferredLanguage(_selectedLanguage);
-          },
-          style: TextStyle(
-            fontSize: 11,
-            color: ThemeService.instance.uiColors['text'],
+    final uiColors = ThemeService.instance.uiColors;
+    final value = widget.fileService.activeLanguageOverride;
+    return PopupMenuButton<String>(
+      key: kLanguageDropdownKey,
+      tooltip: 'Language',
+      initialValue: value,
+      position: PopupMenuPosition.under,
+      offset: const Offset(0, 2),
+      color: uiColors['panel'],
+      elevation: 0,
+      shape: const RetroPopupShape(),
+      menuPadding: const EdgeInsets.symmetric(vertical: 2),
+      constraints: const BoxConstraints(minWidth: 120),
+      onSelected: (language) {
+        // Per tab, in memory: the shell/editor pick it up from the tab and
+        // re-highlight immediately (text, caret and scroll are untouched).
+        widget.fileService.setActiveLanguage(language);
+      },
+      itemBuilder: (context) => [
+        for (final language in kLanguageOptions)
+          PopupMenuItem<String>(
+            value: language,
+            height: 30,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: Text(
+              language,
+              style: TextStyle(
+                fontSize: 11,
+                color: uiColors['text'],
+                fontWeight: language == value
+                    ? FontWeight.bold
+                    : FontWeight.normal,
+              ),
+            ),
           ),
-          dropdownColor: ThemeService.instance.uiColors['panel'],
-          underline: const SizedBox(),
+      ],
+      child: Container(
+        height: 28,
+        padding: const EdgeInsets.only(left: 8, right: 4),
+        decoration: RetroBorder.sunken(backgroundColor: uiColors['panel']),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              value,
+              key: kLanguageDropdownLabelKey,
+              style: TextStyle(fontSize: 12, color: uiColors['text']),
+            ),
+            const SizedBox(width: 3),
+            Icon(Icons.arrow_drop_down, size: 18, color: uiColors['text']),
+          ],
         ),
       ),
     );

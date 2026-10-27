@@ -152,19 +152,19 @@ class _ConsolePanelState extends State<ConsolePanel> {
               ),
               const Spacer(),
               RetroButton(
-                height: 22,
+                height: kRetroHeaderButtonHeight,
                 onPressed: _copyAll,
                 child: const Text('Copy All'),
               ),
               const SizedBox(width: 4),
               RetroButton(
-                height: 22,
+                height: kRetroHeaderButtonHeight,
                 onPressed: _copyErrors,
                 child: const Text('Copy Errors'),
               ),
               const SizedBox(width: 8),
               RetroButton(
-                height: 22,
+                height: kRetroHeaderButtonHeight,
                 onPressed: () {
                   setState(() {
                     _outputLines.clear();
@@ -178,7 +178,7 @@ class _ConsolePanelState extends State<ConsolePanel> {
           Expanded(
             child: Container(
               decoration: RetroBorder.sunken(
-                backgroundColor: const Color(0xFFFFFFFF),
+                backgroundColor: kEditorBackgroundColor,
               ),
               padding: const EdgeInsets.all(8),
               child: ListView.builder(

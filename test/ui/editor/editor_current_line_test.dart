@@ -58,7 +58,7 @@ Finder _gutterCaretTint() => find.byWidgetPredicate(
   (widget) =>
       widget is Container &&
       widget.color ==
-          ThemeService.instance.colors.selection.withValues(alpha: 0.10),
+          ThemeService.instance.colors.selection.withValues(alpha: 0.14),
   description: 'gutter caret tint',
 );
 
@@ -137,16 +137,17 @@ void main() {
     );
     await tester.pump();
 
-    final accent = ThemeService.instance.colors.selection;
+    // The caret's line is emphasised with the theme's strong text colour.
+    final strong = ThemeService.instance.colors.text;
 
     // Nothing tapped yet: the caret sits on line 1.
-    expect(tester.widget<Text>(find.text('1')).style!.color, accent);
-    expect(tester.widget<Text>(find.text('2')).style!.color, isNot(accent));
+    expect(tester.widget<Text>(find.text('1')).style!.color, strong);
+    expect(tester.widget<Text>(find.text('2')).style!.color, isNot(strong));
 
     await tapEmptyTail(tester, 1);
 
-    expect(tester.widget<Text>(find.text('2')).style!.color, accent);
-    expect(tester.widget<Text>(find.text('1')).style!.color, isNot(accent));
+    expect(tester.widget<Text>(find.text('2')).style!.color, strong);
+    expect(tester.widget<Text>(find.text('1')).style!.color, isNot(strong));
 
     // Exactly one gutter row carries the caret tint - the caret's own row.
     expect(_gutterCaretTint(), findsOneWidget);

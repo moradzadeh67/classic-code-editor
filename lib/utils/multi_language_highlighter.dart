@@ -142,8 +142,8 @@ class MultiLanguageHighlighter {
     _SyntaxCategory.variable: TextStyle(color: variableColor),
   };
 
-  /// The Colorful scheme: eleven distinct colors tuned for the shared
-  /// `#E8F1FF` editor background (all at roughly 4.5:1 contrast or better).
+  /// The Colorful scheme: accent colors tuned for the shared `#fbfbf9`
+  /// editor background (see `kEditorBackgroundColor`).
   ///
   /// Identifiers and parameter lists keep the default text color, which is what
   /// the editor paints when a category has no color of its own.
@@ -156,7 +156,7 @@ class MultiLanguageHighlighter {
       color: Color(0xFF8F5A00),
       fontWeight: FontWeight.bold,
     ),
-    _SyntaxCategory.string: TextStyle(color: Color(0xFF007A1F)),
+    _SyntaxCategory.string: TextStyle(color: colorfulStringColor),
     _SyntaxCategory.number: TextStyle(color: Color(0xFFB34A00)),
     _SyntaxCategory.type: TextStyle(color: Color(0xFF00718F)),
     _SyntaxCategory.builtIn: TextStyle(color: Color(0xFFC2185B)),
@@ -181,7 +181,7 @@ class MultiLanguageHighlighter {
       fontWeight: FontWeight.bold,
     ),
     _SyntaxCategory.comment: TextStyle(
-      color: Color(0xFF596E48),
+      color: colorfulCommentColor,
       fontStyle: FontStyle.italic,
     ),
     // Plain identifiers. Written out instead of relying on inheritance, because
@@ -484,8 +484,17 @@ class MultiLanguageHighlighter {
   static CodeController createController({
     required String text,
     String? filePath,
+    String preferredLanguage = 'Auto',
   }) {
-    final config = LanguageConfig.fromPathOrContent(filePath, text);
+    // One resolver shared with the runner and the logo (see
+    // `LanguageConfig.resolveTab`): the colors can never disagree with them.
+    // [preferredLanguage] is the tab's own dropdown value, so an explicit
+    // choice re-colors the buffer instead of being overridden by the extension.
+    final config = LanguageConfig.resolve(
+      filePath,
+      text,
+      preferredLanguage: preferredLanguage,
+    ).language;
     final mode = getModeForLanguage(config.highlightLanguage);
     return CodeController(text: text, language: mode);
   }
@@ -512,7 +521,12 @@ class DartHighlighter {
 /// single edit.
 const Color colorfulOperatorColor = Color(0xFF687d01); // #687d01
 const Color colorfulCurlyBraceColor = Color(0xFF1e64d8); // #1e64d8 (bold braces)
+const Color colorfulStringColor = Color(0xFF409175); // #409175 (green strings, Colorful only)
+
 const Color colorfulSquareBracketColor = Color(0xFF00796f); // #00796f (bold brackets)
+
+/// Colorful comments: neutral grey, italic. Standard keeps `#596E48` italic.
+const Color colorfulCommentColor = Color(0xFF666666); // #666666 (italic)
 
 enum _SyntaxCategory {
   keyword,

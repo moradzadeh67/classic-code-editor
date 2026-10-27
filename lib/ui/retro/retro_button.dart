@@ -3,6 +3,11 @@ import 'package:flutter/material.dart';
 import 'retro_colors.dart';
 import 'retro_border.dart';
 
+/// Height shared by the small action buttons in a panel header (the Console's
+/// Copy All / Copy Errors / Clear and the File Explorer's Open Folder...), so
+/// they can never drift apart by a stray number.
+const double kRetroHeaderButtonHeight = 22;
+
 /// A retro (3D raised / sunken) push button.
 ///
 /// Height defaults to the authentic VCL tool-button height (22px) or can be customized.
@@ -34,7 +39,7 @@ class _RetroButtonState extends State<RetroButton> {
   Widget build(BuildContext context) {
     final bool pressed = widget.isPressed || _isDown;
     final enabled = widget.onPressed != null;
-    final buttonHeight = widget.height ?? 22.0;
+    final buttonHeight = widget.height ?? kRetroHeaderButtonHeight;
 
     return GestureDetector(
       onTapDown: enabled ? (_) => setState(() => _isDown = true) : null,

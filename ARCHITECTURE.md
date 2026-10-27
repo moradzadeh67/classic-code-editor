@@ -13,7 +13,7 @@ Borland Delphi (beige), Visual Basic 6.0, and Turbo Pascal 7.0 (DOS navy).
 - No business logic
 - No SDK calls
 - Observes state from Services via ThemeService or ChangeNotifier
-- `explorer/` (placeholder - the file explorer lives in shell/panel_layout.dart)
+- `explorer/file_explorer_panel.dart` — the retro folder tree (see *File Explorer* below)
 
 ### 2. Services Layer (lib/services/)
 - All business logic
@@ -44,6 +44,33 @@ Borland Delphi (beige), Visual Basic 6.0, and Turbo Pascal 7.0 (DOS navy).
   Diagnostics and Terminal via an internal retro tab strip.
 - `retro_status_bar.dart` — 24px; status text + analysis counts + LSP status +
   `Ln x, Col y`.
+
+### File Explorer
+`File > Open Folder...` (`Cmd+Shift+O`), the panel's empty-state button or a
+restored session gives `FileExplorerService` a root path; a double-clicked file
+goes through `onOpenFile` to the shell, which applies the guards and then calls
+the same `FileService` path *Open Recent* uses (open tabs are reused).
+
+- **Model.** `lib/models/file_node.dart` — `path`, `name`, `isDirectory`,
+  `children`, `childrenLoaded`, `expanded`, `isTruncationNotice`. Plain Dart.
+- **Service.** `lib/services/file_explorer_service.dart` — reads **one**
+  directory per call, synchronously (a widget callback cannot await a
+  `Directory.list()` future under the test clock), so a folder's `children` stay
+  empty until it is expanded. Each level is sorted folders-first then
+  case-insensitively; dot names and `build` / `.dart_tool` / `node_modules` /
+  `__pycache__` / `.DS_Store` are hidden; more than `maxEntries` (2000) entries
+  collapse into one "… N more not shown" row; a `FileSystemException` yields an
+  empty folder instead of a crash. `refresh()` re-reads what was expanded;
+  `revealFile()` opens the folders leading to the active tab.
+- **Open guards.** `readFileForOpen()` refuses files over 2 MB and files with a
+  NUL byte in their first 4 KB; the shell prints one Console line
+  (`Not opened: binary or too large`) and opens nothing.
+- **Persistence.** `SessionService` keeps `openFolderPath` next to the tab list
+  and the session reopens it only when the directory still exists.
+- **Refresh on save.** `IDEShell._handleSave()` re-reads the tree when the saved
+  file lives inside the open folder; the header also has a ⟳ button.
+- **No mutations.** Create / rename / delete / drag-and-drop are out of scope:
+  the explorer is read-only apart from opening files and toggling folders.
 
 ### 3. Models Layer (lib/models/)
 - Plain Dart classes
@@ -141,6 +168,37 @@ server actually has open — not the tab's display name. An Untitled buffer live
 as `untitled.<ext>` in `UnsavedBufferWorkspace`; asking the server about
 `Untitled` returns no items at all, and a synthesized offline list has no `raw`
 item to resolve, so the documentation panel could never appear.
+
+### Language resolution (TASK-054)
+`LanguageConfig.resolve(filePath, content, preferredLanguage:)` is the single
+source of truth and returns a `LanguageResolution` — the language **plus** a
+`mismatch` (`null` when none). The extension stays authoritative; an explicit
+toolbar selection wins before it, and paths with no recognised extension keep
+content sniffing. A mismatch needs a recognised extension and one unambiguous
+foreign signal (Dart `import 'dart:` / `import 'package:` / `void main(`;
+Python `def `, `import sys|os`, `from … import` with no `{`/`;` line ending in
+the first 20 lines; C/C++ `#include <` with `int main(`), and is suppressed for
+content plausible to the extension (a bare `#include` in `.s`, C++ in `.c`, two
+conflicting signals). An assembly buffer is special-cased: `#include <` together
+with `int main(` / `void main(`, `std::`, `using namespace` or a C++ header is
+reported as C++ (or C when no C++ marker exists) instead of being compiled as
+assembly. Consumers: `LanguageRunnerService.runCode()` (refuses before spawning,
+prints one Console line, stays idle), the Debug button, the highlighter's
+`createController` and `PanelLayout._detectLanguageExt` — so colors, logo and
+Run/Debug can never disagree.
+
+### Per-tab language selection (TASK-079)
+`TabFile.languageOverride` (default `Auto`, memory only) holds the toolbar
+choice for that tab. `LanguageConfig.resolveTab(tab)` is the single entry point:
+the tab's selection wins, otherwise it delegates to `resolve()`. Run
+(`runActiveFile` and the toolbar callback), Debug, the highlighter and the logo
+all read it; `PanelLayout` writes it through `FileService.setActiveLanguage()`
+and rebuilds only when the active tab or its override changes. The editor swaps
+only the grammar (`_applyGrammar`) so text, caret and scroll survive. The
+language server is still chosen from the extension/content — a documented
+limitation. Tab names are unique (`Untitled`, `Untitled 2`, …) and
+`UnsavedBufferWorkspace.pathFor(config, bufferName:)` derives a distinct virtual
+document path from the name, so two untitled buffers never share diagnostics.
 
 ### Static analysis fallback (Phase 09):
 Used while the language server is unavailable
@@ -279,7 +337,12 @@ Everything vertical is derived from the renderer, never predicted:
 - **Rows.** `_rowsFromRenderer()` builds one entry per visual row (the logical line on a line's first row, `0` on continuation rows). The row *count* is the caret travel `(caret(last) - caret(first)) / lineHeight + 1`; each logical line is placed at the row its caret occupies. A `TextPainter` prediction survives only as a one-frame stopgap, because a character-count/wrap guess is wrong as soon as a glyph comes from the fallback font (a Persian line counted as one row renders as two, and every number below it sits one row high). The rebuild runs post-frame, retries while the editable is not measurable, and rejects a measurement with fewer rows than logical lines.
 - **Band.** `_bandRectForCaret()` returns `(top, height)`: `top` = `row * lineHeight` (a *grid* row, because Flutter's caret rect is inflated ~1px above its line box and using it put the highlight above the numbers), `height` = every row of the logical line, so a wrapped line is highlighted as a whole.
 - **Caret reporting.** `CodeEditorPanel.onCaretChanged(line, column)` -> `IDEShell` -> `RetroStatusBar.positionText`, so the status bar shows a live `Ln n, Col m`.
-- **Continuation rows are inert:** no number, no breakpoint, never the paused line.
+- **Caret painting.** The built-in caret is switched off (`TextField.showCursor: false`) because `EditableText` blinks on a private `_kCursorBlinkHalfPeriod` of 500 ms with no public knob, and `EditorCaret` paints a 2.5 px bar instead: 300 ms on / 300 ms off (`kEditorCaretBlinkInterval`), solid again on every text or selection change, hidden without focus or with a selection. Its rect comes from the same `_caretAnchorRect()` measurement as the popup anchor, so it follows scrolling, zoom, font changes and RTL; it is `IgnorePointer`, and its color is whatever `RenderEditable.cursorColor` resolves to.
+- **Separator.** A 1 px retro sunken edge on the gutter's right side: `borderDark` then `borderLight`, painted inside the gutter's own width (`Positioned` overlay), so the width, the row model and the number advance never change.
+- **Emphasis.** The caret's line number is bold in `colors.text` and its row is tinted with the very same `selection @ 0.14` fill as the band. Every other number is `editorLineNumberText @ 0.7` so the code stays the focus; a line with a diagnostic marker (or the paused line) keeps full strength.
+- **Diagnostic markers.** For the active document only, `LspService.activeDiagnostics` is grouped per 1-based line; the worst severity of a line paints an 8x8 square at the inner edge of the gutter — error `#D32F2F`, warning `#F9A825` (`kGutterErrorMarkerColor` / `kGutterWarningMarkerColor`) — only on the first row of a logical line. The panel listens to the server, so `publishDiagnostics` (including an empty list) and a tab switch repaint them without any new analysis. The marker is last in the row's right-hand group, so the breakpoint bullet keeps its place to its left and never overlaps; it has no gesture handler, so a tap still toggles the breakpoint.
+- **Marker tooltip.** Hovering a marker shows up to three messages (errors first, each ellipsized at 60 characters) in a `GutterDiagnosticTooltip` — `RetroBorder.raised` on the editor surface, the same look as `HoverTooltip`. It is `IgnorePointer` inside the editor Stack, so it never takes focus or a tap.
+- **Continuation rows are inert:** no number, no breakpoint, no diagnostic marker, never the paused line.
 
 The invariants are locked by `editor_click_line_test`, `editor_wrapped_gutter_test` and `editor_gutter_baseline_test`, and measured in the running app by `tool/probe_click_line.dart` and `tool/probe_baseline.dart`.
 
@@ -296,7 +359,7 @@ UI Selection: #316AC5 (XP active-selection blue)
 UI Text: #000000
 UI Error: #CC0000
 Menu Active: #316AC5 / Menu Active Text: #FFFFFF
-Editor Background: #E8F1FF (soft blue)
+Editor Background: #fbfbf9 (light neutral, shared)
 Editor Text: #000000
 Editor Selection: #000080 / Selection Text: #FFFFFF
 Editor Line-Number BG: #ECE9D8 / Text: #000000
@@ -323,7 +386,7 @@ UI Selection: #A08035 (dark mustard)
 UI Text: #000000
 UI Error: #CC0000
 Menu Active: #A08035 / Menu Active Text: #FFFFFF
-Editor Background: #E8F1FF (soft blue)
+Editor Background: #fbfbf9 (light neutral, shared)
 Editor Text: #000000
 Editor Selection: #000080 / Selection Text: #FFFFFF
 Editor Line-Number BG: #DFCD9B / Text: #000000
@@ -350,7 +413,7 @@ UI Selection: #1B3260
 UI Text: #000000
 UI Error: #CC0000
 Menu Active: #1B3260 / Menu Active Text: #FFFFFF
-Editor Background: #E8F1FF (soft blue)
+Editor Background: #fbfbf9 (light neutral, shared)
 Editor Text: #000000
 Editor Selection: #000080 / Selection Text: #FFFFFF
 Editor Line-Number BG: #C0C0C0 / Text: #000000
@@ -377,18 +440,22 @@ UI Selection: #0000A8
 UI Text: #000000
 UI Error: #CC0000
 Menu Active: #00A8A8 / Menu Active Text: #000000
-Editor Background: #E8F1FF (soft blue)
+Editor Background: #fbfbf9 (light neutral, shared)
 Editor Text: #000000
 Editor Selection: #000080 / Selection Text: #FFFFFF
 Editor Line-Number BG: #C8D0D8 / Text: #000080
 Editor Cursor: #000000
 Paused Line: #DCDCA8
 
-> NOTE: In every theme `Editor Background` is intentionally `#E8F1FF`
-> (soft blue), set in `ThemeService` — kept by design decision so the editor
-> reads clearly against each theme's chrome. This is why Turbo Pascal keeps a
-> light editor surface even though its desktop is DOS blue: the syntax palette
-> is shared by all four themes and must stay readable.
+> NOTE: In every theme `Editor Background` is intentionally `#fbfbf9`
+> (near-white), held by the single constant `kEditorBackgroundColor` in
+> `ThemeService` — kept by design decision so the editor reads clearly against
+> each theme's chrome, and so both syntax schemes are tuned against one surface.
+> The console's output area paints the very same constant, so the code pane and
+> the console pane are the same surface; neither is per-theme.
+> This is why Turbo Pascal keeps a light editor surface even though its desktop
+> is DOS blue: the syntax palette is shared by all four themes and must stay
+> readable.
 
 ### Editor syntax palette (applies to all four themes)
 The editor surface does not read the per-theme `SyntaxColors` tables above; it
@@ -417,7 +484,7 @@ one color map per scheme, so no language owns a palette:
 | curly braces (`{`, `}`) | `#031CFC` bold (same as brackets) | `#1e64d8` bold |
 | square brackets (`[`, `]`) | `#031CFC` bold (same as brackets) | `#00796f` bold |
 | brackets (`(` `)`) — parentheses unchanged | `#031CFC` bold | `#031CFC` bold |
-| comment (`comment`) | `#596E48` italic | `#596E48` italic |
+| comment (`comment`) | `#596E48` italic | `#666666` italic |
 | identifiers (`params`, `variable`) | `#283593` / `#1A237E` | default text |
 
 Standard reproduces the classic palette byte for byte (an untouched settings file

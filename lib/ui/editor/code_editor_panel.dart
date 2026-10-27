@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_code_editor/flutter_code_editor.dart';
 
 import '../../models/debugger_models.dart';
+import '../../models/diagnostic.dart';
 import '../../models/language_config.dart';
 import '../../models/lsp_models.dart';
 import 'editor_metrics.dart';
@@ -20,6 +21,7 @@ import '../../utils/completion_edit_applier.dart';
 import '../../utils/completion_insert.dart';
 import '../../utils/dart_snippets.dart';
 import '../../utils/multi_language_highlighter.dart';
+import '../retro/retro_border.dart';
 import 'autocomplete_popup.dart';
 import 'completion_doc_panel.dart';
 import 'hover_tooltip.dart';
@@ -48,6 +50,177 @@ const double editorLineHeightFactor = editorLineHeight / editorFontSize;
 
 /// Letter spacing that the editor text really renders with.
 ///
+/// Caret width in logical pixels. Flutter's default is 2.0.
+const double kEditorCaretWidth = 2.5;
+
+/// How long the caret stays painted, and how long it stays hidden.
+///
+/// Flutter has no public knob for this: `EditableText` blinks on a private
+/// `_kCursorBlinkHalfPeriod` of 500 ms (exposed only through a
+/// `@visibleForTesting` getter), so the built-in caret is switched off and this
+/// widget paints the caret instead.
+const Duration kEditorCaretBlinkInterval = Duration(milliseconds: 300);
+
+/// Size of the square diagnostic marker painted at the gutter's inner edge.
+const double kGutterMarkerSize = 8;
+
+/// Diagnostic marker colors: errors are red, warnings amber. A line that has
+/// both shows the error.
+const Color kGutterErrorMarkerColor = Color(0xFFD32F2F);
+const Color kGutterWarningMarkerColor = Color(0xFFF9A825);
+
+/// Key of the diagnostic marker on [line] (1-based), for widget tests.
+Key gutterMarkerKey(int line) => ValueKey<String>('gutter-marker-$line');
+
+/// A retro-styled tooltip for the gutter's diagnostic markers.
+///
+/// Deliberately not a `Tooltip`: it must never take focus or a gesture, so the
+/// row's tap (toggle breakpoint) keeps working underneath it.
+class GutterDiagnosticTooltip extends StatelessWidget {
+  const GutterDiagnosticTooltip({
+    super.key,
+    required this.lines,
+    required this.position,
+  });
+
+  /// Already truncated messages, error before warning, at most three.
+  final List<String> lines;
+
+  /// Top-left corner in the editor Stack's coordinates.
+  final Offset position;
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      left: position.dx,
+      top: position.dy,
+      child: ListenableBuilder(
+        listenable: ThemeService.instance,
+        builder: (context, _) {
+          final uiColors = ThemeService.instance.uiColors;
+          return IgnorePointer(
+            child: Container(
+              constraints: const BoxConstraints(maxWidth: 340),
+              padding: const EdgeInsets.all(6),
+              decoration: RetroBorder.raised(
+                backgroundColor: uiColors['editorBackground'],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (final line in lines)
+                    Text(
+                      line,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontFamily: 'Menlo',
+                        color: uiColors['editorText'],
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// The editor's caret: a 2.5 px bar that blinks 300 ms on / 300 ms off.
+///
+/// * [resetToken] changes whenever the text or the selection changes, so typing
+///   or moving the caret makes the bar solid again and restarts the clock.
+/// * [active] is false when the editor has no focus or the text is selected, and
+///   the bar is then not painted at all (no timer runs either).
+/// * The rect is measured by the panel from the live `RenderEditable`, so it
+///   follows scrolling, zoom and font changes; it is also correct for RTL.
+class EditorCaret extends StatefulWidget {
+  const EditorCaret({
+    super.key,
+    required this.rect,
+    required this.color,
+    required this.resetToken,
+    required this.active,
+    this.width = kEditorCaretWidth,
+  });
+
+  /// Caret rectangle in the editor Stack's coordinates.
+  final Rect rect;
+
+  /// Same color the built-in caret used.
+  final Color color;
+
+  /// Any change restarts the blink with the caret visible.
+  final Object? resetToken;
+
+  /// Whether a solid caret should be painted at all.
+  final bool active;
+
+  final double width;
+
+  @override
+  State<EditorCaret> createState() => _EditorCaretState();
+}
+
+class _EditorCaretState extends State<EditorCaret> {
+  Timer? _timer;
+  bool _visible = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _restart();
+  }
+
+  @override
+  void didUpdateWidget(covariant EditorCaret oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.active != widget.active ||
+        oldWidget.resetToken != widget.resetToken) {
+      _restart();
+    }
+  }
+
+  /// Shows the caret immediately and starts the 300 ms on/off clock again.
+  void _restart() {
+    _timer?.cancel();
+    if (!widget.active) {
+      if (_visible) _visible = false;
+      return;
+    }
+    _visible = true;
+    _timer = Timer.periodic(kEditorCaretBlinkInterval, (_) {
+      if (!mounted) return;
+      setState(() => _visible = !_visible);
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final on = widget.active && _visible;
+    return Positioned(
+      left: widget.rect.left,
+      top: widget.rect.top,
+      width: on ? widget.width : 0,
+      height: on ? widget.rect.height : 0,
+      child: IgnorePointer(
+        child: ColoredBox(key: kEditorCaretKey, color: widget.color),
+      ),
+    );
+  }
+}
+
+/// Key on the caret bar, so widget tests can assert on its visibility.
+const Key kEditorCaretKey = ValueKey<String>('editor-caret');
+
 /// [CodeField] merges its `textStyle` onto the ambient Material `bodyLarge`
 /// style, which contributes `letterSpacing: 0.5`. That extra half pixel per
 /// character is *not* part of a default `TextStyle`, so measuring wrap width
@@ -129,6 +302,12 @@ class CodeEditorPanel extends StatefulWidget {
   final BaseDebugger? debugger;
   final CodeController? controller;
 
+  /// The active tab's own toolbar language selection ("Auto" by default).
+  ///
+  /// Only the grammar is affected here: choosing Dart on a `.s` buffer keeps
+  /// its text, caret and scroll position and just re-highlights it.
+  final String languageOverride;
+
   /// Called with the 1-based logical line and column whenever the caret moves,
   /// so the shell can show `Ln 12, Col 5` in the status bar.
   final void Function(int line, int column)? onCaretChanged;
@@ -139,6 +318,7 @@ class CodeEditorPanel extends StatefulWidget {
     required this.lspService,
     this.debugger,
     this.controller,
+    this.languageOverride = 'Auto',
     this.onCaretChanged,
   });
 
@@ -235,6 +415,24 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
   }
   int? _lastActiveTabIndex;
 
+  /// True while a grammar swap is being applied. Assigning
+  /// [CodeController.language] notifies every listener, and that notification
+  /// must never be mistaken for a text edit (it would write the buffer back to
+  /// [FileService] in the middle of a build).
+  bool _swappingLanguage = false;
+
+  /// Swaps only the grammar, keeping text, caret and scroll position.
+  void _applyGrammar(String highlightLanguage) {
+    final mode = MultiLanguageHighlighter.getModeForLanguage(highlightLanguage);
+    if (mode == _controller.language) return;
+    _swappingLanguage = true;
+    try {
+      _controller.language = mode;
+    } finally {
+      _swappingLanguage = false;
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -244,25 +442,31 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
         MultiLanguageHighlighter.createController(
           text: widget.fileService.fileContent,
           filePath: _filePath,
+          preferredLanguage: widget.languageOverride,
         );
     // A controller handed in by the shell (`CodeController()` with no language)
     // renders every token in the default text color, so the initial file needs
     // its grammar applied here — not only on the next tab switch.
-    _controller.language = MultiLanguageHighlighter.getModeForLanguage(
-      LanguageConfig.fromPathOrContent(
+    _applyGrammar(
+      LanguageConfig.resolve(
         _filePath,
         widget.fileService.fileContent,
-      ).highlightLanguage,
+        preferredLanguage: widget.languageOverride,
+      ).language.highlightLanguage,
     );
     _controller.addListener(_onTextChanged);
     _controller.addListener(_onCaretMoved);
     _controller.addListener(_queueBandUpdate);
     _editorScrollController.addListener(_syncGutterScroll);
     _editorScrollController.addListener(_queueBandUpdate);
+    _focusNode.addListener(_onEditorFocusChanged);
+    widget.lspService.addListener(_onDiagnosticsChanged);
     widget.fileService.addListener(_onFileServiceChanged);
     widget.debugger?.addListener(_onDebuggerChanged);
     EditorSettingsService.instance.addListener(_onEditorSettingsChanged);
     _lastActiveTabIndex = widget.fileService.activeTabIndex;
+    // The caret rect is measured from the renderer, so it needs one layout pass.
+    _queueBandUpdate();
   }
 
   @override
@@ -274,11 +478,26 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
       oldWidget.debugger?.removeListener(_onDebuggerChanged);
       widget.debugger?.addListener(_onDebuggerChanged);
     }
+    // A dropdown change only swaps the grammar: the text, caret and scroll
+    // position stay exactly where they are.
+    if (oldWidget.languageOverride != widget.languageOverride) {
+      _applyGrammar(
+        LanguageConfig.resolve(
+          _filePath,
+          _controller.text,
+          preferredLanguage: widget.languageOverride,
+        ).language.highlightLanguage,
+      );
+    }
     if (oldWidget.fileService != widget.fileService ||
         oldWidget.lspService != widget.lspService) {
       oldWidget.fileService.removeListener(_onFileServiceChanged);
       widget.fileService.addListener(_onFileServiceChanged);
       _updateControllerText();
+    }
+    if (oldWidget.lspService != widget.lspService) {
+      oldWidget.lspService.removeListener(_onDiagnosticsChanged);
+      widget.lspService.addListener(_onDiagnosticsChanged);
     }
   }
 
@@ -297,11 +516,17 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
     _editorScrollController.dispose();
     _gutterScrollController.dispose();
     _controller.dispose();
+    widget.lspService.removeListener(_onDiagnosticsChanged);
+    _focusNode.removeListener(_onEditorFocusChanged);
     _focusNode.dispose();
     super.dispose();
   }
 
   void _onTextChanged() {
+    // A grammar swap notifies the controller too; it is not a text edit.
+    if (_swappingLanguage) return;
+    // Any edit makes the caret solid again (see [EditorCaret]).
+    _caretResetStamp++;
     if (_programmaticText != null && _controller.text == _programmaticText) {
       _programmaticText = null;
       return;
@@ -313,12 +538,13 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
     // An untitled buffer has no extension, so its grammar can only come from
     // the content: keep re-sniffing while it is typed instead of staying on the
     // Dart fallback (which painted Python as plain text).
-    final mode = MultiLanguageHighlighter.getModeForLanguage(
-      LanguageConfig.fromPathOrContent(_filePath, newText).highlightLanguage,
+    _applyGrammar(
+      LanguageConfig.resolve(
+        _filePath,
+        newText,
+        preferredLanguage: widget.languageOverride,
+      ).language.highlightLanguage,
     );
-    if (mode != _controller.language) {
-      _controller.language = mode;
-    }
 
     // Auto-clean breakpoints when text is cleared or lines are deleted
     if (widget.debugger != null) {
@@ -398,6 +624,9 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
   void _onCaretMoved() {
     final selection = _controller.selection;
     if (!selection.isValid) return;
+    // Moving the caret makes the custom caret solid again and restarts its blink.
+    _caretResetStamp++;
+    if (!mounted) return;
     final text = _controller.text;
     final offset = selection.extentOffset.clamp(0, text.length);
     var line = 1;
@@ -426,6 +655,100 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
     return start;
   }
 
+  /// The custom caret is only painted while the editor really owns the caret:
+  /// focused, and with a collapsed selection (a selection paints its highlight
+  /// instead of a caret, exactly like the built-in one).
+  void _onEditorFocusChanged() {
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  /// Diagnostics of the **active document**, grouped by 1-based logical line.
+  ///
+  /// Read from the per-URI map the language server already fills; this never
+  /// starts an analysis of its own. Errors sort before warnings, so the marker
+  /// colour and the tooltip both pick the error when a line has both.
+  Map<int, List<Diagnostic>> _diagnosticsByLine() {
+    final byLine = <int, List<Diagnostic>>{};
+    for (final diagnostic in widget.lspService.activeDiagnostics) {
+      if (diagnostic.line < 1) continue;
+      (byLine[diagnostic.line] ??= <Diagnostic>[]).add(diagnostic);
+    }
+    for (final list in byLine.values) {
+      list.sort((a, b) => _severityRank(a).compareTo(_severityRank(b)));
+    }
+    return byLine;
+  }
+
+  static int _severityRank(Diagnostic diagnostic) {
+    if (diagnostic.severity == 'error') return 0;
+    if (diagnostic.severity == 'warning') return 1;
+    return 2;
+  }
+
+  /// Red for an error, amber for a warning, null when the line is clean.
+  static Color? _markerColorFor(List<Diagnostic>? diagnostics) {
+    if (diagnostics == null || diagnostics.isEmpty) return null;
+    final worst = diagnostics.first.severity;
+    if (worst == 'error') return kGutterErrorMarkerColor;
+    if (worst == 'warning') return kGutterWarningMarkerColor;
+    return null;
+  }
+
+  /// Shows the retro tooltip for [diagnostics], anchored at the pointer.
+  void _showGutterTooltip(List<Diagnostic> diagnostics, Offset global) {
+    final lines = <String>[
+      for (final diagnostic in diagnostics.take(3))
+        _ellipsize(diagnostic.message, 60),
+    ];
+    if (lines.isEmpty) return;
+    final stackBox =
+        _editorStackKey.currentContext?.findRenderObject() as RenderBox?;
+    final local = stackBox == null
+        ? global
+        : stackBox.globalToLocal(global);
+    final bounds = _editorBounds();
+    setState(() {
+      _gutterTooltipLines = lines;
+      _gutterTooltipPosition = Offset(
+        local.dx + 12,
+        (local.dy + 12).clamp(0.0, (bounds.height - 24).clamp(0.0, double.infinity)),
+      );
+    });
+  }
+
+  void _hideGutterTooltip() {
+    if (_gutterTooltipLines == null) return;
+    setState(() {
+      _gutterTooltipLines = null;
+      _gutterTooltipPosition = null;
+    });
+  }
+
+  static String _ellipsize(String text, int max) {
+    final single = text.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (single.length <= max) return single;
+    return '${single.substring(0, max - 1)}…';
+  }
+
+  /// Keeps the gutter markers in step with `textDocument/publishDiagnostics`.
+  void _onDiagnosticsChanged() {
+    if (!mounted) return;
+    setState(() {
+      // A line that lost its diagnostics must lose its tooltip too.
+      if (widget.lspService.activeDiagnostics.isEmpty) {
+        _gutterTooltipLines = null;
+        _gutterTooltipPosition = null;
+      }
+    });
+  }
+
+  bool get _showEditorCaret =>
+      _focusNode.hasFocus &&
+      !_controller.readOnly &&
+      _controller.selection.isValid &&
+      _controller.selection.isCollapsed;
+
   /// Recomputes the band position in a post-frame callback.
   ///
   /// The position must come from the frame's **final** layout: when a click or
@@ -443,10 +766,17 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
           (rect.top - (_bandTop ?? double.negativeInfinity)).abs() < 0.01;
       final sameHeight =
           (rect.height - (_bandHeight ?? double.negativeInfinity)).abs() < 0.01;
-      if (sameTop && sameHeight) return;
+      final caret = _caretAnchorRect();
+      final caretColor = _renderEditable()?.cursorColor;
+      final sameCaret =
+          caret == _caretRect &&
+          (caretColor == null || caretColor == _caretColor);
+      if (sameTop && sameHeight && sameCaret) return;
       setState(() {
         _bandTop = rect.top;
         _bandHeight = rect.height;
+        _caretRect = caret;
+        if (caretColor != null) _caretColor = caretColor;
       });
     });
   }
@@ -454,6 +784,24 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
   bool _bandUpdateQueued = false;
   double? _bandTop;
   double? _bandHeight;
+
+  /// Caret rectangle in the editor Stack's coordinates, measured from the live
+  /// `RenderEditable` in the same post-frame pass as the band.
+  Rect? _caretRect;
+
+  /// The color the built-in caret would have painted, read from the renderer so
+  /// the custom caret never disagrees with it.
+  Color? _caretColor;
+
+  /// Bumped on every text or selection change: the custom caret shows itself and
+  /// restarts its blink when this changes.
+  int _caretResetStamp = 0;
+
+  /// Messages of the gutter marker under the mouse, or null when no tooltip.
+  List<String>? _gutterTooltipLines;
+
+  /// Where that tooltip is painted, in the editor Stack's coordinates.
+  Offset? _gutterTooltipPosition;
 
   /// Geometry of the current-line band, in the editor Stack's local coords.
   ///
@@ -602,6 +950,8 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
         if (!mounted) return;
         _syncGutterScroll();
         _queueGutterRowsRebuild();
+        // Zoom or a font change moves the caret: re-measure it.
+        _queueBandUpdate();
       });
     }
   }
@@ -615,10 +965,12 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
 
   void _updateControllerText() {
     final newContent = widget.fileService.fileContent;
-    final config = LanguageConfig.fromPathOrContent(_filePath, newContent);
-    _controller.language = MultiLanguageHighlighter.getModeForLanguage(
-      config.highlightLanguage,
-    );
+    final config = LanguageConfig.resolve(
+      _filePath,
+      newContent,
+      preferredLanguage: widget.languageOverride,
+    ).language;
+    _applyGrammar(config.highlightLanguage);
     if (_controller.text != newContent) {
       _programmaticText = newContent;
       _controller.text = newContent;
@@ -1900,6 +2252,9 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
                           keyWidth,
                           MediaQuery.textScalerOf(context),
                         );
+                        // Diagnostics of the active document, grouped by line.
+                        // Read from the per-URI map the server already fills.
+                        final diagnosticsByLine = _diagnosticsByLine();
                         // The exact rows come from the renderer's own line
                         // metrics; schedule that pass for every width/text
                         // change (the value above is a one-frame stopgap).
@@ -1922,189 +2277,295 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
                                   .instance
                                   .colors
                                   .editorLineNumberBg,
-                              // The gutter never scrolls on its own: it only
-                              // mirrors the editor. A user-scrollable gutter
-                              // used to slide the numbers while the code stayed
-                              // put, so scrolling is disabled here and the
-                              // editor owns the scroll.
-                              child: ListView.builder(
-                                controller: _gutterScrollController,
-                                physics: const NeverScrollableScrollPhysics(),
-                                itemCount: gutterRows.length,
-                                itemExtent: _metrics.lineHeight,
-                                itemBuilder: (context, index) {
-                                  final lineNumber = gutterRows[index];
-                                  if (lineNumber == 0) {
-                                    // Continuation row of a wrapped line: keep the
-                                    // height so everything below stays aligned.
-                                    return SizedBox(
-                                      height: _metrics.lineHeight,
-                                    );
-                                  }
-                                  // `lineNumber` is `0` on the continuation rows
-                                  // of a wrapped line: they carry no number, no
-                                  // breakpoint and can never be the paused line.
-                                  final hasBp =
-                                      lineNumber > 0 &&
-                                      _hasBreakpoint(lineNumber);
-                                  final debugger = widget.debugger;
-                                  // Keep the marker while the debugger owns a
-                                  // paused line and has not been torn down, so it
-                                  // also survives a plain `running` step.
-                                  final isPausedLine =
-                                      debugger != null &&
-                                      lineNumber > 0 &&
-                                      debugger.currentPausedLine ==
-                                          lineNumber &&
-                                      debugger.state != DebugState.inactive;
-                                  // Twice the size the old `●` glyph painted
-                                  // (a 12px glyph draws a ~7px dot), kept inside
-                                  // one row so it never overlaps its neighbours.
-                                  final markerDiameter =
-                                      _metrics.lineHeight * 0.7;
-                                  // The caret's row is tinted in the gutter as
-                                  // well (IntelliJ does this), but the paused
-                                  // line keeps its own stronger colour so the
-                                  // two never fight.
-                                  final gutterTint = isPausedLine
-                                      ? ThemeService.instance.colors.pausedLine
-                                      : lineNumber == _caretLine
-                                      ? ThemeService.instance.colors.selection
-                                            .withValues(alpha: 0.10)
-                                      : null;
-                                  return GestureDetector(
-                                    onTap: lineNumber > 0
-                                        ? () => _toggleBreakpoint(lineNumber)
-                                        : null,
-                                    behavior: HitTestBehavior.opaque,
-                                    child: Container(
-                                      height: _metrics.lineHeight,
-                                      color: gutterTint,
-                                      padding: const EdgeInsets.only(
-                                        left: 2,
-                                        right: gutterScrollbarInset,
-                                      ),
-                                      // Top-aligned: the number's line box
-                                      // starts on the same row grid as the
-                                      // code, so line 1 of both begin at the
-                                      // same y and every row below matches.
-                                      alignment: Alignment.topLeft,
-                                      child: Row(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.center,
-                                        children: [
-                                          // Numbers first: the gutter's own
-                                          // scrollbar owns the right edge, so
-                                          // digits stay clear of it.
-                                          Text(
-                                            '$lineNumber',
-                                            // The very same strut the code uses:
-                                            // it fixes the row height AND the
-                                            // baseline position, so the digit
-                                            // sits on the code's baseline by
-                                            // construction.
-                                            strutStyle: _metrics.strutStyle,
-                                            // Proportional leading, set
-                                            // explicitly so the ambient
-                                            // `TextHeightBehavior` cannot move
-                                            // the digit off the code's baseline.
-                                            textHeightBehavior:
-                                                const TextHeightBehavior(
-                                                  leadingDistribution:
-                                                      TextLeadingDistribution
-                                                          .proportional,
-                                                ),
-                                            // The caret's line is emphasised in
-                                            // the gutter too, the way Xcode and
-                                            // VS Code show the active line.
-                                            style: TextStyle(
-                                              // Same family as the code, so a
-                                              // number never looks foreign
-                                              // beside the text it labels.
-                                              fontFamily: _metrics.fontFamily,
-                                              fontFamilyFallback: const [
-                                                EditorMetrics.fallbackFamily,
-                                              ],
-                                              fontSize:
-                                                  _metrics.lineNumberFontSize,
-                                              height:
-                                                  _metrics.lineHeight /
-                                                  _metrics.lineNumberFontSize,
-                                              fontWeight:
-                                                  lineNumber == _caretLine
-                                                  ? FontWeight.bold
-                                                  : null,
-                                              color: lineNumber == _caretLine
-                                                  ? ThemeService
-                                                        .instance
-                                                        .colors
-                                                        .selection
-                                                  : ThemeService
-                                                        .instance
-                                                        .colors
-                                                        .editorLineNumberText,
-                                            ),
+                              // A 1 px retro "sunken" edge between the gutter
+                              // and the code: a dark line with the theme's light
+                              // border right beside it. Painted inside the
+                              // gutter's own width, so no metric moves.
+                              child: Stack(
+                                children: [
+                                  // The gutter never scrolls on its own: it only
+                                  // mirrors the editor. A user-scrollable gutter
+                                  // used to slide the numbers while the code
+                                  // stayed put, so scrolling is disabled here and
+                                  // the editor owns the scroll.
+                                  ListView.builder(
+                                    controller: _gutterScrollController,
+                                    physics: const NeverScrollableScrollPhysics(),
+                                    itemCount: gutterRows.length,
+                                    itemExtent: _metrics.lineHeight,
+                                    itemBuilder: (context, index) {
+                                      final lineNumber = gutterRows[index];
+                                      if (lineNumber == 0) {
+                                        // Continuation row of a wrapped line: keep the
+                                        // height so everything below stays aligned.
+                                        return SizedBox(
+                                          height: _metrics.lineHeight,
+                                        );
+                                      }
+                                      // `lineNumber` is `0` on the continuation rows
+                                      // of a wrapped line: they carry no number, no
+                                      // breakpoint and can never be the paused line.
+                                      final hasBp =
+                                          lineNumber > 0 &&
+                                          _hasBreakpoint(lineNumber);
+                                      final debugger = widget.debugger;
+                                      // Keep the marker while the debugger owns a
+                                      // paused line and has not been torn down, so it
+                                      // also survives a plain `running` step.
+                                      final isPausedLine =
+                                          debugger != null &&
+                                          lineNumber > 0 &&
+                                          debugger.currentPausedLine ==
+                                              lineNumber &&
+                                          debugger.state != DebugState.inactive;
+                                      // Twice the size the old `●` glyph painted
+                                      // (a 12px glyph draws a ~7px dot), kept inside
+                                      // one row so it never overlaps its neighbours.
+                                      final markerDiameter =
+                                          _metrics.lineHeight * 0.7;
+                                      final lineDiagnostics =
+                                          diagnosticsByLine[lineNumber];
+                                      final markerColor =
+                                          _markerColorFor(lineDiagnostics);
+                                      // The caret's row is tinted in the gutter
+                                      // with the same fill as the band behind the
+                                      // code, but the paused line keeps its own
+                                      // stronger colour so the two never fight.
+                                      final gutterTint = isPausedLine
+                                          ? ThemeService.instance.colors.pausedLine
+                                          : lineNumber == _caretLine
+                                          ? ThemeService.instance.colors.selection
+                                                .withValues(alpha: 0.14)
+                                          : null;
+                                      return GestureDetector(
+                                        onTap: lineNumber > 0
+                                            ? () => _toggleBreakpoint(lineNumber)
+                                            : null,
+                                        behavior: HitTestBehavior.opaque,
+                                        child: Container(
+                                          height: _metrics.lineHeight,
+                                          color: gutterTint,
+                                          padding: const EdgeInsets.only(
+                                            left: 2,
+                                            right: gutterScrollbarInset,
                                           ),
-                                          // Flexible so a three-digit line
-                                          // number can never overflow the row.
-                                          Flexible(
-                                            child: Align(
-                                              alignment: Alignment.centerRight,
-                                              child: !isPausedLine && !hasBp
-                                                  ? null
-                                                  : FittedBox(
-                                                      fit: BoxFit.scaleDown,
-                                                      alignment:
-                                                          Alignment.centerRight,
-                                                      child: Row(
-                                                        mainAxisSize:
-                                                            MainAxisSize.min,
-                                                        children: [
-                                                          // The paused-line arrow
-                                                          // and the breakpoint
-                                                          // bullet are drawn
-                                                          // together, so pausing on
-                                                          // a breakpoint never
-                                                          // hides the fact that it
-                                                          // is a breakpoint.
-                                                          if (isPausedLine)
-                                                            Text(
-                                                              '▶',
-                                                              style: TextStyle(
-                                                                color: ThemeService
-                                                                    .instance
-                                                                    .colors
-                                                                    .selection,
-                                                                fontSize: _metrics
-                                                                    .markerFontSize,
-                                                              ),
+                                          // Top-aligned: the number's line box
+                                          // starts on the same row grid as the
+                                          // code, so line 1 of both begin at the
+                                          // same y and every row below matches.
+                                          alignment: Alignment.topLeft,
+                                          child: Row(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.center,
+                                            children: [
+                                              // Numbers first: the gutter's own
+                                              // scrollbar owns the right edge, so
+                                              // digits stay clear of it.
+                                              Text(
+                                                '$lineNumber',
+                                                // The very same strut the code uses:
+                                                // it fixes the row height AND the
+                                                // baseline position, so the digit
+                                                // sits on the code's baseline by
+                                                // construction.
+                                                strutStyle: _metrics.strutStyle,
+                                                // Proportional leading, set
+                                                // explicitly so the ambient
+                                                // `TextHeightBehavior` cannot move
+                                                // the digit off the code's baseline.
+                                                textHeightBehavior:
+                                                    const TextHeightBehavior(
+                                                      leadingDistribution:
+                                                          TextLeadingDistribution
+                                                              .proportional,
+                                                    ),
+                                                // The caret's line is emphasised in
+                                                // the gutter too, the way Xcode and
+                                                // VS Code show the active line.
+                                                style: TextStyle(
+                                                  // Same family as the code, so a
+                                                  // number never looks foreign
+                                                  // beside the text it labels.
+                                                  fontFamily: _metrics.fontFamily,
+                                                  fontFamilyFallback: const [
+                                                    EditorMetrics.fallbackFamily,
+                                                  ],
+                                                  fontSize:
+                                                      _metrics.lineNumberFontSize,
+                                                  height:
+                                                      _metrics.lineHeight /
+                                                      _metrics.lineNumberFontSize,
+                                                  fontWeight:
+                                                      lineNumber == _caretLine
+                                                      ? FontWeight.bold
+                                                      : null,
+                                                  // The caret's line uses the
+                                                  // theme's strong text colour;
+                                                  // the rest are dimmed so the
+                                                  // code stays the focus, except
+                                                  // lines with a diagnostic
+                                                  // marker or the paused line.
+                                                  color: lineNumber == _caretLine
+                                                      ? ThemeService
+                                                            .instance
+                                                            .colors
+                                                            .text
+                                                      : (markerColor != null ||
+                                                                isPausedLine)
+                                                      ? ThemeService
+                                                            .instance
+                                                            .colors
+                                                            .editorLineNumberText
+                                                      : ThemeService
+                                                            .instance
+                                                            .colors
+                                                            .editorLineNumberText
+                                                            .withValues(
+                                                              alpha: 0.7,
                                                             ),
-                                                          if (hasBp)
-                                                            Container(
-                                                              width:
-                                                                  markerDiameter,
-                                                              height:
-                                                                  markerDiameter,
-                                                              decoration: BoxDecoration(
-                                                                color:
-                                                                    ThemeService
+                                                ),
+                                              ),
+                                              // Flexible so a three-digit line
+                                              // number can never overflow the row.
+                                              Flexible(
+                                                child: Align(
+                                                  alignment: Alignment.centerRight,
+                                                  child: !isPausedLine &&
+                                                          !hasBp &&
+                                                          markerColor == null
+                                                      ? null
+                                                      : FittedBox(
+                                                          fit: BoxFit.scaleDown,
+                                                          alignment:
+                                                              Alignment.centerRight,
+                                                          child: Row(
+                                                            mainAxisSize:
+                                                                MainAxisSize.min,
+                                                            children: [
+                                                              // The paused-line arrow
+                                                              // and the breakpoint
+                                                              // bullet are drawn
+                                                              // together, so pausing on
+                                                              // a breakpoint never
+                                                              // hides the fact that it
+                                                              // is a breakpoint.
+                                                              if (isPausedLine)
+                                                                Text(
+                                                                  '▶',
+                                                                  style: TextStyle(
+                                                                    color: ThemeService
                                                                         .instance
                                                                         .colors
-                                                                        .error,
-                                                                shape: BoxShape
-                                                                    .circle,
-                                                              ),
-                                                            ),
-                                                        ],
-                                                      ),
-                                                    ),
-                                            ),
+                                                                        .selection,
+                                                                    fontSize: _metrics
+                                                                        .markerFontSize,
+                                                                  ),
+                                                                ),
+                                                              if (hasBp)
+                                                                Container(
+                                                                  width:
+                                                                      markerDiameter,
+                                                                  height:
+                                                                      markerDiameter,
+                                                                  decoration: BoxDecoration(
+                                                                    color:
+                                                                        ThemeService
+                                                                            .instance
+                                                                            .colors
+                                                                            .error,
+                                                                    shape: BoxShape
+                                                                        .circle,
+                                                                  ),
+                                                                ),
+                                                              // Diagnostic marker:
+                                                              // a small filled
+                                                              // square at the inner
+                                                              // edge. It is last, so
+                                                              // it owns the right
+                                                              // edge and the
+                                                              // breakpoint bullet
+                                                              // stays to its left.
+                                                              // No gesture handler
+                                                              // of its own, so a tap
+                                                              // still reaches the
+                                                              // row's breakpoint
+                                                              // toggle.
+                                                              if (markerColor != null)
+                                                                Padding(
+                                                                  padding:
+                                                                      const EdgeInsets.only(
+                                                                    left: 4,
+                                                                  ),
+                                                                  child: MouseRegion(
+                                                                    onEnter: (event) =>
+                                                                        _showGutterTooltip(
+                                                                          lineDiagnostics!,
+                                                                          event
+                                                                              .position,
+                                                                        ),
+                                                                    onHover: (event) =>
+                                                                        _showGutterTooltip(
+                                                                          lineDiagnostics!,
+                                                                          event
+                                                                              .position,
+                                                                        ),
+                                                                    onExit: (_) =>
+                                                                        _hideGutterTooltip(),
+                                                                    child: Container(
+                                                                      key: gutterMarkerKey(
+                                                                        lineNumber,
+                                                                      ),
+                                                                      width:
+                                                                          kGutterMarkerSize,
+                                                                      height:
+                                                                          kGutterMarkerSize,
+                                                                      color:
+                                                                          markerColor,
+                                                                    ),
+                                                                  ),
+                                                                ),
+                                                            ],
+                                                          ),
+                                                        ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                  // 1 px sunken edge: the theme's dark border
+                                  // next to the gutter, its light border on the
+                                  // code side.
+                                  Positioned(
+                                    top: 0,
+                                    bottom: 0,
+                                    right: 0,
+                                    child: IgnorePointer(
+                                      child: Row(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.stretch,
+                                        children: [
+                                          Container(
+                                            width: 1,
+                                            color: ThemeService
+                                                .instance
+                                                .colors
+                                                .borderDark,
+                                          ),
+                                          Container(
+                                            width: 1,
+                                            color: ThemeService
+                                                .instance
+                                                .colors
+                                                .borderLight,
                                           ),
                                         ],
                                       ),
                                     ),
-                                  );
-                                },
+                                  ),
+                                ],
                               ),
                             ),
                             const SizedBox(width: 4),
@@ -2233,6 +2694,13 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
                                           // the render and the gutter on the
                                           // same grid.
                                           strutStyle: _metrics.strutStyle,
+                                          // The built-in caret blinks on a
+                                          // private 500 ms half period and
+                                          // cannot be retimed, so it is hidden
+                                          // and [EditorCaret] paints it instead
+                                          // at 300 ms on / 300 ms off.
+                                          showCursor: false,
+                                          cursorWidth: kEditorCaretWidth,
                                           style: _metrics.textStyle.copyWith(
                                             color: ThemeService
                                                 .instance
@@ -2245,6 +2713,32 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
                                                     '// Type code here...',
                                               ),
                                         ),
+                                      ),
+                                      // The caret itself. Last, so it paints
+                                      // over the text; it never takes a pointer
+                                      // event (`IgnorePointer`) and is measured
+                                      // from the renderer, so it survives
+                                      // scrolling, zoom, font changes and RTL.
+                                      EditorCaret(
+                                        key: const ValueKey<String>(
+                                          'editor-caret-overlay',
+                                        ),
+                                        rect:
+                                            _caretRect ??
+                                            Rect.fromLTWH(
+                                              0,
+                                              0,
+                                              kEditorCaretWidth,
+                                              metrics.lineHeight,
+                                            ),
+                                        color:
+                                            _caretColor ??
+                                            ThemeService
+                                                .instance
+                                                .colors
+                                                .editorCursor,
+                                        resetToken: _caretResetStamp,
+                                        active: _showEditorCaret,
                                       ),
                                       if (_showAutocomplete)
                                         Positioned.fill(
@@ -2268,6 +2762,11 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
               ],
             ),
           ),
+          if (_gutterTooltipLines != null && _gutterTooltipPosition != null)
+            GutterDiagnosticTooltip(
+              lines: _gutterTooltipLines!,
+              position: _gutterTooltipPosition!,
+            ),
           if (_showAutocomplete)
             AutocompletePopup(
               items: _completionItems,

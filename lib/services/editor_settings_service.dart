@@ -82,6 +82,7 @@ class EditorSettingsService extends ChangeNotifier {
   double _fontSize = defaultFontSize;
   EditorFontFamily _fontFamily = EditorFontFamily.menlo;
   SyntaxScheme _syntaxScheme = SyntaxScheme.standard;
+  bool _restoreTabsOnLaunch = false;
 
   double get fontSize => _fontSize;
 
@@ -90,6 +91,12 @@ class EditorSettingsService extends ChangeNotifier {
 
   /// The palette selected in View > Syntax Colors (shared by all four themes).
   SyntaxScheme get syntaxScheme => _syntaxScheme;
+
+  /// Whether a launch reopens the tabs saved in `session.json`.
+  ///
+  /// Off by default: a fresh install must start with one empty editor, not
+  /// whatever the last session happened to have open.
+  bool get restoreTabsOnLaunch => _restoreTabsOnLaunch;
 
   bool get canIncrease => _fontSize < maxFontSize;
 
@@ -120,6 +127,14 @@ class EditorSettingsService extends ChangeNotifier {
   void setSyntaxScheme(SyntaxScheme v) {
     if (_syntaxScheme == v) return; // notify ONLY on change
     _syntaxScheme = v;
+    notifyListeners();
+    _save();
+  }
+
+  /// Turns tab restoring on or off; saved immediately.
+  void setRestoreTabsOnLaunch(bool v) {
+    if (_restoreTabsOnLaunch == v) return; // notify ONLY on change
+    _restoreTabsOnLaunch = v;
     notifyListeners();
     _save();
   }
@@ -190,6 +205,15 @@ class EditorSettingsService extends ChangeNotifier {
         _syntaxScheme = scheme;
         notifyListeners();
       }
+
+      // Missing (older settings file), corrupt or unknown -> OFF: only an
+      // explicit `true` opts back into restoring tabs.
+      final restore = data['restoreTabsOnLaunch'] is bool &&
+          data['restoreTabsOnLaunch'] == true;
+      if (_restoreTabsOnLaunch != restore) {
+        _restoreTabsOnLaunch = restore;
+        notifyListeners();
+      }
     } catch (e) {
       debugPrint('EditorSettingsService load error: $e');
       // Never throws; corrupt/missing JSON falls back to default.
@@ -205,6 +229,7 @@ class EditorSettingsService extends ChangeNotifier {
         'fontSize': _fontSize,
         'fontFamily': _fontFamily.id,
         'syntaxScheme': _syntaxScheme.id,
+        'restoreTabsOnLaunch': _restoreTabsOnLaunch,
       });
       final cached = _cachedFile;
       if (cached != null) {

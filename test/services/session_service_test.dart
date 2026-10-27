@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:classic_code_editor/services/file_service.dart';
 import 'package:classic_code_editor/services/session_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -86,6 +87,100 @@ void main() {
       expect(service.recentFiles, isNotEmpty);
       service.clearRecentFiles();
       expect(service.recentFiles, isEmpty);
+    });
+
+    test('pathsToRestore is empty while restoring is OFF', () async {
+      final a = file('a.dart');
+      final b = file('b.dart');
+      service.saveSession(openPaths: [a.path, b.path], activePath: a.path);
+
+      final reloaded = await fresh();
+      expect(reloaded.pathsToRestore(restoreTabsOnLaunch: false), isEmpty);
+    });
+
+    test('pathsToRestore returns the saved files when restoring is ON',
+        () async {
+      final a = file('a.dart');
+      final b = file('b.dart');
+      service.saveSession(openPaths: [a.path, b.path], activePath: a.path);
+
+      final reloaded = await fresh();
+      expect(reloaded.pathsToRestore(restoreTabsOnLaunch: true), [
+        a.path,
+        b.path,
+      ]);
+    });
+
+    test('pathsToRestore skips a file that no longer exists, without error',
+        () async {
+      final a = file('a.dart');
+      final b = file('b.dart');
+      service.saveSession(openPaths: [a.path, b.path], activePath: a.path);
+      b.deleteSync();
+
+      final reloaded = await fresh();
+      expect(reloaded.pathsToRestore(restoreTabsOnLaunch: true), [a.path]);
+    });
+
+    /// The launch contract `IDEShell._restoreSession` implements: reopen what
+    /// [SessionService.pathsToRestore] allows, then never leave the tab strip
+    /// empty.
+    Future<FileService> launch({required bool restoreTabsOnLaunch}) async {
+      final session = await fresh();
+      final fileService = FileService();
+      addTearDown(fileService.dispose);
+
+      for (final path in session.pathsToRestore(
+        restoreTabsOnLaunch: restoreTabsOnLaunch,
+      )) {
+        final file = File(path);
+        if (!file.existsSync()) continue;
+        fileService.restoreFile(path, await file.readAsString());
+      }
+      if (fileService.openTabs.isEmpty) fileService.createNewFile();
+      return fileService;
+    }
+
+    test('a launch with the setting OFF starts on one empty Untitled tab',
+        () async {
+      final a = file('a.dart');
+      final b = file('b.dart');
+      service.saveSession(openPaths: [a.path, b.path], activePath: a.path);
+
+      final fileService = await launch(restoreTabsOnLaunch: false);
+
+      expect(fileService.openTabs, hasLength(1));
+      expect(fileService.openTabs.single.filePath, isNull);
+      expect(fileService.openTabs.single.fileName, 'Untitled');
+      expect(fileService.activeTab!.content, isEmpty);
+    });
+
+    test('a launch with the setting ON restores the saved tabs', () async {
+      final a = file('a.dart');
+      final b = file('b.dart');
+      service.saveSession(openPaths: [a.path, b.path], activePath: a.path);
+
+      final fileService = await launch(restoreTabsOnLaunch: true);
+
+      expect(
+        [for (final tab in fileService.openTabs) tab.filePath],
+        [a.path, b.path],
+      );
+    });
+
+    test('a launch with the setting ON skips a missing file silently',
+        () async {
+      final a = file('a.dart');
+      final b = file('b.dart');
+      service.saveSession(openPaths: [a.path, b.path], activePath: a.path);
+      b.deleteSync();
+
+      final fileService = await launch(restoreTabsOnLaunch: true);
+
+      expect(
+        [for (final tab in fileService.openTabs) tab.filePath],
+        [a.path],
+      );
     });
 
     test('corrupt JSON falls back to an empty session', () async {

@@ -134,6 +134,47 @@ void main() {
       expect(reloadedLow.fontSize, 8);
     });
 
+    test('restoreTabsOnLaunch defaults to OFF', () async {
+      await resetService();
+      expect(service.restoreTabsOnLaunch, isFalse);
+    });
+
+    test('restoreTabsOnLaunch saves and loads back', () async {
+      await resetService();
+      service.setRestoreTabsOnLaunch(true);
+      await Future<void>.delayed(Duration.zero);
+
+      final reloaded = EditorSettingsService.forTesting(
+        directoryProvider: () async => tempDir,
+      );
+      await reloaded.load();
+      expect(reloaded.restoreTabsOnLaunch, isTrue);
+
+      reloaded.setRestoreTabsOnLaunch(false);
+      await Future<void>.delayed(Duration.zero);
+      final again = EditorSettingsService.forTesting(
+        directoryProvider: () async => tempDir,
+      );
+      await again.load();
+      expect(again.restoreTabsOnLaunch, isFalse);
+    });
+
+    test('corrupt or unknown restoreTabsOnLaunch -> OFF', () async {
+      final file = File('${tempDir.path}/editor_settings.json');
+      for (final value in ['yes', '1', 'null', '{}', '"true"']) {
+        await file.writeAsString('{"restoreTabsOnLaunch": $value}');
+        final reloaded = EditorSettingsService.forTesting(
+          directoryProvider: () async => tempDir,
+        );
+        await reloaded.load();
+        expect(
+          reloaded.restoreTabsOnLaunch,
+          isFalse,
+          reason: 'value $value must fall back to OFF',
+        );
+      }
+    });
+
     test(
       'load/save are no-ops under FLUTTER_TEST without directoryProvider',
       () async {

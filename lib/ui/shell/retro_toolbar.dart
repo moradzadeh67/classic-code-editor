@@ -7,6 +7,7 @@ import '../../services/theme_service.dart';
 import '../../services/base_debugger.dart';
 import '../../services/debug_service.dart';
 import '../../models/debugger_models.dart';
+import '../../models/language_config.dart';
 import '../retro/retro_border.dart';
 
 class RetroToolbar extends StatelessWidget {
@@ -66,7 +67,14 @@ class RetroToolbar extends StatelessWidget {
           }
           debugPrint('Run button clicked, executing code...');
           DebugService.instance.parseAndExtractVariables(content);
-          dartRunnerService?.runCode(path, content);
+          // The active tab's own selection, so another tab's dropdown value
+          // can never leak into this buffer.
+          dartRunnerService?.runCode(
+            path,
+            content,
+            preferredLanguage:
+                fileService?.activeTab?.languageOverride ?? 'Auto',
+          );
         };
     final stopCallback =
         onStop ??
@@ -148,6 +156,21 @@ class RetroToolbar extends StatelessWidget {
                           '';
                       if (path == null || content.trim().isEmpty) {
                         debugPrint('Nothing to debug: no file or empty buffer');
+                        return;
+                      }
+                      // A buffer whose content clearly belongs to another
+                      // language is never compiled: same one-line answer as
+                      // Run, from the same resolver.
+                      final resolution = LanguageConfig.resolveTab(
+                        fileService?.activeTab,
+                      );
+                      if (resolution.hasMismatch) {
+                        dartRunnerService?.clearConsole();
+                        dartRunnerService?.emitOutput(
+                          resolution.mismatchMessage(
+                            fileName: path.split('/').last,
+                          ),
+                        );
                         return;
                       }
                       // Printed so the IDE log shows which engine handles the

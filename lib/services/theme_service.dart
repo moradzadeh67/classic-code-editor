@@ -7,6 +7,14 @@ import '../ui/retro/syntax_colors.dart';
 
 enum ThemeType { vc6, delphi, vb6, turboPascal }
 
+/// The code surface of the editor, in **every** theme and **both** syntax
+/// schemes — the same near-white the console's output area paints, so the two
+/// panes read as one surface.
+///
+/// Kept as one constant on purpose: the Standard and Colorful palettes are
+/// tuned against this one surface, so no theme may paint a different one.
+const Color kEditorBackgroundColor = Color(0xFFFBFBF9);
+
 class ThemeColorsData {
   final Color background;
   final Color panel;
@@ -146,7 +154,7 @@ class ThemeService extends ChangeNotifier {
           error: Color(0xFFCC0000),
           menuActive: Color(0xFF316AC5),
           menuActiveText: Color(0xFFFFFFFF),
-          editorBackground: Color(0xFFE8F1FF),
+          editorBackground: kEditorBackgroundColor,
           editorText: Color(0xFF000000),
           editorSelection: Color(0xFF000080),
           editorSelectionText: Color(0xFFFFFFFF),
@@ -170,7 +178,7 @@ class ThemeService extends ChangeNotifier {
           error: Color(0xFFCC0000),
           menuActive: Color(0xFFA08035),
           menuActiveText: Color(0xFFFFFFFF),
-          editorBackground: Color(0xFFE8F1FF),
+          editorBackground: kEditorBackgroundColor,
           editorText: Color(0xFF000000),
           editorSelection: Color(0xFF000080),
           editorSelectionText: Color(0xFFFFFFFF),
@@ -194,7 +202,7 @@ class ThemeService extends ChangeNotifier {
           error: Color(0xFFCC0000),
           menuActive: Color(0xFF1B3260),
           menuActiveText: Color(0xFFFFFFFF),
-          editorBackground: Color(0xFFE8F1FF),
+          editorBackground: kEditorBackgroundColor,
           editorText: Color(0xFF000000),
           editorSelection: Color(0xFF000080),
           editorSelectionText: Color(0xFFFFFFFF),
@@ -225,7 +233,7 @@ class ThemeService extends ChangeNotifier {
           error: Color(0xFFA80000),
           menuActive: Color(0xFF000080),
           menuActiveText: Color(0xFFFFFFFF),
-          editorBackground: Color(0xFFE8F1FF),
+          editorBackground: kEditorBackgroundColor,
           editorText: Color(0xFF000000),
           editorSelection: Color(0xFF000080),
           editorSelectionText: Color(0xFFFFFFFF),

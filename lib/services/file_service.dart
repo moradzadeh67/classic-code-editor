@@ -27,9 +27,40 @@ class FileService extends ChangeNotifier {
 
   bool get isModified => activeTab?.isModified ?? false;
 
+  /// Language chosen on the active tab ("Auto" when nothing was picked).
+  ///
+  /// The choice belongs to the tab, not the app: switching tabs reads another
+  /// tab's value, closing a tab drops it, and a new tab starts at Auto.
+  String get activeLanguageOverride => activeTab?.languageOverride ?? 'Auto';
+
+  /// Stores the toolbar dropdown value on the active tab (memory only).
+  void setActiveLanguage(String language) {
+    final tab = activeTab;
+    if (tab == null || tab.languageOverride == language) return;
+    tab.languageOverride = language;
+    notifyListeners();
+  }
+
+  /// First free "Untitled", "Untitled 2", "Untitled 3", … name.
+  ///
+  /// Distinct names matter beyond the tab strip: the language servers address
+  /// an unsaved buffer by a virtual document path derived from this name, so
+  /// two buffers sharing it would overwrite each other's diagnostics.
+  String _nextUntitledName() {
+    final used = _openTabs.map((tab) => tab.fileName).toSet();
+    if (!used.contains('Untitled')) return 'Untitled';
+    var suffix = 2;
+    while (used.contains('Untitled $suffix')) {
+      suffix++;
+    }
+    return 'Untitled $suffix';
+  }
+
   /// Creates a new untitled tab for editing, making it the active tab.
   void createNewFile() {
-    _openTabs.add(TabFile(fileName: 'Untitled', content: ''));
+    _openTabs.add(
+      TabFile(fileName: _nextUntitledName(), content: ''),
+    );
     _activeTabIndex = _openTabs.length - 1;
     notifyListeners();
   }
@@ -180,6 +211,7 @@ class FileService extends ChangeNotifier {
         filePath: tab.filePath,
         fileName: tab.fileName,
         content: formattedContent,
+        languageOverride: tab.languageOverride,
       );
       notifyListeners();
       return true;
@@ -209,6 +241,7 @@ class FileService extends ChangeNotifier {
         filePath: filePath,
         fileName: tab.fileName,
         content: formattedContent,
+        languageOverride: tab.languageOverride,
       );
       notifyListeners();
       return true;
@@ -249,6 +282,7 @@ class FileService extends ChangeNotifier {
           filePath: path,
           fileName: fileName,
           content: formattedContent,
+          languageOverride: _openTabs[_activeTabIndex].languageOverride,
         );
       } else {
         final newTab = TabFile(

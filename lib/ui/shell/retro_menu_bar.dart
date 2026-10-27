@@ -34,6 +34,12 @@ class RetroMenuBar extends StatelessWidget {
 
   /// Opens a file from the "Open Recent" section of the File menu.
   final ValueChanged<String>? onOpenRecent;
+
+  /// File > "Open Folder..." (Cmd+Shift+O).
+  final VoidCallback? onOpenFolder;
+
+  /// File > "Close Folder".
+  final VoidCallback? onCloseFolder;
   final VoidCallback? onTriggerCompletion;
   final FileService? fileService;
   final AnalyzerService? analyzerService;
@@ -50,6 +56,8 @@ class RetroMenuBar extends StatelessWidget {
     this.onCloseTab,
     this.onGoToLine,
     this.onOpenRecent,
+    this.onOpenFolder,
+    this.onCloseFolder,
     this.fileService,
     this.analyzerService,
     this.dartRunnerService,
@@ -87,6 +95,10 @@ class RetroMenuBar extends StatelessWidget {
                   fileService?.createNewFile();
                 } else if (value == 'close_tab') {
                   onCloseTab?.call();
+                } else if (value == 'open_folder') {
+                  onOpenFolder?.call();
+                } else if (value == 'close_folder') {
+                  onCloseFolder?.call();
                 } else if (value == 'clear_recent') {
                   SessionService.instance.clearRecentFiles();
                 } else if (value.startsWith('recent_')) {
@@ -192,6 +204,16 @@ class RetroMenuBar extends StatelessWidget {
                   label: 'Toggle Diagnostics',
                 ),
                 const RetroMenuSeparator<String>(),
+                // A persisted toggle (unlike the three above, which are only
+                // in-memory panel visibility). Rule 8: the check mark reads the
+                // live setting, so the row is intentionally not const.
+                RetroMenuItem<String>(
+                  value: 'toggle_restore_tabs',
+                  label: 'Restore Tabs on Launch',
+                  checked:
+                      EditorSettingsService.instance.restoreTabsOnLaunch,
+                ),
+                const RetroMenuSeparator<String>(),
                 const RetroMenuItem<String>(
                   value: 'font_increase',
                   label: 'Increase Font Size',
@@ -274,6 +296,11 @@ class RetroMenuBar extends StatelessWidget {
                   onToggleConsole?.call();
                 } else if (value == 'toggle_diagnostics') {
                   onToggleDiagnostics?.call();
+                } else if (value == 'toggle_restore_tabs') {
+                  // Saves immediately; takes effect on the next launch.
+                  EditorSettingsService.instance.setRestoreTabsOnLaunch(
+                    !EditorSettingsService.instance.restoreTabsOnLaunch,
+                  );
                 } else if (value == 'font_increase') {
                   EditorSettingsService.instance.increase();
                 } else if (value == 'font_decrease') {
@@ -407,6 +434,15 @@ class RetroMenuBar extends StatelessWidget {
         value: 'open',
         label: 'Open File',
         shortcut: 'Cmd + O',
+      ),
+      const RetroMenuItem<String>(
+        value: 'open_folder',
+        label: 'Open Folder...',
+        shortcut: 'Cmd + Shift + O',
+      ),
+      const RetroMenuItem<String>(
+        value: 'close_folder',
+        label: 'Close Folder',
       ),
       const RetroMenuItem<String>(
         value: 'save',

@@ -62,15 +62,28 @@ class LanguageRunnerService extends ChangeNotifier {
   }
 
   Future<void> runActiveFile(FileService fileService) async {
-    final path = fileService.currentFilePath;
-    final content = fileService.activeTab?.content ?? fileService.fileContent;
+    final tab = fileService.activeTab;
+    final content = tab?.content ?? fileService.fileContent;
     if (content.isNotEmpty) {
-      await runCode(path, content);
+      // The tab's own choice, not an app-wide one: another tab's dropdown
+      // value can never be applied to this buffer.
+      await runCode(
+        tab?.filePath ?? fileService.currentFilePath,
+        content,
+        preferredLanguage: tab?.languageOverride ?? 'Auto',
+      );
     }
   }
 
-  LanguageConfig _resolveLanguage(String? filePath, String content) =>
-      resolveLanguage(filePath, content, preferredLanguage: _preferredLanguage);
+  LanguageResolution _resolve(
+    String? filePath,
+    String content, {
+    String? preferredLanguage,
+  }) => resolve(
+    filePath,
+    content,
+    preferredLanguage: preferredLanguage ?? _preferredLanguage,
+  );
 
   /// Resolves the [LanguageConfig] for [filePath]/[content].
   ///
@@ -82,30 +95,26 @@ class LanguageRunnerService extends ChangeNotifier {
     String? filePath,
     String content, {
     String preferredLanguage = 'Auto',
-  }) {
-    if (preferredLanguage != 'Auto') {
-      switch (preferredLanguage) {
-        case 'Dart':
-          return LanguageConfig.fromExtension('test.dart');
-        case 'Python':
-          return LanguageConfig.fromExtension('test.py');
-        case 'C':
-          return LanguageConfig.fromExtension('test.c');
-        case 'C++':
-          return LanguageConfig.fromExtension('test.cpp');
-        case 'ARM64 Assembly':
-        case 'Assembly':
-        case 'asm':
-          return LanguageConfig.fromExtension('test.s');
-        default:
-          return LanguageConfig.fromExtension(filePath);
-      }
-    }
+  }) => resolve(
+    filePath,
+    content,
+    preferredLanguage: preferredLanguage,
+  ).language;
 
-    // Extension first, then content sniffing for unsaved buffers - one rule
-    // set shared with the editor highlighter so Run/Debug and colors agree.
-    return LanguageConfig.fromPathOrContent(filePath, content);
-  }
+  /// The one resolver: language **and** mismatch reason.
+  ///
+  /// The runner, `MultiLanguageHighlighter.createController` and
+  /// `PanelLayout._detectLanguageExt` all call this, so Run/Debug, the colors
+  /// and the logo can never disagree about a buffer.
+  static LanguageResolution resolve(
+    String? filePath,
+    String content, {
+    String preferredLanguage = 'Auto',
+  }) => LanguageConfig.resolve(
+    filePath,
+    content,
+    preferredLanguage: preferredLanguage,
+  );
 
   /// Sends user input to stdin of the active process.
   void sendInput(String input) {
@@ -134,7 +143,11 @@ class LanguageRunnerService extends ChangeNotifier {
 
   /// Executes code for the given [filePath] and [content].
   /// Supports Dart, Python, C, and C++.
-  Future<void> runCode(String? filePath, String content) async {
+  Future<void> runCode(
+    String? filePath,
+    String content, {
+    String? preferredLanguage,
+  }) async {
     debugPrint('=== LanguageRunnerService.runCode called ===');
     debugPrint('File path: $filePath, content length: ${content.length}');
 
@@ -146,11 +159,30 @@ class LanguageRunnerService extends ChangeNotifier {
     // A new run starts from a clean Console (see [clearConsole]).
     clearConsole();
 
+    // A buffer whose content clearly belongs to another language is never
+    // compiled or run: one line instead of a compiler shouting at foreign text.
+    final resolution = _resolve(
+      filePath,
+      content,
+      preferredLanguage: preferredLanguage,
+    );
+    if (resolution.hasMismatch) {
+      _isRunning = false;
+      _exitCode = null;
+      notifyListeners();
+      _outputController.add(
+        resolution.mismatchMessage(
+          fileName: filePath?.split('/').last ?? filePath,
+        ),
+      );
+      return;
+    }
+
     _isRunning = true;
     _exitCode = null;
     notifyListeners();
 
-    final config = _resolveLanguage(filePath, content);
+    final config = resolution.language;
     debugPrint('Using language config: ${config.displayName}');
 
     Directory? tempDir;

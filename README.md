@@ -113,6 +113,18 @@ ARM64 Assembly support: highlighting, Run, and the LLDB debugger with its regist
 - **About dialog:** three retro tabs — *About & Developer*, *Shortcuts*, and
   *System Info* (Flutter/Dart versions, active theme, platform)
 
+### 🗂️ File Explorer
+- **Real folder tree:** *File > Open Folder...* (`Cmd+Shift+O`) opens any folder
+  lazily — one level at a time, folders before files, tool directories and dot
+  files hidden, 2000 entries per directory with a "… N more not shown" row
+- **Retro tree rows:** disclosure triangles, per-language icons for Dart, C/C++,
+  Python and ARM64, single click to open a folder, double-click to open a file
+  in a tab; the active tab is highlighted and its parents expanded
+- **Refresh button** plus an automatic re-read after a save; the folder is
+  remembered across restarts
+- **Safe opening:** files over 2 MB or containing a NUL byte in their first 4 KB
+  are refused with one line in the Console
+
 ### ⌨️ Smart Code Editor
 - **Multi-Language Support:** Dart, Python, C, C++, ARM64 Assembly (`.s`,
   Apple Silicon)
@@ -120,10 +132,15 @@ ARM64 Assembly support: highlighting, Run, and the LLDB debugger with its regist
   keywords purple (`#C842F5`), operators emerald green (`#00BF69`),
   comments olive (`#596E48`), brackets blue (`#031CFC`). The **Colorful** scheme
   splits symbols further: operators olive (`#687d01`), curly braces
-  (`#1e64d8`) and square brackets (`#00796f`), with parentheses kept blue
+  (`#1e64d8`) and square brackets (`#00796f`), with parentheses kept blue;
+  its comments are neutral grey (`#666666`, still italic). The code surface is
+  `#fbfbf9` in both schemes and all four themes
 - **Language Logos:** Real per-language icons in the panel header — including
   the `ASM` heptagon for ARM64 Assembly (with a vector fallback when an asset is
   missing)
+- **Per-tab language selection:** the toolbar dropdown belongs to the tab (Auto
+  by default, memory only). An explicit choice drives Run, Debug, the syntax
+  colors and the logo together, and switching tabs restores each tab's value
 - **Auto-Indentation:** Smart indentation on Enter, auto-dedent on closing brackets
 - **LSP Integration:** Real-time diagnostics, hover tooltips and autocomplete from
   the server that matches the file — Dart, `clangd` for C/C++, `pyright`/`pylsp`
@@ -147,9 +164,12 @@ ARM64 Assembly support: highlighting, Run, and the LLDB debugger with its regist
   hairline outline, and its line number is emphasised — clicking anywhere on a
   row, including the empty space past the last character, selects that row
 - **Tab Bar:** Multiple files with modified indicators; closing a modified tab
-  (or quitting) asks **Save / Don't Save / Cancel**
-- **Session Restore:** the previous tabs and the recent-files list
-  (`File > Open Recent`, 10 entries) come back on launch
+  (or quitting) asks **Save / Don't Save / Cancel**. A pinned **+** button at the
+  right edge opens a new Untitled tab (`Cmd + N` does the same), auto-numbered
+  `Untitled`, `Untitled 2`, … with its own language-server document
+- **Session Restore:** the recent-files list (`File > Open Recent`, 10 entries) always
+  comes back; the previous tabs do too, but only once **View > Restore Tabs on Launch**
+  is enabled — by default a launch starts on one empty **Untitled** editor
 - **Edit Menu:** Select All (`Cmd + A`), Go to Line (`Cmd + L`), Toggle Comment
   (`Cmd + /`), Duplicate Line (`Cmd + Shift + D`), Open (`Cmd + O`), Close Tab (`Cmd + W`)
 - **Editor Zoom:** `Cmd +` / `Cmd -` / `Cmd 0` changes font size (8..32) with live gutter alignment
@@ -385,14 +405,15 @@ lib/
 
 | Theme | Background | Panel | Editor BG |
 |-------|:---:|:---:|:---:|
-| **VC++ 6.0** | `#0055EA` (blue XP) | `#ECE9D8` | `#E8F1FF` |
-| **Borland Delphi** | `#D2BA7E` (warm beige) | `#DFCD9B` | `#E8F1FF` |
-| **Visual Basic 6.0** | `#2C4A8E` (dark blue) | `#C0C0C0` | `#E8F1FF` |
-| **Turbo Pascal 7.0** | `#0000A8` (DOS navy) | `#C0C0C0` | `#E8F1FF` |
+| **VC++ 6.0** | `#0055EA` (blue XP) | `#ECE9D8` | `#fbfbf9` |
+| **Borland Delphi** | `#D2BA7E` (warm beige) | `#DFCD9B` | `#fbfbf9` |
+| **Visual Basic 6.0** | `#2C4A8E` (dark blue) | `#C0C0C0` | `#fbfbf9` |
+| **Turbo Pascal 7.0** | `#0000A8` (DOS navy) | `#C0C0C0` | `#fbfbf9` |
 
-> The editor surface is `#E8F1FF` in **every** theme on purpose: the syntax palette is
+> The editor surface is `#fbfbf9` in **every** theme on purpose: the syntax palette is
 > shared by all four themes, so a light editor keeps the code readable regardless of
-> the chrome around it.
+> the chrome around it. The console's output area paints the very same constant
+> (`kEditorBackgroundColor`), so both panes are one near-white surface.
 
 ### Design Rules
 - **NO rounded corners** (`BorderRadius.zero`) — internal widgets only
@@ -486,10 +507,6 @@ yours wins; only a file this app generated in its old broken format is repaired.
 - **Replacing a saved file's content with another language is not re-detected** — the extension of the opened
   file wins (Run, colors and the language logo). Workaround: pick the language in the toolbar dropdown instead of
   `Auto`, or use *Save As* with the right extension. Tracked as TASK-054.
-- **A re-install can reopen the last session** — the app restores the tabs from `session.json` in
-  `~/Library/Application Support/com.moradzadeh67.classicCodeEditor/`, which every build shares, so an install on a
-  machine that ran the app before can open with the previous file (e.g. the bundled ARM64 sample). Tracked as
-  TASK-055.
 - **External toolchain required** — running and debugging needs `dart`, `python3`, `clang` and `lldb` on your `PATH`; without them the editor still works but Run/Debug fails with a clear message.
 - **Language servers are optional** — C/C++ needs `clangd` and Python needs
   `pyright` or `pylsp`; without them the editor falls back to offline completion

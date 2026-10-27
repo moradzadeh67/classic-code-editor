@@ -11,7 +11,7 @@
 2. **Borland Delphi** — warm mustard-beige.
 3. **Visual Basic 6.0** — deep navy desktop with gray panels.
 4. **Turbo Pascal 7.0** — DOS navy desktop (#0000A8), gray 3D dialogs and a
-   cyan (#00A8A8) menu highlight. The *editor surface stays light* (#E8F1FF,
+   cyan (#00A8A8) menu highlight. The *editor surface stays light* (#fbfbf9,
    black text) because the syntax palette is shared by all four themes.
 
 ## Color Palette
