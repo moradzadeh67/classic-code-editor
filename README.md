@@ -115,9 +115,9 @@ tabs and a new-tab “+”) and `docs/media/colorful-dart.png` (a Dart buffer wi
 
 **🗂️ Explorer**
 
-| Explorer | Tabs | New tab “+” |
-|:---:|:---:|:---:|
-| <img src="docs/media/explorer-tabs.png" width="280" alt="Explorer with an open project, the test.c and Untitled.c tabs and a + new-tab button”"> | | |
+| Explorer, tabs and the new-tab “+” |
+|:---:|
+| <img src="docs/media/explorer-tabs.png" width="420" alt="Explorer with an open project, the test.c and Untitled.c tabs and a + new-tab button”"> |
 
 **✨ Inline completion (also a full-screen walkthrough above)**
 
@@ -127,9 +127,9 @@ tabs and a new-tab “+”) and `docs/media/colorful-dart.png` (a Dart buffer wi
 
 **💡 Dart editor and Console**
 
-| Editor | Console |
-|:---:|:---:|
-| <img src="docs/media/colorful-dart.png" width="280" alt="Dart buffer with syntax colours, a breakpoint bullet in the gutter and the run output in the Console”"> | |
+| Dart buffer and its Console output |
+|:---:|
+| <img src="docs/media/colorful-dart.png" width="420" alt="Dart buffer with syntax colours, a breakpoint bullet in the gutter and the run output in the Console”"> |
 
 ## ✨ Features
 
@@ -346,7 +346,9 @@ pubspec version, the git tag and the DMG name stay in sync** (`1.5.0+10` → tag
 
 > [!NOTE]
 > The app is **unsigned and not notarized** (that needs a paid Apple Developer account). Every user must
-> therefore use **System Settings → Privacy & Security → Open Anyway** once on first launch.
+> therefore use **System Settings → Privacy & Security → Open Anyway** once on first launch, or clear the
+> quarantine flag from a terminal:
+> `xattr -dr com.apple.quarantine "/Applications/Classic Code Editor.app"`
 
 Full details and the pre-release checklist: [docs/RELEASE.md](docs/RELEASE.md).
 
@@ -488,6 +490,11 @@ Details: [docs/PRIVACY.md](docs/PRIVACY.md) · Vulnerability reports: [SECURITY.
 1. Download the latest `.dmg` (`Classic Code Editor-1.5.0+10.dmg`) from [Releases](https://github.com/moradzadeh67/classic-code-editor/releases/latest)
 2. Open the `.dmg` and drag `Classic Code Editor.app` to `Applications`
 3. **First launch (Gatekeeper):** the app is not notarized, so macOS blocks it — click **Done** on the dialog, then open **System Settings → Privacy & Security → Open Anyway** ([Apple: Safely open apps on your Mac](https://support.apple.com/en-us/102445))
+4. **Or skip the dialog from a terminal** — the quarantine flag is the only thing macOS is enforcing, so removing it once is enough:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/Classic Code Editor.app"
+```
 
 ### Build from Source
 
@@ -559,6 +566,13 @@ yours wins; only a file this app generated in its old broken format is repaired.
 The DMG is unsigned. Click **Done** on the dialog, then open **System Settings → Privacy & Security**,
 scroll to the security section and choose **Open Anyway** for *Classic Code Editor*. You only need to do
 this once. See [Apple's guide](https://support.apple.com/en-us/102445).
+
+If you prefer the terminal, one command does the same thing (it removes the download's quarantine flag,
+which is what macOS is enforcing):
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/Classic Code Editor.app"
+```
 </details>
 
 <details>

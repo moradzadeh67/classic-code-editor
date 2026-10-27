@@ -22,7 +22,7 @@
 ## Known Limitations
 
 - Caret blink speed is 500 ms (Flutter default).
-- Build is unsigned and unnotarized (requires right-click -> Open on first launch).
+- Build is unsigned and unnotarized (requires right-click -> Open, or System Settings -> Privacy & Security -> Open Anyway, on first launch). From a terminal the same is one command: `xattr -dr com.apple.quarantine "/Applications/Classic Code Editor.app"`.
 
 ## Verification
 

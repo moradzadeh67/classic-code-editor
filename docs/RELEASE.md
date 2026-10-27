@@ -46,8 +46,9 @@ scripts/release_gate/05_make_dmg.sh     # packages the .app into a DMG via hdiut
 ## Outstanding
 
 - **Notarization**: requires a paid Apple Developer account ($99/yr). Until then every user must use
-  "Open Anyway" once. Signing/notarization would remove that step and is the single biggest
-  distribution improvement left.
+  "Open Anyway" once, or clear the quarantine flag with
+  `xattr -dr com.apple.quarantine "/Applications/Classic Code Editor.app"`. Signing/notarization would
+  remove that step and is the single biggest distribution improvement left.
 - **Windows / Linux**: planned (v1.x), nothing started.
 - No CI builds the DMG automatically yet: `ci.yml` only runs `flutter analyze` + `flutter test` on
   `macos-latest`; the DMG is still built locally by the release gate.
