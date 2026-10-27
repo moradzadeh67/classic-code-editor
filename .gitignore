@@ -87,3 +87,7 @@ directory-tree.txt
 
 # clangd flags generated per workspace by CompileFlagsEnsurer
 compile_flags.txt
+
+# Scratch saves
+samples/Untitled*
+lib/Untitled*
