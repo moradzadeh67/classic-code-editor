@@ -141,3 +141,12 @@ Main window layout:
 - Status bar LSP segment gained a tooltip naming the active server and the failure reason
 - Tests: 354 pass / 8 opt-in skipped; opt-in `BORLAND_REAL_CLANGD_TEST=1` runs against the real Apple clangd
   21.0.0 (`initialize` answered in 8 ms)
+
+## Phase 24: Completion, Workspace & Editor Polish (v1.5.0)
+- **Autocomplete & IntelliSense:** Immediate triggers on `.` and 1st character for LSP-backed files; manual trigger `Ctrl+Shift+Space` (and Edit > Trigger Completion); `Tab` accepts suggestions; function calls insert `()` with caret inside; LSP snippets expanded (`$0`, `$1`); built-in Dart/Flutter snippets (`stless`, `stful`, `main`, etc.); ranking by match quality + MRU; documentation panel after 2 s idle; auto-import of unimported libraries (`Timer` -> `import 'dart:async';`); LSP kind badges with detail; popup anchored to caret inside editor.
+- **Diagnostics & Language Server Sync:** `TabLanguageServerSync` aligns language server with effective tab language, dropping stale diagnostics on switch; unsaved buffers analyzed in `UnsavedBufferWorkspace`.
+- **Gutter & Editor Polish:** Gutter error/warning markers with hover tooltips, 1px retro separator line, bold current line number; 5px thicker caret; `#fbfbf9` near-white surface shared with Console; Colorful syntax scheme (operators `#687d01`, curly braces `#1e64d8`, square brackets `#00796f`, comments `#666666`, strings `#409175`); retro right-click context menu (Cut/Copy/Paste/Select All).
+- **Workspace & Navigation:** File Explorer (`Cmd+Shift+O`, Open Folder, lazy tree, double-click to open file), `+` new tab button, per-tab language selection dropdown, mismatch protection prevents compiling mismatched files, launches with a fresh empty Untitled tab.
+- **Finder Launch Fixes:** Immediate editor focus on launch; tool binary resolution via user's login shell (`zsh -lic` / `-lc`, Homebrew, Dart SDK, Flutter) when launched from macOS Finder.
+- **Tests:** 520 pass / 8 opt-in skipped; analyze clean.
+

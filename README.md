@@ -274,7 +274,7 @@ The suite runs fully offline — no language server, compiler or VM is spawned.
 # Static analysis must report zero issues
 flutter analyze
 
-# Unit + widget tests (460 tests; 8 opt-in integration tests are skipped)
+# Unit + widget tests (520 tests; 8 opt-in integration tests are skipped)
 flutter test
 
 # Opt-in: really spawn a Dart VM and attach over a real WebSocket
@@ -309,8 +309,8 @@ scripts/release_gate/05_make_dmg.sh     # package the .app into a DMG (hdiutil)
 ```
 
 `05_make_dmg.sh` names the artifact `Classic Code Editor-<version>.dmg` from `pubspec.yaml`, so **the
-pubspec version, the git tag and the DMG name stay in sync** (`1.4.3+9` → tag `v1.4.3` →
-`Classic Code Editor-1.4.3+9.dmg`).
+pubspec version, the git tag and the DMG name stay in sync** (`1.5.0+10` → tag `v1.5.0` →
+`Classic Code Editor-1.5.0+10.dmg`).
 
 > [!NOTE]
 > The app is **unsigned and not notarized** (that needs a paid Apple Developer account). Every user must
@@ -332,15 +332,15 @@ Classic Code Editor follows a clean layered architecture with strict separation 
 
 ### Project Structure
 
-<img src="assets/diagrams/project-structure.png" alt="Project Structure" width="600">
+<img src="assets/diagrams/project-structure.svg" alt="Project Structure" width="600">
 
 ### Architecture Layers
 
-<img src="assets/diagrams/architecture-layers.png" alt="Architecture Layers" width="800">
+<img src="assets/diagrams/architecture-layers.svg" alt="Architecture Layers" width="800">
 
 ### Data Flow
 
-<img src="assets/diagrams/data-flow.png" alt="Data Flow" width="600">
+<img src="assets/diagrams/data-flow.svg" alt="Data Flow" width="600">
 
 ### Layer Breakdown
 
@@ -431,7 +431,7 @@ lib/
 
 | Platform | Status | Notes |
 |---|:---:|---|
-| 🖥️ macOS | ✅ Released | macOS 12+ (Monterey or later), Apple Silicon for ARM64 assembly — v1.4.3 · [download the DMG](https://github.com/moradzadeh67/classic-code-editor/releases/latest) |
+| 🖥️ macOS | ✅ Released | macOS 12+ (Monterey or later), Apple Silicon for ARM64 assembly — v1.5.0 · [download the DMG](https://github.com/moradzadeh67/classic-code-editor/releases/latest) |
 | 🪟 Windows | 🔜 Planned | Next major target (v1.x) |
 | 🐧 Linux | 🔜 Planned | After Windows |
 | 📱 iOS / Android | ❌ Not planned | An IDE needs a keyboard and a real shell |
@@ -453,7 +453,7 @@ Details: [docs/PRIVACY.md](docs/PRIVACY.md) · Vulnerability reports: [SECURITY.
 
 ### Download Pre-built Release
 
-1. Download the latest `.dmg` (`Classic Code Editor-1.4.3+9.dmg`) from [Releases](https://github.com/moradzadeh67/classic-code-editor/releases/latest)
+1. Download the latest `.dmg` (`Classic Code Editor-1.5.0+10.dmg`) from [Releases](https://github.com/moradzadeh67/classic-code-editor/releases/latest)
 2. Open the `.dmg` and drag `Classic Code Editor.app` to `Applications`
 3. **First launch (Gatekeeper):** the app is not notarized, so macOS blocks it — click **Done** on the dialog, then open **System Settings → Privacy & Security → Open Anyway** ([Apple: Safely open apps on your Mac](https://support.apple.com/en-us/102445))
 
@@ -607,6 +607,7 @@ This project is actively developed and tested using:
 - [x] Phase 18 — Editor Zoom & Gutter Metrics
 - [x] Phase 19 — ARM64 Assembly, Turbo Pascal theme & editor UX
 - [x] Phase 23 — Language servers for C/C++ (`clangd`) and Python (`pyright`/`pylsp`)
+- [x] Phase 24 — Completion, documentation panel, File Explorer, per-tab language, Finder launch fixes & Colorful palette
 - [ ] On-device ML for code suggestions
 
 See [ROADMAP.md](ROADMAP.md) for the canonical phase list and

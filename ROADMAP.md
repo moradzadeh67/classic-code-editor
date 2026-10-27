@@ -30,7 +30,13 @@
 | 21 | v1.3.1 — Assembly line mapping, ARM64-only build | ✅ DONE |
 | 22 | Editor zoom, fonts & renderer-derived gutter rows | ✅ DONE |
 | 23 | Language server selection (per-language warm servers, clangd) | ✅ DONE |
-| 24 | Completion, documentation panel & Colorful syntax palette | ✅ DONE |
+| 24 | Completion, workspace polish & v1.5.0 release | ✅ DONE |
+
+## Next Ideas
+- Windows & Linux desktop platform support
+- Code signing & Apple Notarization for macOS distribution
+- On-device ML code suggestions
+- Multi-folder project workspace support
 
 ## Rule
 - Phases are sequential

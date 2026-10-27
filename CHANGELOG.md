@@ -6,6 +6,8 @@ All notable changes to Classic Code Editor are documented here. The format follo
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-10-27
+
 ### Fixed
 - **The editor got the keyboard on launch, and language servers were found in a Finder-launched `.app`.**  
   A release build started with an empty Untitled tab left the text field unfocused, so the custom caret never painted and typing went nowhere until a click; the editor now takes focus after the first frame and after every tab change. Separately, a `.app` opened from Finder inherits only launchd's `PATH` (`/usr/bin:/bin`), so `dart` (kept in the Flutter SDK) was never found and the Dart server — and with it completion for an unsaved buffer — silently fell back to a keyword-only offline list. `ToolPathResolver` now looks in the caller's absolute candidates, the user's login shell (`zsh -lic`, then `-lc`, cached, 2 s timeout), and the common install locations (Homebrew, `/usr/local/bin`, `/usr/bin`, `~/.pub-cache/bin`, `~/flutter/bin/cache/dart-sdk/bin`, the login `PATH`), preferring the Dart next to the user's `flutter`. The resolved `PATH` is also handed to the language-server, Run and Debugger child processes, and the tooltip/Console hint list every location that was tried.
