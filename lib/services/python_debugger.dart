@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart' hide StackFrame;
 
 import '../models/debugger_models.dart';
 import 'base_debugger.dart';
+import 'tool_path_resolver.dart';
 import 'debugger_environment.dart';
 import 'debugger_snapshot.dart';
 
@@ -84,7 +85,11 @@ class PythonDebugger extends BaseDebugger {
         driverFile.path,
         target,
         breakpointFile.path,
-      ], workingDirectory: File(target).parent.path);
+      ],
+        workingDirectory: File(target).parent.path,
+        environment: await ToolPathResolver.instance.processEnvironment(),
+        includeParentEnvironment: true,
+      );
 
       _process = process;
       state = DebugState.running;

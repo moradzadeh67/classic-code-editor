@@ -9,6 +9,7 @@ import '../models/language_config.dart';
 import '../models/lsp_models.dart';
 import '../utils/json_rpc_client.dart';
 import 'lsp_server_spec.dart';
+import 'tool_path_resolver.dart';
 
 /// Connection state of the Dart Language Server process.
 enum LspConnectionStatus { stopped, starting, connected, error }
@@ -349,6 +350,10 @@ class LspService extends ChangeNotifier {
         executable,
         _spec.arguments,
         workingDirectory: _rootPath,
+        // The resolved PATH, so the server's own helpers (package tools,
+        // compilers) are found as they are in the user's terminal.
+        environment: await ToolPathResolver.instance.processEnvironment(),
+        includeParentEnvironment: true,
       );
       _process = process;
 
@@ -1212,52 +1217,44 @@ class LspService extends ChangeNotifier {
     _safeNotify();
   }
 
+  /// Every location the last resolve checked, for the tooltip and the Console.
+  List<String> get triedLocations => List.unmodifiable(_triedLocations);
+  final List<String> _triedLocations = <String>[];
+
+  /// Finds the server binary: absolute candidates, then the login shell, then
+  /// the common install locations (see [ToolPathResolver]).
+  ///
+  /// Throws a [ProcessException] naming every location tried when nothing is
+  /// found, so the status-bar tooltip and the Console hint can say why a
+  /// Finder-launched build cannot see a tool that works in Terminal.
   Future<String> _resolveExecutable() async {
-    // Absolute candidates first: a bundled .app starts with launchd's minimal
-    // PATH, so `which` alone misses /opt/homebrew/bin.
+    _triedLocations.clear();
+
+    // 1. Absolute candidates: a bundled .app starts with launchd's minimal
+    // PATH, so these are still the fastest, most reliable hits.
     for (final candidate in _spec.executableNames) {
       if (!candidate.contains('/')) continue;
       final expanded = _expandHome(candidate);
+      _triedLocations.add(expanded);
       if (File(expanded).existsSync()) return expanded;
     }
 
+    // 2./3. Login-shell PATH, then the common tool directories.
     for (final candidate in _spec.executableNames) {
       if (candidate.contains('/')) continue;
-      for (final directory in _searchDirectories()) {
-        final path = '$directory/$candidate';
-        if (File(path).existsSync()) return path;
-      }
-      try {
-        final which = await Process.run('/usr/bin/which', <String>[candidate]);
-        if (which.exitCode == 0) {
-          final path = (which.stdout as String).trim();
-          if (path.isNotEmpty) return path;
-        }
-      } catch (e) {
-        debugPrint('Unable to resolve $candidate: $e');
-      }
+      final lookup = await ToolPathResolver.instance.lookup(candidate);
+      _triedLocations.addAll(lookup.tried);
+      final path = lookup.path;
+      if (path != null) return path;
     }
 
-    // Fall back to the bare name so Process.start reports a clear error.
     final names = _spec.executableNames;
-    return names.isEmpty ? _spec.id : names.last;
-  }
-
-  List<String> _searchDirectories() {
-    final home = Platform.environment['HOME'];
-    return <String>[
-      '/usr/bin',
-      '/usr/local/bin',
-      '/opt/homebrew/bin',
-      '/opt/local/bin',
-      if (home != null && home.isNotEmpty) ...<String>[
-        '$home/.local/bin',
-        '$home/.npm-global/bin',
-        '$home/Library/Python/3.14/bin',
-        '$home/Library/Python/3.13/bin',
-        '$home/Library/Python/3.12/bin',
-      ],
-    ];
+    final name = names.isEmpty ? _spec.id : names.last;
+    throw ProcessException(
+      name,
+      _spec.arguments,
+      'not found. Tried: ${_triedLocations.join(', ')}',
+    );
   }
 
   String _expandHome(String path) {

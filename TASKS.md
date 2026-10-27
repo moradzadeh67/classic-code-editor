@@ -1164,3 +1164,69 @@ a tab drops its language selection; with 12 tabs the "+" stays inside the strip 
 - **Tests:** `test/utils/completion_kind_test.dart` (full kind → letter table, unknown/null, colour categories,
   palette-derived colours per scheme) and `test/ui/editor/completion_badge_test.dart` (badge letters and detail
   text in one row, ellipsis/right alignment, colours follow the scheme, no overflow in all four themes).
+
+### TASK-083: No caret and no autocomplete in the built .app after "always start empty"
+**Phase:** 24
+**Status:** ✅ DONE
+
+**Step A — investigation (two independent causes, both confirmed):**
+
+1. **Focus.** Nothing requested focus on launch or on a tab change. `CodeEditorPanel`
+   only called `_focusNode.requestFocus()` from a click (`onTapUp`), `goToLine` and
+   `triggerCompletion`; `_showEditorCaret` is `_focusNode.hasFocus && …`, so the custom
+   caret overlay painted a 0×0 box (and ran no blink timer) until the first click, and
+   keys went nowhere. This is not release-specific — it was simply invisible while a
+   restored file made the app look "already working". Verified with a widget test: with
+   the tree pumped and no tap, the editor's `focusNode.hasFocus` is now true and
+   `FocusManager.instance.primaryFocus` is that node.
+2. **PATH.** A .app opened from Finder/`open` inherits launchd's minimal
+   `PATH=/usr/bin:/bin:/usr/sbin:/sbin`, not the login shell's. Reproduced exactly as
+   asked:
+   ```
+   env -i HOME=… build/macos/Build/Products/Release/"Classic Code Editor.app"/Contents/MacOS/"Classic Code Editor"
+   flutter: LspService (dart) failed to start: ProcessException: No such file or directory
+   flutter:   Command: dart language-server --client-id=ClassicCodeEditor …
+   ```
+   `dart` lives in the Flutter SDK (`…/dev/flutter_sdk/bin`), so the Dart server never
+   started; the empty Untitled buffer then had no server and completion fell back to
+   `CompletionFilter.generateFallbackCompletions`, which offers only keywords and words
+   already in the document — no `print`, no members. That is why "autocomplete does not
+   work" rather than "no Dart suggestions". `Run`/`Debug` of Dart would have failed the
+   same way (`_findExecutable('dart')` → bare `dart` → `Process.start` error), and
+   `clang`/`python3` were only reachable because of `/usr/bin` / absolute candidates.
+   With `flutter run -d macos` the app inherits the terminal's PATH, so the server
+   connects and completion works: the difference is the environment, not the build mode.
+3. **Something else (contributing).** On this machine `zsh -lc 'command -v dart'` *also*
+   returns nothing, because `~/.zshrc` (interactive only) is where the Flutter SDK is
+   added to `PATH`. So a login-shell lookup limited to `-lc` would still miss `dart`;
+   the resolver therefore tries `zsh -lic` (the shell Terminal gives the user) first and
+   falls back to `-lc`, both bounded by the 2 s timeout.
+
+**Step B — fix:**
+- **Focus:** `CodeEditorPanel._requestFocusAfterFrame()` runs in `initState` and on every
+  active-tab change (`_onFileServiceChanged`), posts a frame, gives the caret a valid
+  position if it had none (a focused field otherwise jumps to the end of the buffer;
+  marking the text programmatic keeps this from being mistaken for an edit) and calls
+  `_focusNode.requestFocus()`. Clicking the editor behaves exactly as before.
+- **PATH:** new `lib/services/tool_path_resolver.dart`. Order: the caller's absolute
+  candidates → `zsh -lic`/`-lc` `command -v` (cached per tool, 2 s timeout, always off
+  the UI thread) → common locations (`/opt/homebrew/bin`, `/usr/local/bin`, `/usr/bin`,
+  `~/.pub-cache/bin`, `~/flutter/bin/cache/dart-sdk/bin`, every login-PATH directory).
+  For `dart` the SDK that sits next to the `flutter` on the login PATH wins, so the
+  server matches the SDK the user builds with. `LspService` reports every tried location
+  in the thrown `ProcessException`, so the status-bar tooltip and the one-line Console
+  hint name them; when nothing is found the old fallback (offline completion) is intact.
+  `ToolPathResolver.processEnvironment()` builds the child `PATH` (login first, then the
+  app's own, then the common dirs) and is passed to the language-server process, the Run
+  runner (`dart run`, `python3`, `clang`, `clang++`, assembly) and the Dart/Python/C/ASM
+  debugger spawns. `LanguageRunnerService._findExecutable` uses the same resolver instead
+  of a bare `which`.
+
+**Tests:** `test/services/tool_path_resolver_test.dart` (login-shell hit, common-location
+fallback, Dart-next-to-Flutter preference, nothing found with every tried location, alias
+answers ignored, child `PATH` order + de-duplication — shells and file existence faked);
+`test/ui/editor/editor_focus_test.dart` (after the first frame the editor has primary
+focus; a tab change takes focus back after something else stole it). Verified against the
+real environment under `env -i PATH=/usr/bin:/bin`: the resolver returns
+`…/dev/flutter_sdk/bin/dart`, `/usr/bin/clangd`, `/opt/homebrew/bin/pyright-langserver`,
+`/usr/bin/clang`, `/opt/homebrew/bin/python3`.

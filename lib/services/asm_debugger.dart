@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
 import '../models/debugger_models.dart';
 import 'arm64_asm_parser.dart';
 import 'c_debugger.dart';
+import 'tool_path_resolver.dart';
 import 'debugger_environment.dart';
 
 /// A debugger implementation for ARM64 Assembly (`.s` files) on Apple Silicon macOS.
@@ -145,7 +146,11 @@ class AsmDebugger extends CDebugger {
         return;
       }
 
-      final process = await Process.start(lldbPath, <String>[executable]);
+      final process = await Process.start(
+        lldbPath,
+        <String>[executable],
+        environment: await ToolPathResolver.instance.processEnvironment(),
+      );
       lldbProcess = process;
       resetLldbQueue();
       exitHandled = false;
@@ -219,7 +224,11 @@ class AsmDebugger extends CDebugger {
 
     final ProcessResult result;
     try {
-      result = await Process.run(clangPath, arguments);
+      result = await Process.run(
+        clangPath,
+        arguments,
+        environment: await ToolPathResolver.instance.processEnvironment(),
+      );
     } catch (e) {
       emitOutput('[ARM64 Assembly requires clang ($e).]');
       return null;

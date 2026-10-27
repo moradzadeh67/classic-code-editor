@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart' hide StackFrame;
 import '../models/debugger_models.dart';
 import '../utils/vm_service_client.dart';
 import 'base_debugger.dart';
+import 'tool_path_resolver.dart';
 import 'debugger_environment.dart';
 
 /// A debugger for Dart programs, driven by the official Dart VM Service
@@ -79,7 +80,7 @@ class DartDebugger extends BaseDebugger {
         '--pause-isolates-on-start',
         '--enable-asserts',
         scriptPath,
-      ]);
+      ], environment: await ToolPathResolver.instance.processEnvironment());
       _process = process;
 
       state = DebugState.running;

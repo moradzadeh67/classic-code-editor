@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart' hide StackFrame;
 
 import '../models/debugger_models.dart';
 import 'base_debugger.dart';
+import 'tool_path_resolver.dart';
 import 'debugger_environment.dart';
 import 'debugger_snapshot.dart';
 import 'language_runner_service.dart';
@@ -225,7 +226,11 @@ class CDebugger extends BaseDebugger {
         return;
       }
 
-      final process = await Process.start(lldbPath, <String>[executable]);
+      final process = await Process.start(
+        lldbPath,
+        <String>[executable],
+        environment: await ToolPathResolver.instance.processEnvironment(),
+      );
       _lldb = process;
       resetLldbQueue();
       _exitHandled = false;
@@ -273,7 +278,11 @@ class CDebugger extends BaseDebugger {
 
     final ProcessResult result;
     try {
-      result = await Process.run(compiler, arguments);
+      result = await Process.run(
+        compiler,
+        arguments,
+        environment: await ToolPathResolver.instance.processEnvironment(),
+      );
     } catch (e) {
       emitOutput('[Compiler not found ($e). Please install clang/GCC.]');
       return null;

@@ -467,6 +467,35 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
     _lastActiveTabIndex = widget.fileService.activeTabIndex;
     // The caret rect is measured from the renderer, so it needs one layout pass.
     _queueBandUpdate();
+    // The editor is this app's default input target: without this a fresh
+    // launch (and every new tab) leaves the field unfocused, so the custom
+    // caret is not painted (`active` is false) and keys go nowhere until the
+    // user clicks - the exact "no caret" report from a release build.
+    _requestFocusAfterFrame();
+  }
+
+  /// Focuses the editor after the next frame.
+  ///
+  /// Post-frame rather than inline because the field must be laid out and
+  /// attached to the focus tree first; the extra `scheduleFrame` makes sure a
+  /// frame is produced even when nothing else is animating.
+  void _requestFocusAfterFrame() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      // A field with an invalid selection jumps to the end of the document the
+      // moment it is focused; give the caret a real position first so a fresh
+      // launch starts at the top of the buffer and an opened tab keeps the
+      // position it was given.
+      if (!_controller.selection.isValid) {
+        // The selection is also a controller change, and _onTextChanged treats
+        // any controller change as an edit. Marking the text as programmatic
+        // keeps this from writing an empty buffer over the open tab.
+        _programmaticText = _controller.text;
+        _controller.selection = const TextSelection.collapsed(offset: 0);
+      }
+      _focusNode.requestFocus();
+    });
+    WidgetsBinding.instance.scheduleFrame();
   }
 
   @override
@@ -960,6 +989,9 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
     if (widget.fileService.activeTabIndex != _lastActiveTabIndex) {
       _lastActiveTabIndex = widget.fileService.activeTabIndex;
       _updateControllerText();
+      // A new/activated tab is what the user wants to type into: focus it so
+      // the caret shows and completion works without an extra click.
+      _requestFocusAfterFrame();
     }
   }
 

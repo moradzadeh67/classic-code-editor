@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 
 import '../models/language_config.dart';
 import 'file_service.dart';
+import 'tool_path_resolver.dart';
 
 /// A unified service responsible for executing code in multiple languages
 /// (Dart, Python, C, C++) by determining the configuration based on file extension,
@@ -129,17 +130,18 @@ class LanguageRunnerService extends ChangeNotifier {
   }
 
   Future<String> _findExecutable(String name) async {
-    try {
-      final result = await Process.run('which', [name]);
-      if (result.exitCode == 0) {
-        final path = (result.stdout as String).trim();
-        if (path.isNotEmpty) return path;
-      }
-    } catch (e) {
-      debugPrint('Error finding executable $name: $e');
-    }
+    // Same lookup the language servers use: absolute candidates, the user's
+    // login-shell PATH, then the common install locations. An app opened from
+    // Finder never inherits the shell PATH, so a bare `which` misses `dart`.
+    final resolved = await ToolPathResolver.instance.find(name);
+    if (resolved != null) return resolved;
     return name;
   }
+
+  /// The PATH every child process gets, so `dart`, `clang` and `python3`
+  /// resolve as they do in the user's terminal.
+  Future<Map<String, String>> _childEnvironment() =>
+      ToolPathResolver.instance.processEnvironment();
 
   /// Executes code for the given [filePath] and [content].
   /// Supports Dart, Python, C, and C++.
@@ -237,7 +239,7 @@ class LanguageRunnerService extends ChangeNotifier {
     _process = await Process.start(dartExec, [
       'run',
       tempFile.path,
-    ], workingDirectory: tempDir.path);
+    ], workingDirectory: tempDir.path, environment: await _childEnvironment());
 
     await _listenToProcess(_process!);
   }
@@ -251,7 +253,11 @@ class LanguageRunnerService extends ChangeNotifier {
 
     // Verify python3 exists
     try {
-      final check = await Process.run(pythonExec, ['--version']);
+      final check = await Process.run(
+        pythonExec,
+        ['--version'],
+        environment: await _childEnvironment(),
+      );
       if (check.exitCode != 0) {
         _outputController.add(
           '\n[Error: python3 not found. Please ensure Python 3 is installed and in your PATH.]\n',
@@ -281,7 +287,7 @@ class LanguageRunnerService extends ChangeNotifier {
 
     _process = await Process.start(pythonExec, [
       scriptPath,
-    ], workingDirectory: runWorkDir);
+    ], workingDirectory: runWorkDir, environment: await _childEnvironment());
 
     await _listenToProcess(_process!);
   }
@@ -300,7 +306,7 @@ class LanguageRunnerService extends ChangeNotifier {
         '-o',
         execFile,
         sourceFile.path,
-      ], workingDirectory: tempDir.path);
+      ], workingDirectory: tempDir.path, environment: await _childEnvironment());
 
       if (compileProcess.stdout.toString().isNotEmpty) {
         _outputController.add(compileProcess.stdout.toString());
@@ -328,6 +334,8 @@ class LanguageRunnerService extends ChangeNotifier {
       execFile,
       [],
       workingDirectory: tempDir.path,
+      environment: await _childEnvironment(),
+      includeParentEnvironment: true,
     );
 
     await _listenToProcess(_process!);
@@ -348,7 +356,7 @@ class LanguageRunnerService extends ChangeNotifier {
         '-o',
         execFile,
         sourceFile.path,
-      ], workingDirectory: tempDir.path);
+      ], workingDirectory: tempDir.path, environment: await _childEnvironment());
 
       if (compileProcess.stdout.toString().isNotEmpty) {
         _outputController.add(compileProcess.stdout.toString());
@@ -376,6 +384,8 @@ class LanguageRunnerService extends ChangeNotifier {
       execFile,
       [],
       workingDirectory: tempDir.path,
+      environment: await _childEnvironment(),
+      includeParentEnvironment: true,
     );
 
     await _listenToProcess(_process!);
@@ -421,7 +431,7 @@ class LanguageRunnerService extends ChangeNotifier {
         '-o',
         execFile,
         sourceFile.path,
-      ], workingDirectory: tempDir.path);
+      ], workingDirectory: tempDir.path, environment: await _childEnvironment());
 
       if (compileProcess.stdout.toString().isNotEmpty) {
         _outputController.add(compileProcess.stdout.toString());
@@ -447,6 +457,8 @@ class LanguageRunnerService extends ChangeNotifier {
       execFile,
       [],
       workingDirectory: tempDir.path,
+      environment: await _childEnvironment(),
+      includeParentEnvironment: true,
     );
 
     await _listenToProcess(_process!);
