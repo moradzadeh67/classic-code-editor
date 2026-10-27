@@ -35,21 +35,6 @@ class SessionService extends ChangeNotifier {
   /// Folder shown in the explorer, or null when none is open.
   String? get openFolderPath => _openFolderPath;
 
-  /// The saved paths a launch should reopen.
-  ///
-  /// Restoring tabs is opt-in ([restoreTabsOnLaunch], the persisted
-  /// `restoreTabsOnLaunch` setting): while it is off the app starts with a
-  /// single empty editor and `session.json` is only written, never replayed.
-  /// Even when it is on, a path that no longer exists on disk is skipped
-  /// silently — a stale session must never fail a launch.
-  List<String> pathsToRestore({required bool restoreTabsOnLaunch}) {
-    if (!restoreTabsOnLaunch) return const <String>[];
-    return [
-      for (final path in _openPaths)
-        if (File(path).existsSync()) path,
-    ];
-  }
-
   /// Remembers (or forgets) the explorer's folder.
   void setOpenFolderPath(String? path) {
     final exists = path != null && Directory(path).existsSync();

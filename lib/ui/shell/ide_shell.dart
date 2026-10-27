@@ -407,14 +407,12 @@ class _IDEShellState extends State<IDEShell> {
     );
   }
 
-  /// Restores the previous session when the user asked for it: only files that
-  /// still exist, and the active tab by path. Untitled buffers are never
-  /// restored.
+  /// Reopens only the parts of the previous session that are still useful: the
+  /// File Explorer's folder and the recent-files list.
   ///
-  /// Reopening tabs is opt-in (View > Restore Tabs on Launch, persisted as
-  /// `restoreTabsOnLaunch`). While it is off the app starts on a single empty
-  /// editor instead of replaying `session.json`; the explorer's folder and the
-  /// recent-files list are remembered either way.
+  /// Tabs are never replayed. An old `session.json` may still contain
+  /// `openPaths`/`activePath`; it loads without error and simply has no effect,
+  /// because a launch always starts on one empty **Untitled** editor.
   Future<void> _restoreSession() async {
     await SessionService.instance.load();
     if (!mounted) return;
@@ -425,34 +423,8 @@ class _IDEShellState extends State<IDEShell> {
       await _explorerService.openFolder(folder);
     }
 
-    final paths = SessionService.instance.pathsToRestore(
-      restoreTabsOnLaunch: EditorSettingsService.instance.restoreTabsOnLaunch,
-    );
-    for (final path in paths) {
-      final file = File(path);
-      // The helper already filters missing paths; keep the guard so a file
-      // deleted between the check and the read is skipped, not fatal.
-      if (!file.existsSync()) continue;
-      try {
-        _fileService.restoreFile(path, await file.readAsString());
-      } on FileSystemException catch (e) {
-        debugPrint('Could not restore $path: $e');
-      }
-    }
-
-    final activePath = SessionService.instance.activePath;
-    if (activePath != null && paths.contains(activePath)) {
-      final index = _fileService.openTabs.indexWhere(
-        (tab) => tab.filePath == activePath,
-      );
-      if (index >= 0) _fileService.switchTab(index);
-    }
-
-    // Never start with an empty tab strip: nothing restored (setting off, an
-    // empty session, or every saved file gone) means one Untitled buffer.
-    if (_fileService.openTabs.isEmpty) {
-      _fileService.createNewFile();
-    }
+    // Always start empty: one Untitled buffer, whatever is on disk.
+    _fileService.createNewFile();
     _persistSession();
   }
 

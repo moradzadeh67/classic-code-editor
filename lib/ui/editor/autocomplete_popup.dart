@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../../models/syntax_scheme.dart';
 import '../../models/lsp_models.dart';
+import '../../services/editor_settings_service.dart';
 import '../../services/theme_service.dart';
+import '../../utils/completion_kind.dart';
 import '../retro/retro_border.dart';
 import 'completion_doc_panel.dart';
 
@@ -88,14 +91,19 @@ class AutocompletePopup extends StatelessWidget {
     // coordinates; the Stack clips anything that would leave the editor.
     return Positioned.fill(
       child: ListenableBuilder(
-        listenable: ThemeService.instance,
+        // The badges take their colours from the shared syntax palette, so the
+        // list must also repaint when the scheme changes.
+        listenable: Listenable.merge([
+          ThemeService.instance,
+          EditorSettingsService.instance,
+        ]),
         builder: (context, _) {
           final uiColors = ThemeService.instance.uiColors;
+          final scheme = EditorSettingsService.instance.syntaxScheme;
           final placement = _CompletionPlacement.compute(
             anchor: anchor,
             bounds: bounds,
             itemCount: items.length,
-            hasDetail: items.any((item) => item.detail != null),
             maxWidth: maxWidth,
             hasDocumentation:
                 documentation != null && documentation!.trim().isNotEmpty,
@@ -135,39 +143,60 @@ class AutocompletePopup extends StatelessWidget {
                                 : Colors.transparent,
                             borderRadius: BorderRadius.zero,
                           ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                          // One fixed-height line: kind badge, label, then the
+                          // server's detail pinned to the right and dimmed.
+                          child: Row(
                             children: [
-                              _LabelWithPrefix(
-                                label: item.displayLabel,
-                                prefix: currentWord,
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  fontFamily: 'Menlo',
-                                  color: isSelected
-                                      ? uiColors['menuActiveText']
-                                      : uiColors['editorText'],
-                                  fontWeight: isSelected
-                                      ? FontWeight.bold
-                                      : FontWeight.normal,
+                              CompletionBadgeChip(
+                                kind: item.kindInt,
+                                scheme: scheme,
+                                backgroundColor: uiColors['editorBackground']!,
+                              ),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Flexible(
+                                      child: _LabelWithPrefix(
+                                        label: item.displayLabel,
+                                        prefix: currentWord,
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          fontFamily: 'Menlo',
+                                          color: isSelected
+                                              ? uiColors['menuActiveText']
+                                              : uiColors['editorText'],
+                                          fontWeight: isSelected
+                                              ? FontWeight.bold
+                                              : FontWeight.normal,
+                                        ),
+                                      ),
+                                    ),
+                                    if (item.detail != null) ...[
+                                      const SizedBox(width: 8),
+                                      Flexible(
+                                        child: Text(
+                                          item.detail!,
+                                          maxLines: 1,
+                                          softWrap: false,
+                                          overflow: TextOverflow.ellipsis,
+                                          textAlign: TextAlign.right,
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            fontFamily: 'Menlo',
+                                            color: isSelected
+                                                ? uiColors['menuActiveText']
+                                                : uiColors['editorText']!
+                                                      .withValues(alpha: 0.7),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ],
                                 ),
                               ),
-                              if (item.detail != null)
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 2),
-                                  child: Text(
-                                    item.detail!,
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      fontFamily: 'Menlo',
-                                      color: isSelected
-                                          ? uiColors['menuActiveText']
-                                          : uiColors['editorText']!.withValues(
-                                              alpha: 0.7,
-                                            ),
-                                    ),
-                                  ),
-                                ),
                             ],
                           ),
                         ),
@@ -227,8 +256,8 @@ class _CompletionPlacement {
     this.docRect,
   });
 
-  /// A single row is ~24px; a row with `detail` is ~38px.
-  static const double _rowWithDetail = 38;
+  /// Every row is one line now (the detail sits inline, right-aligned), so the
+  /// height estimate no longer depends on whether an item carries a detail.
   static const double _rowPlain = 24;
   static const double _maxListHeight = 200;
   static const double _minListHeight = 72;
@@ -240,7 +269,6 @@ class _CompletionPlacement {
     required Rect anchor,
     required Size bounds,
     required int itemCount,
-    required bool hasDetail,
     required double maxWidth,
     required bool hasDocumentation,
   }) {
@@ -249,8 +277,7 @@ class _CompletionPlacement {
         .clamp(0.0, (bounds.width - width).clamp(0.0, double.infinity))
         .toDouble();
 
-    final contentHeight =
-        itemCount * (hasDetail ? _rowWithDetail : _rowPlain) + _gap;
+    final contentHeight = itemCount * _rowPlain + _gap;
     final preferred = contentHeight.clamp(_minListHeight, _maxListHeight);
 
     final belowRoom = bounds.height - (anchor.bottom + _gap);
@@ -373,13 +400,24 @@ class _LabelWithPrefix extends StatelessWidget {
   Widget build(BuildContext context) {
     final p = prefix.toLowerCase();
     if (p.isEmpty || !label.toLowerCase().startsWith(p)) {
-      return Text(label, style: style);
+      // The detail now shares the row, so a long label is truncated instead of
+      // wrapping onto a second line.
+      return Text(
+        label,
+        maxLines: 1,
+        softWrap: false,
+        overflow: TextOverflow.ellipsis,
+        style: style,
+      );
     }
 
     final head = label.substring(0, prefix.length);
     final tail = label.substring(prefix.length);
 
     return RichText(
+      maxLines: 1,
+      softWrap: false,
+      overflow: TextOverflow.ellipsis,
       text: TextSpan(
         style: style,
         children: [
@@ -389,6 +427,63 @@ class _LabelWithPrefix extends StatelessWidget {
             style: style.copyWith(fontWeight: FontWeight.normal),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// The small square at the start of every completion row: one letter for the
+/// item's LSP kind, painted with the active syntax scheme's own token colour.
+///
+/// Sized 16x16 with a 2 px retro border so it reads like a key cap without
+/// making the row taller (the row's text is ~19 px).
+class CompletionBadgeChip extends StatelessWidget {
+  /// Raw LSP `CompletionItemKind` of the row, or `null` when unknown.
+  final int? kind;
+
+  /// The active syntax scheme; the letter colour comes from its palette.
+  final SyntaxScheme scheme;
+
+  /// Fill behind the letter: the editor surface, so the badge stays legible on
+  /// a selected (dark) row in every theme.
+  final Color backgroundColor;
+
+  const CompletionBadgeChip({
+    super.key,
+    required this.kind,
+    required this.scheme,
+    required this.backgroundColor,
+  });
+
+  static const double size = 16;
+
+  /// The mapped letter, exposed so tests need not re-derive it.
+  String get letter => completionKindBadge(kind).letter;
+
+  /// The palette colour of the letter and its border.
+  Color get color =>
+      completionBadgeColor(completionKindBadge(kind).category, scheme);
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      alignment: Alignment.center,
+      decoration: RetroBorder.flat(
+        backgroundColor: backgroundColor,
+        borderColor: color,
+      ),
+      child: Text(
+        letter,
+        maxLines: 1,
+        style: TextStyle(
+          fontSize: 10,
+          height: 1.0,
+          fontWeight: FontWeight.bold,
+          fontFamily: 'Menlo',
+          color: color,
+        ),
       ),
     );
   }

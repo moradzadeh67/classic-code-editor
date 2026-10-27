@@ -211,6 +211,26 @@ class MultiLanguageHighlighter {
     return styles;
   }
 
+  /// The colour [scheme] paints for one of the token classes the completion
+  /// badges use (`function`, `number`, `type`, `keyword`, `variable`).
+  ///
+  /// Resolved from exactly the same per-category styles the editor renders, so
+  /// a badge can never drift from the code it describes, and switching
+  /// `View > Syntax Colors` repaints both at once.
+  static Color completionColor(SyntaxScheme scheme, String tokenClass) {
+    final byCategory = scheme == SyntaxScheme.colorful
+        ? _colorfulStyleByCategory
+        : _standardStyleByCategory;
+    final category = switch (tokenClass) {
+      'function' => _SyntaxCategory.function,
+      'number' => _SyntaxCategory.number,
+      'type' => _SyntaxCategory.type,
+      'keyword' => _SyntaxCategory.keyword,
+      _ => _SyntaxCategory.variable,
+    };
+    return byCategory[category]?.color ?? typeColor;
+  }
+
   /// Minimal ARM64 (AArch64) grammar for `.s` files.
   ///
   /// `highlight` 0.7 does ship an `armasm` grammar, but it targets 32-bit ARM:

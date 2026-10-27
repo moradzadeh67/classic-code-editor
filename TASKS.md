@@ -694,25 +694,16 @@ starts empty. The same mechanism is why the sample's tab appears with the `ASM` 
 **Recommendation:** (1) + (3): a genuinely fresh install is empty, and a stale path from another machine/build
 can never reopen. Keep the recent-files list (it is a separate, useful feature).
 
-**Fix (owner picked option 4 — the explicit preference):**
-- `EditorSettingsService` gained a persisted `restoreTabsOnLaunch` (`editor_settings.json`, default **false**).
-  Only a literal JSON `true` turns it on; a missing key (older file), corrupt JSON or a non-bool value all fall
-  back to OFF. `setRestoreTabsOnLaunch()` notifies and saves immediately, like the font/scheme setters.
-- `RetroMenuBar`'s **View** menu has a checked **Restore Tabs on Launch** row right after the panel toggles. Its
-  `checked` flag is read from the live service inside `itemBuilder` (Rule 8), so the mark follows a change
-  without rebuilding the bar.
-- `SessionService.pathsToRestore({required bool restoreTabsOnLaunch})` is the single decision point: OFF returns
-  an empty list (session.json is not replayed at all), ON returns only the saved paths that still exist on disk.
-  `IDEShell._restoreSession()` consumes it and additionally skips the active-tab switch when that path was not
-  restored, so a deleted file is never an error. If nothing was restored the shell calls
-  `FileService.createNewFile()`, so a launch never shows an empty tab strip — OFF therefore starts on one empty
-  **Untitled** buffer.
-- Unchanged on purpose: `session.json` is still written on every tab change (so the setting can be turned back on
-  later), the recent-files list and the explorer's remembered folder are handled exactly as before.
-- Tests: `test/services/editor_settings_service_test.dart` (default OFF, save/load round-trip, corrupt/unknown
-  value ⇒ OFF), `test/services/session_service_test.dart` (OFF ⇒ no paths, ON ⇒ saved files, ON + missing file ⇒
-  skipped silently) and `test/ui/shell/restore_tabs_menu_test.dart` (row lives in View, mark follows, selection
-  persists). No new packages, no debugger/gutter/completion/color changes.
+**Resolution:** resolved by always starting empty; tab restore was removed.
+- A first attempt added an opt-in `View > Restore Tabs on Launch` preference, but the toggle did not work in
+  manual testing and the owner only wants a clean empty start. The setting (`restoreTabsOnLaunch` in
+  `editor_settings.json`), its View-menu row and `SessionService.pathsToRestore()` are gone again.
+- `IDEShell._restoreSession()` now never replays tabs: it reopens only the File Explorer's folder (when it still
+  exists) and then calls `FileService.createNewFile()`, so every launch shows exactly one empty **Untitled** tab.
+- `session.json` is still written (open paths + MRU list) and still read, so an older file that contains
+  `openPaths`/`activePath` loads without error and simply has no effect; the recent-files list is untouched.
+- Test: `test/ui/shell/launch_empty_editor_test.dart` seeds a session with `openPaths` and asserts the shell opens
+  no tab from it and shows one empty Untitled buffer; the explorer-folder and recent-files tests are unchanged.
 
 ### TASK-056: Fix stale / false diagnostics — active-document source of truth
 **Phase:** 24
@@ -1149,3 +1140,27 @@ is a little taller — `kOpenFolderButtonHeight = 28` — with the label centere
 tapping twice gives `Untitled` + `Untitled 2`; the two get `untitled` / `untitled-2` virtual documents; closing
 a tab drops its language selection; with 12 tabs the "+" stays inside the strip at `kEditorTabHeight`.
 `flutter analyze` clean; full `flutter test` passing (487 pass, 8 skipped).
+
+### TASK-082: Completion rows show a kind badge and the item's detail
+**Phase:** 24
+**Status:** ✅ DONE
+
+- The model already kept what the badge needs: `CompletionItem.kindInt` (the raw LSP `CompletionItemKind`) and
+  `CompletionItem.detail`. No model change was required.
+- New pure helper `lib/utils/completion_kind.dart`: `completionKindBadge(int? kind)` maps
+  Method/Function/Constructor (2/3/4) → **M**, Field/Property (5/10) → **F**, Variable (6) → **V**,
+  Class/Interface/Struct (7/8/22) → **C**, Enum/EnumMember (13/20) → **E**, Keyword (14) → **K**,
+  Snippet (15) → **S**, Constant (21) → **#**, Module (9) → **P**, anything else (including `null`) → **·**,
+  and groups them into `callable` / `value` / `type` / `keyword` / `plain`.
+- `completionBadgeColor(category, scheme)` resolves its colour through
+  `MultiLanguageHighlighter.completionColor()` — the same per-category styles the editor paints with — so a
+  badge is never hardcoded: callable = function colour, value = number colour, type = type colour,
+  keyword = keyword colour, plain = identifier colour. The popup listens to both `ThemeService` and
+  `EditorSettingsService`, so switching `View > Syntax Colors` repaints the badges live.
+- Each row is a single `Row`: `CompletionBadgeChip` (16x16, 2 px `RetroBorder.flat` square, near-white
+  `editorBackground` fill so it stays legible on a selected dark row, 10 px bold letter) + label + the detail
+  right-aligned, dimmed (70 %) and ellipsized (`maxLines: 1`, `softWrap: false`). The row keeps a single line, so
+  its height does not change and nothing wraps; `_CompletionPlacement` now estimates every row at 24 px.
+- **Tests:** `test/utils/completion_kind_test.dart` (full kind → letter table, unknown/null, colour categories,
+  palette-derived colours per scheme) and `test/ui/editor/completion_badge_test.dart` (badge letters and detail
+  text in one row, ellipsis/right alignment, colours follow the scheme, no overflow in all four themes).

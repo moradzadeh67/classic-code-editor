@@ -167,9 +167,9 @@ ARM64 Assembly support: highlighting, Run, and the LLDB debugger with its regist
   (or quitting) asks **Save / Don't Save / Cancel**. A pinned **+** button at the
   right edge opens a new Untitled tab (`Cmd + N` does the same), auto-numbered
   `Untitled`, `Untitled 2`, … with its own language-server document
-- **Session Restore:** the recent-files list (`File > Open Recent`, 10 entries) always
-  comes back; the previous tabs do too, but only once **View > Restore Tabs on Launch**
-  is enabled — by default a launch starts on one empty **Untitled** editor
+- **Clean Start, Remembered Recent Files:** every launch opens one empty **Untitled**
+  editor; the recent-files list (`File > Open Recent`, 10 entries) and the File
+  Explorer's folder are still remembered
 - **Edit Menu:** Select All (`Cmd + A`), Go to Line (`Cmd + L`), Toggle Comment
   (`Cmd + /`), Duplicate Line (`Cmd + Shift + D`), Open (`Cmd + O`), Close Tab (`Cmd + W`)
 - **Editor Zoom:** `Cmd +` / `Cmd -` / `Cmd 0` changes font size (8..32) with live gutter alignment

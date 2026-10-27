@@ -204,16 +204,6 @@ class RetroMenuBar extends StatelessWidget {
                   label: 'Toggle Diagnostics',
                 ),
                 const RetroMenuSeparator<String>(),
-                // A persisted toggle (unlike the three above, which are only
-                // in-memory panel visibility). Rule 8: the check mark reads the
-                // live setting, so the row is intentionally not const.
-                RetroMenuItem<String>(
-                  value: 'toggle_restore_tabs',
-                  label: 'Restore Tabs on Launch',
-                  checked:
-                      EditorSettingsService.instance.restoreTabsOnLaunch,
-                ),
-                const RetroMenuSeparator<String>(),
                 const RetroMenuItem<String>(
                   value: 'font_increase',
                   label: 'Increase Font Size',
@@ -296,11 +286,6 @@ class RetroMenuBar extends StatelessWidget {
                   onToggleConsole?.call();
                 } else if (value == 'toggle_diagnostics') {
                   onToggleDiagnostics?.call();
-                } else if (value == 'toggle_restore_tabs') {
-                  // Saves immediately; takes effect on the next launch.
-                  EditorSettingsService.instance.setRestoreTabsOnLaunch(
-                    !EditorSettingsService.instance.restoreTabsOnLaunch,
-                  );
                 } else if (value == 'font_increase') {
                   EditorSettingsService.instance.increase();
                 } else if (value == 'font_decrease') {
