@@ -22,6 +22,7 @@ import '../../utils/line_edit.dart';
 import '../../utils/toggle_comment.dart';
 import '../../services/editor_settings_service.dart';
 import '../../services/session_service.dart';
+import '../../services/tab_language_server_sync.dart';
 import '../editor/code_editor_panel.dart';
 import '../editor/go_to_line_dialog.dart';
 import 'close_guard.dart';
@@ -97,12 +98,14 @@ class _IDEShellState extends State<IDEShell> {
   String? _lastSessionSignature;
 
   /// Path the language server currently has `didOpen` for, on which service.
-  String? _lspOpenPath;
-  LspService? _lspOpenService;
-  String? _lspLastContent;
 
-  /// Incremented per sync so a slow activation cannot reopen a stale file.
-  int _lspSyncToken = 0;
+  /// Keeps the active server's document aligned with the tab's effective
+  /// language (see [TabLanguageServerSync]).
+  late final TabLanguageServerSync _lspSync = TabLanguageServerSync(
+    manager: _lspManager,
+    workspace: _unsavedWorkspace,
+    onOutput: (message) => _dartRunnerService.emitOutput(message),
+  );
 
   /// Path + content the one-shot analyzer result describes. When either changes
   /// the result is stale, so it is dropped instead of being shown for new text.
@@ -124,6 +127,9 @@ class _IDEShellState extends State<IDEShell> {
     // opening their first file; the server for another language starts on the
     // first file that needs it.
     unawaited(_lspManager.activateFor(null));
+    // Start the Dart server immediately instead of waiting for the first tab:
+    // `initialize` takes a while, and the first completion request needs it.
+    unawaited(_lspService.startServer());
     // A run must see the latest text, whichever button started it (toolbar,
     // menu or F5): the runner notifies when its state changes.
     _dartRunnerService.addListener(_flushPendingDocumentChange);
@@ -207,77 +213,22 @@ class _IDEShellState extends State<IDEShell> {
     _persistSession();
   }
 
-  /// Points the matching language server at [path] and keeps it in sync.
+  /// Points the matching language server at the document for this tab and
+  /// keeps it in sync.
   ///
-  /// Activation is asynchronous (clangd/pyright can take a second to answer
-  /// `initialize`), so a token discards the result of a superseded tab switch.
-  Future<void> _syncLanguageServer(String? path, String content) async {
-    final token = ++_lspSyncToken;
-    final previousPath = _lspOpenPath;
-    final previousService = _lspOpenService;
-
-    // An unsaved buffer has no document path, and every server needs one
-    // (clangd for the grammar and build flags, the Dart server for the package
-    // context). It gets a stable virtual path instead - a lowercase name with
-    // the extension its content resolved to, inside a temp workspace that also
-    // carries clangd's compile_flags.txt.
-    String? documentPath;
-    try {
-      documentPath =
-          path ??
-          await _unsavedWorkspace.pathFor(
-            LanguageConfig.fromPathOrContent(path, content),
-            bufferName: _fileService.activeTab?.fileName,
-          );
-    } on FileSystemException catch (e) {
-      debugPrint('Unsaved buffer workspace unavailable: $e');
-    }
-    if (!mounted || token != _lspSyncToken) return;
-
-    if (documentPath == null) {
-      // No writable directory: report "no analysis" instead of inventing one.
-      if (previousPath != null && previousService != null) {
-        previousService.closeDocument(previousPath);
-      }
-      _lspOpenPath = null;
-      _lspLastContent = null;
-      _lspOpenService = _lspManager.activateForUnsavedBuffer();
-      return;
-    }
-
-    final service = await _lspManager.activateFor(
-      documentPath,
+  /// The tab's **effective** language decides (explicit dropdown choice, else
+  /// the extension/content resolver), so a `.c` buffer switched to Dart is
+  /// served by the Dart server as a virtual `.dart` document instead of being
+  /// flagged by clangd. Activation is asynchronous, so a token inside
+  /// [TabLanguageServerSync] discards a superseded tab switch.
+  Future<void> _syncLanguageServer(String? path, String content) {
+    final tab = _fileService.activeTab;
+    return _lspSync.sync(
+      effective: LanguageConfig.resolveTab(tab).language,
+      realPath: path,
       content: content,
+      bufferName: tab?.fileName ?? path?.split('/').last,
     );
-    if (!mounted || token != _lspSyncToken) return;
-
-    final switchedService = !identical(service, previousService);
-
-    if (switchedService || documentPath != previousPath) {
-      // The old server (or the same one, for the previous file) must forget the
-      // document, or it keeps publishing diagnostics for a file nobody is
-      // looking at any more.
-      if (previousPath != null && previousService != null) {
-        previousService.closeDocument(previousPath);
-      }
-      _lspOpenPath = documentPath;
-      _lspOpenService = service;
-      _lspLastContent = content;
-      await service.openFile(documentPath, content);
-      return;
-    }
-
-    if (content != _lspLastContent) {
-      _lspLastContent = content;
-      // `LspService` debounces the `didChange` itself and flushes it before any
-      // position-based request, so typing order can never leave the server
-      // behind the editor. An empty buffer skips the wait: its "no problems"
-      // publish is what resets the counters.
-      service.updateFile(documentPath, content);
-      if (content.isEmpty) {
-        unawaited(service.flushPendingChange(documentPath));
-      }
-    }
   }
 
   void _toggleFileExplorer() {
@@ -343,13 +294,7 @@ class _IDEShellState extends State<IDEShell> {
 
   /// Sends any document change the service's debounce still holds so Run/Debug
   /// and Save never operate on text the server has not seen yet.
-  void _flushPendingDocumentChange() {
-    final service = _lspOpenService;
-    final path = _lspOpenPath;
-    if (service != null && path != null) {
-      unawaited(service.flushPendingChange(path));
-    }
-  }
+  void _flushPendingDocumentChange() => _lspSync.flushPendingChange();
 
   void _handleUndo() {
     // Undo handled natively by platform/focused editor
@@ -466,8 +411,10 @@ class _IDEShellState extends State<IDEShell> {
   @override
   Widget build(BuildContext context) {
     return KeyboardListener(
+      // Not `autofocus: true`: grabbing the keyboard here kept the editor from
+      // ever being focused on launch (no caret, no typing). Key events still
+      // reach this listener because they bubble up from the focused editor.
       focusNode: _shellFocusNode,
-      autofocus: true,
       onKeyEvent: (KeyEvent event) {
         if (event is KeyDownEvent) {
           final isControlOrMeta =

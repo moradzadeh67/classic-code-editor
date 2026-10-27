@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -19,11 +20,13 @@ import '../../utils/completion_filter.dart';
 import '../../utils/completion_docs.dart';
 import '../../utils/completion_edit_applier.dart';
 import '../../utils/completion_insert.dart';
+import '../../utils/completion_retry.dart';
 import '../../utils/dart_snippets.dart';
 import '../../utils/multi_language_highlighter.dart';
 import '../retro/retro_border.dart';
 import 'autocomplete_popup.dart';
 import 'completion_doc_panel.dart';
+import 'editor_context_menu.dart';
 import 'hover_tooltip.dart';
 
 /// Font size of the code editor's text.
@@ -48,18 +51,17 @@ const double editorLineHeight = 19.0;
 /// height can never disagree.
 const double editorLineHeightFactor = editorLineHeight / editorFontSize;
 
-/// Letter spacing that the editor text really renders with.
-///
 /// Caret width in logical pixels. Flutter's default is 2.0.
-const double kEditorCaretWidth = 2.5;
-
-/// How long the caret stays painted, and how long it stays hidden.
 ///
-/// Flutter has no public knob for this: `EditableText` blinks on a private
-/// `_kCursorBlinkHalfPeriod` of 500 ms (exposed only through a
-/// `@visibleForTesting` getter), so the built-in caret is switched off and this
-/// widget paints the caret instead.
-const Duration kEditorCaretBlinkInterval = Duration(milliseconds: 300);
+/// Only the thickness is customised: the built-in `EditableText` caret is used
+/// for the blink itself. Its speed is not configurable in Flutter (a private
+/// 500 ms half period), and the custom overlay that replaced it to get 300 ms
+/// did not paint at all in the release build, so the default blink is back.
+const double kEditorCaretWidth = 5.0;
+
+/// When the process (and therefore the editor) started, used by the one-line
+/// completion log so a slow first answer can be timed from launch.
+final DateTime _appStartTime = DateTime.now();
 
 /// Size of the square diagnostic marker painted at the gutter's inner edge.
 const double kGutterMarkerSize = 8;
@@ -127,99 +129,6 @@ class GutterDiagnosticTooltip extends StatelessWidget {
     );
   }
 }
-
-/// The editor's caret: a 2.5 px bar that blinks 300 ms on / 300 ms off.
-///
-/// * [resetToken] changes whenever the text or the selection changes, so typing
-///   or moving the caret makes the bar solid again and restarts the clock.
-/// * [active] is false when the editor has no focus or the text is selected, and
-///   the bar is then not painted at all (no timer runs either).
-/// * The rect is measured by the panel from the live `RenderEditable`, so it
-///   follows scrolling, zoom and font changes; it is also correct for RTL.
-class EditorCaret extends StatefulWidget {
-  const EditorCaret({
-    super.key,
-    required this.rect,
-    required this.color,
-    required this.resetToken,
-    required this.active,
-    this.width = kEditorCaretWidth,
-  });
-
-  /// Caret rectangle in the editor Stack's coordinates.
-  final Rect rect;
-
-  /// Same color the built-in caret used.
-  final Color color;
-
-  /// Any change restarts the blink with the caret visible.
-  final Object? resetToken;
-
-  /// Whether a solid caret should be painted at all.
-  final bool active;
-
-  final double width;
-
-  @override
-  State<EditorCaret> createState() => _EditorCaretState();
-}
-
-class _EditorCaretState extends State<EditorCaret> {
-  Timer? _timer;
-  bool _visible = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _restart();
-  }
-
-  @override
-  void didUpdateWidget(covariant EditorCaret oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.active != widget.active ||
-        oldWidget.resetToken != widget.resetToken) {
-      _restart();
-    }
-  }
-
-  /// Shows the caret immediately and starts the 300 ms on/off clock again.
-  void _restart() {
-    _timer?.cancel();
-    if (!widget.active) {
-      if (_visible) _visible = false;
-      return;
-    }
-    _visible = true;
-    _timer = Timer.periodic(kEditorCaretBlinkInterval, (_) {
-      if (!mounted) return;
-      setState(() => _visible = !_visible);
-    });
-  }
-
-  @override
-  void dispose() {
-    _timer?.cancel();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final on = widget.active && _visible;
-    return Positioned(
-      left: widget.rect.left,
-      top: widget.rect.top,
-      width: on ? widget.width : 0,
-      height: on ? widget.rect.height : 0,
-      child: IgnorePointer(
-        child: ColoredBox(key: kEditorCaretKey, color: widget.color),
-      ),
-    );
-  }
-}
-
-/// Key on the caret bar, so widget tests can assert on its visibility.
-const Key kEditorCaretKey = ValueKey<String>('editor-caret');
 
 /// [CodeField] merges its `textStyle` onto the ambient Material `bodyLarge`
 /// style, which contributes `letterSpacing: 0.5`. That extra half pixel per
@@ -343,6 +252,13 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
   HoverInfo? _hoverInfo;
 
   Timer? _completionDebounce;
+
+  /// Re-query timer while the popup is open but no server items have arrived
+  /// yet (the server may still be starting).
+  Timer? _completionRetry;
+  int _completionRetryAttempt = 0;
+  DateTime? _completionRetryDeadline;
+  String? _completionRetryPrefix;
   Timer? _hoverDebounce;
   Timer? _typingTimer;
   bool _isTyping = false;
@@ -533,6 +449,7 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
   @override
   void dispose() {
     _completionDebounce?.cancel();
+    _completionRetry?.cancel();
     _hoverDebounce?.cancel();
     _typingTimer?.cancel();
     _docDebounce?.cancel();
@@ -554,8 +471,6 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
   void _onTextChanged() {
     // A grammar swap notifies the controller too; it is not a text edit.
     if (_swappingLanguage) return;
-    // Any edit makes the caret solid again (see [EditorCaret]).
-    _caretResetStamp++;
     if (_programmaticText != null && _controller.text == _programmaticText) {
       _programmaticText = null;
       return;
@@ -605,6 +520,8 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
     setState(() {
       _isTyping = true;
     });
+    // A new prefix starts a new 20 s retry budget.
+    _resetCompletionRetry();
     // The text changed, so the wrap model must be re-measured from the renderer
     // (a new long line can re-wrap every row below it).
     _queueGutterRowsRebuild();
@@ -653,8 +570,6 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
   void _onCaretMoved() {
     final selection = _controller.selection;
     if (!selection.isValid) return;
-    // Moving the caret makes the custom caret solid again and restarts its blink.
-    _caretResetStamp++;
     if (!mounted) return;
     final text = _controller.text;
     final offset = selection.extentOffset.clamp(0, text.length);
@@ -772,11 +687,6 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
     });
   }
 
-  bool get _showEditorCaret =>
-      _focusNode.hasFocus &&
-      !_controller.readOnly &&
-      _controller.selection.isValid &&
-      _controller.selection.isCollapsed;
 
   /// Recomputes the band position in a post-frame callback.
   ///
@@ -795,36 +705,22 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
           (rect.top - (_bandTop ?? double.negativeInfinity)).abs() < 0.01;
       final sameHeight =
           (rect.height - (_bandHeight ?? double.negativeInfinity)).abs() < 0.01;
-      final caret = _caretAnchorRect();
-      final caretColor = _renderEditable()?.cursorColor;
-      final sameCaret =
-          caret == _caretRect &&
-          (caretColor == null || caretColor == _caretColor);
-      if (sameTop && sameHeight && sameCaret) return;
+      if (sameTop && sameHeight) return;
       setState(() {
         _bandTop = rect.top;
         _bandHeight = rect.height;
-        _caretRect = caret;
-        if (caretColor != null) _caretColor = caretColor;
       });
     });
   }
+
+  /// Global position of the last secondary click, so the context menu can open
+  /// exactly under the pointer.
+  Offset? _contextMenuPointer;
 
   bool _bandUpdateQueued = false;
   double? _bandTop;
   double? _bandHeight;
 
-  /// Caret rectangle in the editor Stack's coordinates, measured from the live
-  /// `RenderEditable` in the same post-frame pass as the band.
-  Rect? _caretRect;
-
-  /// The color the built-in caret would have painted, read from the renderer so
-  /// the custom caret never disagrees with it.
-  Color? _caretColor;
-
-  /// Bumped on every text or selection change: the custom caret shows itself and
-  /// restarts its blink when this changes.
-  int _caretResetStamp = 0;
 
   /// Messages of the gutter marker under the mouse, or null when no tooltip.
   List<String>? _gutterTooltipLines;
@@ -1172,11 +1068,12 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
     // waiting for the typing debounce — the caller already skipped the
     // debounce for this case.
     final requestId = ++_completionRequestId;
+    final started = DateTime.now();
     final (line, column) = _offsetToLineColumn(_controller.text, offset);
 
-    List<CompletionItem> items = [];
+    List<CompletionItem> serverItems = const <CompletionItem>[];
     if (lspConnected) {
-      items = await widget.lspService.requestCompletion(
+      serverItems = await widget.lspService.requestCompletion(
         _lspDocumentPath,
         line + 1,
         column + 1,
@@ -1184,22 +1081,45 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
         triggerCharacter: decision.triggerCharacter,
       );
     }
-    // Fall back to the offline keyword/token list when no server is attached
-    // or the server returned nothing.
-    if (items.isEmpty) {
-      items = CompletionFilter.generateFallbackCompletions(
-        _controller.text,
-        CompletionFilter.currentWord(_controller.text, offset),
-        language,
-      );
-    }
-
     if (!mounted || requestId != _completionRequestId) return;
 
+    final usedServer = serverItems.isNotEmpty;
+    // Fall back to the offline keyword/token list when no server is attached
+    // or the server returned nothing (yet). The retry below upgrades this list
+    // as soon as the server has a real answer.
+    final items = usedServer
+        ? serverItems
+        : CompletionFilter.generateFallbackCompletions(
+            _controller.text,
+            CompletionFilter.currentWord(_controller.text, offset),
+            language,
+          );
+    _presentCompletion(
+      items,
+      offset: offset,
+      fromServer: usedServer,
+      started: started,
+    );
+  }
+
+  /// Shows [items] (already merged with nothing) in the popup.
+  ///
+  /// Every source goes through here, so snippets, the filter and the retry all
+  /// see the same list and the server's `kindInt`/`detail` are never dropped.
+  void _presentCompletion(
+    List<CompletionItem> items, {
+    required int offset,
+    required bool fromServer,
+    DateTime? started,
+  }) {
     final currentWord = CompletionFilter.currentWord(_controller.text, offset);
+    final language = LanguageConfig.fromPathOrContent(
+      _filePath,
+      _controller.text,
+    ).highlightLanguage;
     // Built-in Dart snippets are offered by both the LSP and the offline path,
     // but never after member access (`.`).
-    items = mergeSnippets(
+    final merged = mergeSnippets(
       items,
       snippetCompletions(
         prefix: currentWord,
@@ -1208,8 +1128,15 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
       ),
     );
     final List<CompletionItem> filtered = CompletionFilter.filter(
-      items,
+      merged,
       currentWord,
+    );
+
+    _logCompletion(
+      source: fromServer ? 'lsp' : 'local',
+      path: _lspDocumentPath,
+      items: filtered,
+      started: started,
     );
 
     if (filtered.isEmpty) {
@@ -1226,6 +1153,116 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
       _cursorScreenOffset = _computeCursorScreenPosition();
     });
     _scheduleCompletionDoc();
+    if (fromServer) {
+      _cancelCompletionRetry();
+    } else {
+      _scheduleCompletionRetry(currentWord);
+    }
+  }
+
+  /// One lowercase line per completion request (opt-in to read a slow startup).
+  void _logCompletion({
+    required String source,
+    required String path,
+    required List<CompletionItem> items,
+    DateTime? started,
+  }) {
+    final elapsed = DateTime.now().difference(_appStartTime).inMilliseconds;
+    final took = started == null
+        ? 0
+        : DateTime.now().difference(started).inMilliseconds;
+    final firstThree = items
+        .take(3)
+        .map(
+          (item) =>
+              '${item.kindInt ?? '-'}:${item.displayLabel}'
+              '${item.detail == null ? '' : ' (${item.detail})'}',
+        )
+        .join(' | ');
+    debugPrint(
+      '[completion] +${elapsed}ms ${took}ms path=$path source=$source '
+      'items=${items.length} first=$firstThree',
+    );
+  }
+
+  /// Retries the server while the popup is open and its list is local.
+  ///
+  /// 300 ms → 1 s → 2 s → every 2 s, giving up 20 s after the first local
+  /// answer. A non-empty answer [replaces] the open list; an empty one keeps it
+  /// and tries again.
+  void _scheduleCompletionRetry(String prefix) {
+    if (!mounted || !_showAutocomplete) return;
+    final now = DateTime.now();
+    final deadline = _completionRetryDeadline ??= now.add(
+      CompletionRetry.window,
+    );
+    if (now.isAfter(deadline)) {
+      _cancelCompletionRetry(keepDeadline: false);
+      return;
+    }
+    final delay = CompletionRetry.delayFor(_completionRetryAttempt);
+    _completionRetryAttempt++;
+    _completionRetryPrefix = prefix;
+    _completionRetry?.cancel();
+    _completionRetry = Timer(delay, _retryCompletion);
+  }
+
+  void _cancelCompletionRetry({bool keepDeadline = false}) {
+    _completionRetry?.cancel();
+    _completionRetry = null;
+    _completionRetryAttempt = 0;
+    _completionRetryPrefix = null;
+    if (!keepDeadline) _completionRetryDeadline = null;
+  }
+
+  Future<void> _retryCompletion() async {
+    if (!mounted || !_showAutocomplete) {
+      _cancelCompletionRetry();
+      return;
+    }
+    final selection = _controller.selection;
+    if (!selection.isValid || !selection.isCollapsed) {
+      _cancelCompletionRetry();
+      return;
+    }
+    final offset = selection.start;
+    final word = CompletionFilter.currentWord(_controller.text, offset);
+    if (word != _completionRetryPrefix) {
+      _cancelCompletionRetry();
+      return;
+    }
+    if (!widget.lspService.isConnected || word.isEmpty) {
+      _scheduleCompletionRetry(word);
+      return;
+    }
+
+    final requestId = ++_completionRequestId;
+    final started = DateTime.now();
+    final (line, column) = _offsetToLineColumn(_controller.text, offset);
+    final items = await widget.lspService.requestCompletion(
+      _lspDocumentPath,
+      line + 1,
+      column + 1,
+      triggerKind: 1,
+    );
+    if (!mounted || requestId != _completionRequestId) return;
+    if (items.isEmpty) {
+      _scheduleCompletionRetry(word);
+      return;
+    }
+    // The prefix is unchanged (checked above), so upgrading the open list
+    // cannot disturb typing; focus is never touched.
+    _presentCompletion(
+      items,
+      offset: offset,
+      fromServer: true,
+      started: started,
+    );
+  }
+
+  /// Starts the retry clock from scratch for a new prefix.
+  void _resetCompletionRetry() {
+    _cancelCompletionRetry();
   }
 
   String _currentWordAtCursor() => CompletionFilter.currentWord(
@@ -1543,64 +1580,48 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
         ? selection.start
         : _controller.text.length;
     final requestId = ++_completionRequestId;
+    final started = DateTime.now();
     final (line, column) = _offsetToLineColumn(_controller.text, offset);
 
-    List<CompletionItem> items = [];
     final lspConnected = widget.lspService.isConnected;
+    var items = const <CompletionItem>[];
+    var usedServer = false;
     if (lspConnected) {
       items = await widget.lspService.requestCompletion(
         _lspDocumentPath, line + 1, column + 1,
         triggerKind: triggerKind,
       );
+      usedServer = items.isNotEmpty;
       // A connected server that has nothing to offer means "nothing": the
       // manual command must not fill the list with offline keywords the server
       // deliberately did not suggest.
-      if (items.isEmpty) {
+      if (!usedServer) {
         if (mounted && requestId == _completionRequestId) {
           _dismissCompletion();
         }
         return;
       }
     }
-    if (items.isEmpty) {
+    if (!mounted || requestId != _completionRequestId) return;
+    if (!usedServer) {
       items = CompletionFilter.generateFallbackCompletions(
         _controller.text,
         CompletionFilter.currentWord(_controller.text, offset),
         language,
       );
     }
-    if (!mounted || requestId != _completionRequestId) return;
-    final currentWord = CompletionFilter.currentWord(_controller.text, offset);
-    items = mergeSnippets(
+    _presentCompletion(
       items,
-      snippetCompletions(
-        prefix: currentWord,
-        language: language,
-        previousChar: CompletionFilter.previousChar(_controller.text, offset),
-      ),
+      offset: offset,
+      fromServer: usedServer,
+      started: started,
     );
-    final List<CompletionItem> filtered = CompletionFilter.filter(
-      items,
-      currentWord,
-    );
-    if (filtered.isEmpty) {
-      _dismissCompletion();
-      return;
-    }
-    _hideCompletionDoc();
-    _resolvedItems.clear();
-    _resolveRequests.clear();
-    setState(() {
-      _completionItems = filtered;
-      _selectedCompletionIndex = 0;
-      _cursorScreenOffset = _computeCursorScreenPosition();
-    });
-    _scheduleCompletionDoc();
   }
 
   void _dismissCompletion() {
     _completionRequestId++;
     _completionDebounce?.cancel();
+    _cancelCompletionRetry();
     _hideCompletionDoc();
     _resolvedItems.clear();
     _resolveRequests.clear();
@@ -2612,10 +2633,26 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
                                     _focusNode.requestFocus();
                                     _hoverDebounce?.cancel();
                                   },
-                                  onSecondaryTapDown: (details) {
-                                    _requestHover();
-                                  },
-                                  child: Stack(
+                                  child: Listener(
+                                    // A secondary press (right click, and
+                                    // Control+click on macOS) must never be
+                                    // swallowed by this GestureDetector: the
+                                    // listener is invisible to the gesture
+                                    // arena, so the field still receives the
+                                    // tap and shows its context menu.
+                                    behavior: HitTestBehavior.translucent,
+                                    onPointerDown: (event) {
+                                      if (event.buttons &
+                                              kSecondaryMouseButton ==
+                                          0) {
+                                        return;
+                                      }
+                                      _contextMenuPointer = event.position;
+                                      _dismissCompletion();
+                                      _dismissHover();
+                                      _focusNode.requestFocus();
+                                    },
+                                    child: Stack(
                                     fit: StackFit.expand,
                                     children: [
                                       // Current-line band. Clicking anywhere on
@@ -2726,13 +2763,31 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
                                           // the render and the gutter on the
                                           // same grid.
                                           strutStyle: _metrics.strutStyle,
-                                          // The built-in caret blinks on a
-                                          // private 500 ms half period and
-                                          // cannot be retimed, so it is hidden
-                                          // and [EditorCaret] paints it instead
-                                          // at 300 ms on / 300 ms off.
-                                          showCursor: false,
+                                          // The built-in caret is used again:
+                                          // its blink speed is a private
+                                          // Flutter constant (500 ms), so only
+                                          // the thickness is customised.
                                           cursorWidth: kEditorCaretWidth,
+                                          // The app's own retro menu; Flutter
+                                          // shows it for every secondary click
+                                          // at the pointer and the actions run
+                                          // through this field's own
+                                          // EditableTextState.
+                                          contextMenuBuilder:
+                                              (context, editableTextState) {
+                                                // The toolbar slot is laid out
+                                                // at the window origin, so the
+                                                // pointer and the window size
+                                                // are used as-is.
+                                                return EditorContextMenu(
+                                                  state: editableTextState,
+                                                  anchor:
+                                                      _contextMenuPointer ??
+                                                      Offset.zero,
+                                                  boundary:
+                                                      MediaQuery.sizeOf(context),
+                                                );
+                                              },
                                           style: _metrics.textStyle.copyWith(
                                             color: ThemeService
                                                 .instance
@@ -2746,32 +2801,6 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
                                               ),
                                         ),
                                       ),
-                                      // The caret itself. Last, so it paints
-                                      // over the text; it never takes a pointer
-                                      // event (`IgnorePointer`) and is measured
-                                      // from the renderer, so it survives
-                                      // scrolling, zoom, font changes and RTL.
-                                      EditorCaret(
-                                        key: const ValueKey<String>(
-                                          'editor-caret-overlay',
-                                        ),
-                                        rect:
-                                            _caretRect ??
-                                            Rect.fromLTWH(
-                                              0,
-                                              0,
-                                              kEditorCaretWidth,
-                                              metrics.lineHeight,
-                                            ),
-                                        color:
-                                            _caretColor ??
-                                            ThemeService
-                                                .instance
-                                                .colors
-                                                .editorCursor,
-                                        resetToken: _caretResetStamp,
-                                        active: _showEditorCaret,
-                                      ),
                                       if (_showAutocomplete)
                                         Positioned.fill(
                                           child: TapRegion(
@@ -2781,6 +2810,7 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
                                           ),
                                         ),
                                     ],
+                                    ),
                                   ),
                                 ),
                               ),

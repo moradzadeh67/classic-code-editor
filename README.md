@@ -170,6 +170,8 @@ ARM64 Assembly support: highlighting, Run, and the LLDB debugger with its regist
 - **Clean Start, Remembered Recent Files:** every launch opens one empty **Untitled**
   editor; the recent-files list (`File > Open Recent`, 10 entries) and the File
   Explorer's folder are still remembered
+- **Right-Click Menu:** Cut / Copy / Paste / Select All in the code area, in the app's
+  retro menu style (also Control+click), with the same `Cmd` shortcuts
 - **Edit Menu:** Select All (`Cmd + A`), Go to Line (`Cmd + L`), Toggle Comment
   (`Cmd + /`), Duplicate Line (`Cmd + Shift + D`), Open (`Cmd + O`), Close Tab (`Cmd + W`)
 - **Editor Zoom:** `Cmd +` / `Cmd -` / `Cmd 0` changes font size (8..32) with live gutter alignment

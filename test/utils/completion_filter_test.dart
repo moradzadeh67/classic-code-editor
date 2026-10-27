@@ -1,6 +1,7 @@
 import 'package:classic_code_editor/models/lsp_models.dart';
 import 'package:classic_code_editor/services/lsp_service.dart';
 import 'package:classic_code_editor/utils/completion_filter.dart';
+import 'package:classic_code_editor/utils/dart_snippets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -195,6 +196,54 @@ void main() {
       expect(filtered.first.effectiveFilter, equals('print'));
     });
 
+    test('the word being typed is never offered as a candidate', () {
+      const items = [
+        // The document-token list contains the word itself while typing.
+        CompletionItem(label: 'pri', kind: 'variable', filterText: 'pri'),
+        CompletionItem(label: 'print', kind: 'keyword'),
+        CompletionItem(label: 'PRI', kind: 'keyword'),
+      ];
+
+      expect(CompletionFilter.filter(items, 'pri').map((i) => i.label), [
+        'print',
+      ]);
+      // Case-insensitively too.
+      expect(CompletionFilter.filter(items, 'PRI').map((i) => i.label), [
+        'print',
+      ]);
+    });
+
+    test('a server item keeps kindInt/detail through the merge pipeline', () {
+      const serverItems = [
+        CompletionItem(
+          label: 'print',
+          kind: 'method',
+          kindInt: 3,
+          detail: 'void print(Object? object)',
+          documentation: 'Prints an object.',
+        ),
+      ];
+
+      // Exactly what CodeEditorPanel does: merge snippets, then filter.
+      final merged = mergeSnippets(serverItems, const []);
+      final filtered = CompletionFilter.filter(merged, 'pri');
+
+      expect(filtered, hasLength(1));
+      expect(filtered.single.kindInt, 3);
+      expect(filtered.single.detail, 'void print(Object? object)');
+      expect(filtered.single.documentation, 'Prints an object.');
+    });
+
+    test('offline keywords carry the keyword kind, words stay unknown', () {
+      final completions = CompletionFilter.generateFallbackCompletions(
+        'pri',
+        'pri',
+        'dart',
+      );
+      final keyword = completions.firstWhere((item) => item.label == 'print');
+      expect(keyword.kindInt, 14);
+    });
+
     test('generateFallbackCompletions provides Python keywords & tokens', () {
       const doc = 'import sys\ndef process_data():\n    pass';
       final completions = CompletionFilter.generateFallbackCompletions(
@@ -238,8 +287,16 @@ void main() {
         CompletionItem(label: 'Alpha', kind: 'method'),
         CompletionItem(label: 'alphabet', kind: 'function'),
       ];
-      final sorted = CompletionFilter.filter(items, 'Alpha');
+      // "Alph" rather than "Alpha": the full word being typed is never offered
+      // (see the exact-prefix test below), but the tier order is unchanged.
+      final sorted = CompletionFilter.filter(items, 'Alph');
       expect(sorted.map((i) => i.label), equals(['Alpha', 'alpha', 'alphabet']));
+
+      // The exact word is dropped (case-insensitively), leaving the rest.
+      expect(
+        CompletionFilter.filter(items, 'Alpha').map((i) => i.label),
+        equals(['alphabet']),
+      );
     });
 
     test('MRU: accepted item moves up within same tier', () {

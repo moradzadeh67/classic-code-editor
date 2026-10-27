@@ -1010,22 +1010,24 @@ So `print` needs the pair added by the client (kind 3, no parentheses anywhere) 
 
 **Tests:** no new tests, no assertion pinned these values. `flutter analyze` clean; full `flutter test` passing (460 pass, 8 skipped).
 
-### TASK-075: 2.5 px caret that blinks 300 ms on / 300 ms off
+### TASK-075: 2.5 px caret that blinks 300 ms on / 300 ms off — superseded by TASK-084
 **Phase:** 24
-**Status:** ✅ DONE
+**Status:** ⚠️ SUPERSEDED — the 300 ms custom overlay was removed in TASK-084 (it did not
+paint in the release build); the built-in caret with `cursorWidth: 2.5` and Flutter's own
+blink is used instead. Blink speed is not configurable in Flutter.
 
 **Step A — findings:**
 1. The editor is a plain Material `TextField` (`code_editor_panel.dart`, inside the editor `Stack`), not a `CodeField`, so the public `cursorWidth` and `showCursor` parameters are available; the controller is a `CodeController` and the theme/strut come from `EditorMetrics`.
 2. In the installed Flutter 3.47.2 SDK the blink period is **not** configurable: `packages/flutter/lib/src/widgets/editable_text.dart` declares `const Duration _kCursorBlinkHalfPeriod = Duration(milliseconds: 500)` and only exposes it through a `@visibleForTesting` getter (`cursorBlinkInterval`). There is no `TextField`/`EditableText` parameter for it.
 
-**Step B — implementation:** `cursorWidth: kEditorCaretWidth` (2.5) on the field, and `showCursor: false` because the period cannot be retimed. A new `EditorCaret` stateful widget paints the caret into the editor's inner `Stack` with `Positioned` + `IgnorePointer`:
+**Step B — implementation (historical; the overlay was removed in TASK-084):** `cursorWidth: kEditorCaretWidth` (2.5) on the field, and `showCursor: false` because the period cannot be retimed. A new `EditorCaret` stateful widget paints the caret into the editor's inner `Stack` with `Positioned` + `IgnorePointer`:
 - a `Timer.periodic(kEditorCaretBlinkInterval)` (300 ms) toggles it on/off;
 - `resetToken` (a counter bumped by every text change in `_onTextChanged` and every caret move in `_onCaretMoved`) makes it solid again and restarts the clock, so typing never shows a blinking-off caret;
 - `active` is false without focus or with a non-collapsed selection, so no caret is painted then (and the timer stops);
 - the rect is `_caretAnchorRect()` — the same live `RenderEditable` measurement used for the popup anchor — refreshed in the existing `_queueBandUpdate()` post-frame pass, which is already wired to text, caret, scroll, zoom and font-change notifications, so it follows scrolling, zoom, fonts and RTL;
 - the color is `RenderEditable.cursorColor`, i.e. exactly what the built-in caret painted; the timer is cancelled in `dispose()`.
 
-**Tests:** new `test/ui/editor/editor_caret_blink_test.dart` — visible at 0 ms, hidden at 300 ms, visible again at 600 ms, and visible immediately after a key press. `flutter analyze` clean; full `flutter test` passing (462 pass, 8 skipped).
+**Tests:** new `test/ui/editor/editor_caret_blink_test.dart` — visible at 0 ms, hidden at 300 ms, visible again at 600 ms, and visible immediately after a key press. `flutter analyze` clean; full `flutter test` passing (462 pass, 8 skipped). *(That test was deleted with the overlay in TASK-084: it asserted the widget's size/visibility, never the painted colour, which is why it passed while the release app showed no caret.)*
 
 ### TASK-076: Gutter separator, current-line emphasis, diagnostic markers and marker tooltip
 **Phase:** 24
@@ -1101,10 +1103,15 @@ language logo, which still came from the extension.
   44 px panel header. It is now a compact `PopupMenuButton`: a sunken 28 px field (12 px label + 18 px caret,
   `popupMenuPosition.under`) and 30 px retro menu rows with the current value in bold. Keys:
   `kLanguageDropdownKey` / `kLanguageDropdownLabelKey`.
+- **Follow-up (TASK-086):** the code editor now has its own retro right-click menu (Cut / Copy / Paste /
+  Select All) built on the field's `contextMenuBuilder`, so a secondary click — including on an empty,
+  unfocused buffer — always opens it. See TASK-086.
 
-**Known limitation:** the language server for a tab is still chosen from its extension/content (the existing
-`LspServerManager.activateFor` path), not from the per-tab selection. Choosing Dart on `main.s` changes Run,
-colors and the logo, but diagnostics keep coming from the server that the `.s` extension picked.
+**Known limitation (fixed in TASK-087):** at the time, the language server for a tab was still chosen from its
+extension/content (`LspServerManager.activateFor`), not from the per-tab selection: choosing Dart on `main.s`
+changed Run, colors and the logo, but diagnostics kept coming from the server the `.s` extension picked. Since
+TASK-087 the server, the language id sent in `textDocument/didOpen` and the diagnostics all follow the effective
+language, through a virtual document for the mismatching cases.
 
 **Tests:** new `test/ui/shell/per_tab_language_test.dart` — tab A (Python) + tab B (Auto, `.c`): B shows Auto and
 its Run path resolves to C; switching back to A shows Python and passes it to Run; selecting Dart on a `.s` tab
@@ -1230,3 +1237,166 @@ focus; a tab change takes focus back after something else stole it). Verified ag
 real environment under `env -i PATH=/usr/bin:/bin`: the resolver returns
 `…/dev/flutter_sdk/bin/dart`, `/usr/bin/clangd`, `/opt/homebrew/bin/pyright-langserver`,
 `/usr/bin/clang`, `/opt/homebrew/bin/python3`.
+
+### TASK-084: Release-build caret investigation, completion warm-up and server provenance
+**Phase:** 24
+**Status:** ✅ DONE
+
+**Step A — caret, measured in the real release binary** (`flutter build macos --release`,
+then `open build/macos/Build/Products/Release/Classic Code Editor.app` and
+`screencapture -x /tmp/ccedit.png` + region captures at ~100 ms intervals; temporary
+`debugPrint`s in the caret overlay and in the band's post-frame pass recorded focus,
+rect, visible flag, timer ticks and painted size, and were removed afterwards):
+1. **Focus was never granted at launch.** `IDEShell` wrapped the app in
+   `KeyboardListener(focusNode: _shellFocusNode, autofocus: true)`, so the shell node won
+   the initial focus and the editor's `FocusNode.hasFocus` stayed false — the overlay's
+   `active` gate (`hasFocus && …`) meant nothing was painted and no timer ran. Widget
+   tests never saw it because they pump the panel alone, without the shell's autofocus.
+2. **After a click the bar was painted fully transparent.** With focus the log showed
+   `active=true visible=true on=true rect=…,2.5,22`, yet the screen never changed between
+   blink phases. The colour came from `_renderEditable()?.cursorColor`, and
+   `RenderEditable` reports its cursor colour with **alpha 0 whenever `showCursor` is
+   false** — which was exactly the case, since the overlay replaced the built-in caret.
+   A temporary `Positioned.fill` + `CustomPaint` probe proved the subtree did paint, so
+   the invisible result was the transparent colour, not clipping or geometry.
+3. **Conclusion:** the custom overlay cannot be relied on in a release build, and Flutter
+   offers no public blink-period knob. The overlay (widget, painter, timer, rect/colour
+   bookkeeping, `showCursor: false`) was **removed**; the built-in `EditableText` caret is
+   back with `cursorWidth: kEditorCaretWidth` (2.5) and Flutter's default blink.
+   `editor_caret_blink_test.dart` was deleted; `editor_focus_test.dart` keeps the
+   "primary focus after the first frame" guarantee.
+4. **Focus kept fixed:** the shell's `autofocus: true` is gone (key events still bubble to
+   its `KeyboardListener`), and `CodeEditorPanel._requestFocusAfterFrame()` focuses the
+   editor after the first frame and after every tab change.
+
+**Step B — completion warm-up (same round):**
+- Tool paths resolve in parallel (`flutter`/`dart` lookups start together) and the Dart
+  server is started from `IDEShell.initState` instead of waiting for the first tab, so
+  `initialize` overlaps the first frame; status shows **LSP: Starting…** until it answers.
+- If the popup is showing the local list, it **re-queries automatically** on a bounded
+  backoff (300 ms → 1 s → 2 s → every 2 s, 20 s window; `lib/utils/completion_retry.dart`)
+  while the prefix is unchanged, and replaces the list when a non-empty answer arrives —
+  without touching focus.
+- `kindInt`/`detail`/`documentation` survive the whole pipeline (they are never copied);
+  offline keywords now carry LSP kind 14 so local words alone use the neutral "·" badge,
+  and a server item shows its real `M/F/C/…` badge and signature detail.
+- The exact word being typed is never offered as a candidate (`CompletionFilter.filter`),
+  case-insensitively; snippets are exempt so `stless` still expands.
+- One `debugPrint` per completion request: elapsed ms since launch, round-trip ms,
+  document path, source (`lsp`/`local`), item count and the first three kind/label/detail.
+
+**Verification in the real app:** with the overlay removed, the release build paints the
+built-in caret at the caret offset (checked in screenshots of the running app while
+typing), and `[completion]` lines show the first server answer arriving once, with
+`source=lsp` and `kind 3` for `print`; before the fix the same buffer produced only
+`source=local` items (`pri`/`print`, both "·") for the first ~10 s.
+
+### TASK-085: Editor caret thickness 2.5 → 5.0 px
+**Phase:** 24
+**Status:** ✅ DONE
+
+The caret is the built-in `EditableText` one (TASK-084), so this is a one-line change:
+`kEditorCaretWidth` in `code_editor_panel.dart` goes from `2.5` to `5.0` and stays the only
+place the width is set (`cursorWidth: kEditorCaretWidth` on the field). Blink logic, the
+gutter, completion and everything else are untouched; no test asserts the width, so the
+suite is unchanged.
+
+### TASK-086: Right-click Cut / Copy / Paste / Select All in the code editor
+**Phase:** 24
+**Status:** ✅ DONE
+
+**Step A — how the editor's field is built:** `CodeEditorPanel` uses a plain Material
+`TextField` (`code_editor_panel.dart`, keyed `_editorKey`) inside the editor `Stack`; no
+`contextMenuBuilder` was supplied, so a secondary click fell through to Flutter's
+`AdaptiveTextSelectionToolbar`. Two things kept the app's own menu from ever appearing:
+the toolbar was the generic Material one (not the retro look) and the surrounding
+`GestureDetector` registered `onSecondaryTapDown` (for diagnostics hover), which competed
+for the same gesture. A probe test confirmed the framework *does* build a toolbar for a
+secondary tap on an empty, not-yet-focused buffer — the tap handling was fine, the menu
+was simply not ours.
+
+**Step B — implementation:**
+- New `lib/ui/editor/editor_context_menu.dart`: `EditorContextMenu`, supplied through
+  `TextField.contextMenuBuilder`, so Flutter shows it at the pointer for every secondary
+  click (right click and Control+click on macOS) — empty document, no selection, existing
+  selection, unfocused editor, after a tab switch. Rows: **Cut** (`Cmd X`), **Copy**
+  (`Cmd C`), **Paste** (`Cmd V`), a separator, then **Select All** (`Cmd A`).
+- Enabled states: Cut/Copy only with a non-collapsed selection; Paste whenever
+  `Clipboard.hasStrings()` is true (checked in `initState`, so a slow platform answer
+  simply enables the row a frame later); Select All only when the buffer has text.
+- Every action calls the field's own `EditableTextState` (`cutSelection`,
+  `copySelection`, `pasteText`, `selectAll`, then `hideToolbar`), so the app never keeps a
+  second copy of clipboard/selection logic.
+- Chrome is the menu bar's: `RetroBorder.raised` on the panel colour,
+  `RetroMenuMetrics` row height/typography/shortcut column, `menuActive` hover row and the
+  two etched lines of `RetroMenuSeparator`. Theme colours are read per build, so all four
+  themes follow.
+- The `GestureDetector`'s `onSecondaryTapDown` is gone (hover already comes from
+  `MouseRegion.onHover`). A `Listener` (invisible to the gesture arena) now dismisses the
+  completion popup and the hover tooltip and focuses the editor on a secondary press — so
+  the popup closes first and the tap still reaches the field, which keeps an existing
+  selection where it is.
+
+**Follow-up (owner report — the menu surface filled the whole window, items stuck in the
+top-left):** Flutter hands the `contextMenuBuilder` slot **window-sized, tight
+constraints**, so the panel's `Container(width: …)` was stretched to the window and the
+column sat at its origin. The widget is now a full-area `Stack` whose only full-size child
+is a **transparent tap barrier** (click outside closes it; `Esc` closes it through a
+`HardwareKeyboard` handler that leaves the editor's focus alone); the panel is a
+`Positioned` child sized by its content (`IntrinsicWidth` clamped to 180…280 px wide, four
+26 px rows + one 7 px separator + the 2 px bevel/padding = 119 px high) and anchored at the
+pointer. The separator above Select All is a **single** hairline in `borderDark`: the old
+two-etched-line version (`borderDark` + `borderLight`) drew a pale-yellow `borderLight` rule
+that read as a stray yellow line. Each row's text also sets `decoration: TextDecoration.none`
+explicitly — without it the row inherited the toolbar's ambient text style and every label and
+shortcut was painted with a yellow underline in all four themes.
+Its top-left is the secondary click's global position (the toolbar slot starts at the window
+origin, measured), shifted left/up when the panel would leave the window so it always stays
+fully inside with a 4 px margin. Chrome, rows, shortcuts and enabled rules are unchanged.
+
+**Tests:** `test/ui/editor/editor_context_menu_test.dart` with a mocked clipboard channel and
+one case that opens the menu in each of the four themes and asserts every row text has
+`TextDecoration.none`:
+an empty, unfocused buffer opens the menu with Paste enabled and Select All/Cut/Copy
+disabled; a selection enables Cut/Copy and survives the right click untouched; tapping
+Paste inserts the clipboard text through the field and closes the menu; in an 800x600
+window a click at (100,100) puts the panel's top-left exactly there at less than 300x200;
+a click in the bottom-right corner keeps the panel fully inside the window; a click outside
+the panel closes it.
+
+**Verified in the release build:** right click in the editor shows the compact retro panel
+at the pointer (Cut/Copy greyed on an empty buffer, Paste and Select All enabled, shortcuts
+right-aligned) — screenshot of `flutter build macos --release` while running.
+
+### TASK-087: The language server follows the tab's effective language
+**Phase:** 24
+**Status:** ✅ DONE
+
+Fixes the TASK-079 limitation: `Untitled 23.c` holding Dart, with the dropdown set to Dart,
+kept 8 errors/3 warnings from clangd while Run, colours and the logo were Dart.
+
+- New `lib/services/tab_language_server_sync.dart` (`TabLanguageServerSync`) owns the
+  whole open/close/switch lifecycle that used to be inline in `IDEShell`. `IDEShell`
+  passes `LanguageConfig.resolveTab(tab).language` — the same resolver Run, the highlighter
+  and the logo use.
+- `needsVirtualDocument()` compares the effective language with
+  `LanguageConfig.fromExtensionOrNull(realPath)`: the real path is used only when they
+  agree. Untitled buffers, an explicit selection for another language, a resolved
+  mismatch and unknown extensions are documented as
+  `<basename>.<effective ext>` inside `UnsavedBufferWorkspace` (the per-session temp
+  workspace, including clangd's `compile_flags.txt`). Nothing is written next to the user's
+  file, and Save still writes the real path with its real name.
+- Because the virtual document carries the effective extension, `LspServerManager.activateFor`
+  picks the matching server and `didOpen` sends the matching language id.
+- On a switch (dropdown change, or back to Auto) the old document is closed on the **old**
+  service before the new one opens, which sends `didClose` and drops that URI's
+  diagnostics, so a stale count can never stay on screen; the panel, status bar and gutter
+  repaint from the manager's notifications. The Diagnostics panel shows the virtual name,
+  as it already did for untitled buffers.
+
+**Tests:** `test/services/tab_language_server_sync_test.dart` with a fake manager and a
+fake workspace: a `.c` tab set to Dart is opened as `untitled-23-c.dart` on the Dart
+service only; switching to C closes the old document (its diagnostics list is empty and
+the service has no active document) and opens the real path on clangd; an untitled buffer
+still gets `untitled.c`; an explicit language that matches the extension keeps the real
+path; the decision table for `needsVirtualDocument`.

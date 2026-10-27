@@ -194,11 +194,20 @@ the tab's selection wins, otherwise it delegates to `resolve()`. Run
 (`runActiveFile` and the toolbar callback), Debug, the highlighter and the logo
 all read it; `PanelLayout` writes it through `FileService.setActiveLanguage()`
 and rebuilds only when the active tab or its override changes. The editor swaps
-only the grammar (`_applyGrammar`) so text, caret and scroll survive. The
-language server is still chosen from the extension/content — a documented
-limitation. Tab names are unique (`Untitled`, `Untitled 2`, …) and
-`UnsavedBufferWorkspace.pathFor(config, bufferName:)` derives a distinct virtual
-document path from the name, so two untitled buffers never share diagnostics.
+only the grammar (`_applyGrammar`) so text, caret and scroll survive.
+
+The **language server follows the same effective language** (TASK-087):
+`TabLanguageServerSync` takes `LanguageConfig.resolveTab(tab)`, keeps the real
+path only when the extension already means that language, and otherwise exposes
+the buffer as `<basename>.<effective ext>` inside
+`UnsavedBufferWorkspace` (the same per-session temp workspace, with clangd's
+`compile_flags.txt`). On a change of document or server it sends `didClose` to
+the old service first — which drops that URI's diagnostics, so no stale
+Errors/Warnings count survives — then `didOpen` on the new one. Saving still
+writes the real path and name. Tab names are unique (`Untitled`,
+`Untitled 2`, …) and `UnsavedBufferWorkspace.pathFor(config, bufferName:)`
+derives a distinct virtual document path from the name, so two untitled buffers
+never share diagnostics.
 
 ### Static analysis fallback (Phase 09):
 Used while the language server is unavailable

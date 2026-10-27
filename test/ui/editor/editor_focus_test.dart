@@ -6,10 +6,9 @@ import 'package:flutter_test/flutter_test.dart';
 
 /// TASK-083: the editor owns the keyboard from the first frame.
 ///
-/// A release build does not focus a text field by itself. Without an explicit
-/// request the custom caret is not painted (it requires `hasFocus`) and typing
-/// goes nowhere, which is exactly what the owner saw after the switch to
-/// "always start empty".
+/// A release build does not focus a text field by itself: without an explicit
+/// request nothing is the primary focus, so typing goes nowhere (and the
+/// built-in caret has no reason to blink) until the user clicks.
 void main() {
   late FileService fileService;
   late LspService lspService;
@@ -50,7 +49,6 @@ void main() {
     final node = editorFocusNode(tester);
     expect(node.hasFocus, isTrue);
     expect(FocusManager.instance.primaryFocus, same(node));
-    expect(find.byKey(const ValueKey<String>('editor-caret-overlay')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

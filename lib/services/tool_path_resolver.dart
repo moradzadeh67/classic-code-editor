@@ -79,9 +79,13 @@ class ToolPathResolver {
     final tried = <String>[];
 
     // The Dart server must match the SDK the user builds with, so the Dart
-    // that sits next to the `flutter` on their login-shell PATH wins.
-    if (name == 'dart') {
-      final flutter = await _which('flutter');
+    // that sits next to the `flutter` on their login-shell PATH wins. Both
+    // shell lookups are started together (each may take a second) so the
+    // first completion is not waiting for two login shells in a row.
+    final flutterLookup = name == 'dart' ? _which('flutter') : null;
+    final nameLookup = _which(name);
+    if (flutterLookup != null) {
+      final flutter = await flutterLookup;
       if (flutter != null) {
         final dart = '${_dirname(flutter)}/dart';
         tried.add('$dart (next to $flutter)');
@@ -89,7 +93,7 @@ class ToolPathResolver {
       }
     }
 
-    final loginHit = await _which(name);
+    final loginHit = await nameLookup;
     tried.add('login-shell PATH (`command -v $name`)');
     if (loginHit != null) return ToolLookup(loginHit, tried);
 

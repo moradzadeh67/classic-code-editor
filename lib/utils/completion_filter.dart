@@ -201,6 +201,16 @@ class CompletionFilter {
 
     final matches = items
         .where((item) => item.effectiveFilter.toLowerCase().startsWith(q))
+        // The word being typed is never a candidate: with "pri" in the buffer,
+        // the document-token list would otherwise offer "pri" next to "print".
+        // Snippets are exempt: typing `stless` must still offer the template
+        // that expands to a StatelessWidget.
+        .where(
+          (item) =>
+              item.effectiveFilter.toLowerCase() != q ||
+              item.kindInt == 15 ||
+              item.kind == 'snippet',
+        )
         .toList();
 
     matches.sort((a, b) {
@@ -250,6 +260,9 @@ class CompletionFilter {
           CompletionItem(
             label: kw,
             kind: 'keyword',
+            // A real LSP kind, so the popup shows K rather than "·": the
+            // neutral badge is reserved for plain words from the document.
+            kindInt: 14,
             filterText: kw,
             insertText: kw,
           ),
