@@ -1400,3 +1400,30 @@ service only; switching to C closes the old document (its diagnostics list is em
 the service has no active document) and opens the real path on clangd; an untitled buffer
 still gets `untitled.c`; an explicit language that matches the extension keeps the real
 path; the decision table for `needsVirtualDocument`.
+
+### TASK-088: README media (completion GIF + two screenshots) and the 1.5.0 DMG
+**Phase:** 25
+**Status:** ✅ DONE
+
+**Media.** Three assets live in `docs/media/` and are referenced by `README.md` with relative
+paths: `autocomplete.gif` under the Demo heading (width 860) and both stills in a new
+"Modern languages (Dart / LSP)" section of the screenshot gallery; the existing four theme
+galleries are untouched.
+- `autocomplete.gif` — 760×745, 10 fps, **451 KB**, 12.0 s. Cut from a 45.4 s screen recording
+  with two kept spans (`5.5–12.2 s`, `30.4–36.6 s`): `print(` completed with its documentation
+  panel, then `import 'dart:async';` and `Timer`. Everything else was dropped — the first 5 s of
+  dead air, the language dropdown opening, the repeated `[Running Dart…] hello` output and the
+  trailing 9 s freeze. Built with one `ffmpeg` filter graph (trim → concat → fps/scale →
+  `palettegen` + `paletteuse`, 128 colours, Bayer dither) so no intermediate frames are written.
+- `explorer-tabs.png` and `colorful-dart.png` — owner-supplied screenshots of the Explorer
+  (open project, `test.c` / `Untitled.c` tabs, `+`) and of a Dart buffer with its Console
+  output. Both are well under the 10 MB GitHub limit (0.18 MB and 0.15 MB).
+- `.gitignore` ignores the raw capture leftovers (`.frames/`, `*.mov`, `autocomplete-*.gif`) so
+  only the three deliverables can be committed.
+- The README wording says "Colorful **syntax scheme**" everywhere a scheme is meant: Colorful is
+  a `View > Syntax Colors` palette, not one of the four retro themes.
+
+**Release.** The release gate script names are `01_analyze.sh`, `02_test.sh`,
+`03_build_macos.sh`, `04_launch_smoke.sh`, `05_make_dmg.sh` (there is no `03_build.sh`); they run
+in that order and the DMG lands in `build/distributions/`. No application code changed for this
+task.

@@ -33,6 +33,11 @@ migrate_working_dir/
 /build/
 /coverage/
 
+# Recorded media (animated gif + raw capture frames, not committed to repo)
+/docs/media/.frames/
+/docs/media/*.mov
+/docs/media/autocomplete-*.gif
+
 # Symbolication related
 app.*.symbols
 

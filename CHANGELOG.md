@@ -4,15 +4,15 @@ All notable changes to Classic Code Editor are documented here. The format follo
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
-
-## [1.5.0] - 2026-10-27
+## [1.5.0] - 2026-10-28
 
 ### Fixed
 - **The editor got the keyboard on launch, and language servers were found in a Finder-launched `.app`.**  
   A release build started with an empty Untitled tab left the text field unfocused, so the custom caret never painted and typing went nowhere until a click; the editor now takes focus after the first frame and after every tab change. Separately, a `.app` opened from Finder inherits only launchd's `PATH` (`/usr/bin:/bin`), so `dart` (kept in the Flutter SDK) was never found and the Dart server — and with it completion for an unsaved buffer — silently fell back to a keyword-only offline list. `ToolPathResolver` now looks in the caller's absolute candidates, the user's login shell (`zsh -lic`, then `-lc`, cached, 2 s timeout), and the common install locations (Homebrew, `/usr/local/bin`, `/usr/bin`, `~/.pub-cache/bin`, `~/flutter/bin/cache/dart-sdk/bin`, the login `PATH`), preferring the Dart next to the user's `flutter`. The resolved `PATH` is also handed to the language-server, Run and Debugger child processes, and the tooltip/Console hint list every location that was tried.
 
 ### Added
+- **README media: an inline-completion walkthrough and two screenshots.**  
+  `docs/media/autocomplete.gif` (12 s, 760 px, under 0.5 MB) shows `print(` completed with its documentation panel and then `Timer` arriving from `import 'dart:async';`; `docs/media/explorer-tabs.png` shows the Explorer with an open project, several tabs and the new-tab `+`; `docs/media/colorful-dart.png` shows a Dart buffer with its Console output. The GIF is trimmed from a 45 s screen recording (dead air, the language dropdown and the repeated run output are cut) and kept well under GitHub's 10 MB limit by scaling to 760 px at 10 fps with a 128-colour palette.
 - **The editor's right-click menu is a compact retro popup at the pointer.**  
   It used to fill the window with the items in the top-left corner, because the toolbar slot Flutter provides for `contextMenuBuilder` comes with window-sized tight constraints. The menu is now a content-sized panel (`IntrinsicWidth`, 180–280 px wide, four 26 px rows with one neutral hairline above Select All) anchored at the secondary click and shifted to stay inside the window with a 4 px margin; the full-screen part is only an invisible barrier that closes it (as does `Esc`). Row text sets `TextDecoration.none` explicitly, because otherwise it inherited the toolbar's ambient style and every label and shortcut carried a yellow underline. Items, enabled rules and clipboard handling are unchanged.
 - **Right-click menu in the editor: Cut / Copy / Paste / Select All.**  

@@ -9,6 +9,7 @@
 - **Gutter & Editor Polish:** Gutter error/warning markers with hover tooltips, 1px retro sunken separator line, bold current line number; 5px thicker caret; `#fbfbf9` near-white surface shared with Console; Colorful syntax scheme (operators `#687d01`, curly braces `#1e64d8`, square brackets `#00796f`, comments `#666666`, strings `#409175`); retro right-click context menu (Cut/Copy/Paste/Select All).
 - **Workspace & Navigation:** File Explorer (`Cmd+Shift+O`, Open Folder, lazy tree, double-click to open file), `+` new tab button, per-tab language selection dropdown, mismatch protection prevents compiling mismatched files, every launch starts with a fresh empty Untitled tab.
 - **Finder Launch & Executable Resolution Fixes:** Immediate editor focus on launch; tool binary resolution via user's login shell (`zsh -lic` / `-lc`, Homebrew, Dart SDK, Flutter) when launched from macOS Finder.
+- **Documentation & media:** README now opens with a 12 s inline-completion walkthrough (`docs/media/autocomplete.gif`) and a Dart/Explorer screenshot pair, plus a comparison of the Standard and Colorful syntax schemes.
 
 ## Requirements
 

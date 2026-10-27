@@ -70,6 +70,14 @@ Classic Code Editor is my attempt at a **production-quality IDE** with a retro s
 
 Switching between the authentic themes — the same IDE shell, restyled to each 90s environment.
 
+<p align="center">
+  <img src="docs/media/autocomplete.gif" width="860" alt="Inline completion demo: Ctrl+I opens print(|) from `pri`, `Timer` is completed by `import 'dart:async';`">
+</p>
+
+<p align="center">
+  <a href="#media">🎬 Inline completion: type <code>print(</code>, press <code>⌥/Option I</code> (auto-complete), edit it, and close it with <code>Esc</code></a>
+</p>
+
 ## 📸 Screenshots
 
 ### VC++ 6.0
@@ -98,6 +106,30 @@ ARM64 Assembly support: highlighting, Run, and the LLDB debugger with its regist
 | Editor | Debugger | Terminal |
 |:---:|:---:|:---:|
 | <img src="assets/screenshots/tp-editor.png" width="280" /> | <img src="assets/screenshots/tp-debugger.png" width="280" /> | <img src="assets/screenshots/tp-terminal.png" width="280" /> |
+
+### Modern languages (Dart / LSP)
+
+The retro shell now driving real LSP + an integrated Explorer. Two of the three media assets on
+this page belong here: `docs/media/explorer-tabs.png` (Explorer with an open project and several
+tabs and a new-tab “+”) and `docs/media/colorful-dart.png` (a Dart buffer with its Console output).
+
+**🗂️ Explorer**
+
+| Explorer | Tabs | New tab “+” |
+|:---:|:---:|:---:|
+| <img src="docs/media/explorer-tabs.png" width="280" alt="Explorer with an open project, the test.c and Untitled.c tabs and a + new-tab button”"> | | |
+
+**✨ Inline completion (also a full-screen walkthrough above)**
+
+| Inline completion |
+|:---:|
+| <img src="docs/media/autocomplete.gif" width="860" alt="Inline/hover completion: print(|) is completed from `pri`, then `Timer` from `import 'dart:async';`, with a docs panel showing its members”"> |
+
+**💡 Dart editor and Console**
+
+| Editor | Console |
+|:---:|:---:|
+| <img src="docs/media/colorful-dart.png" width="280" alt="Dart buffer with syntax colours, a breakpoint bullet in the gutter and the run output in the Console”"> | |
 
 ## ✨ Features
 
