@@ -1415,9 +1415,10 @@ galleries are untouched.
   dead air, the language dropdown opening, the repeated `[Running Dart…] hello` output and the
   trailing 9 s freeze. Built with one `ffmpeg` filter graph (trim → concat → fps/scale →
   `palettegen` + `paletteuse`, 128 colours, Bayer dither) so no intermediate frames are written.
-- `explorer-tabs.png` and `colorful-dart.png` — owner-supplied screenshots of the Explorer
-  (open project, `test.c` / `Untitled.c` tabs, `+`) and of a Dart buffer with its Console
-  output. Both are well under the 10 MB GitHub limit (0.18 MB and 0.15 MB).
+- Four stills, all owner-supplied and well under the 10 MB GitHub limit: `explorer-tabs.png`
+  (Explorer tree, 0.19 MB), `explorer-tabbar.png` (tab bar with three files and the `+`,
+  11 KB), `colorful-dart.png` (Dart buffer, 0.15 MB) and `console-output.png` (the run's
+  output and exit code, 31 KB). They fill the two 2-column galleries; no cell is left empty.
 - `.gitignore` ignores the raw capture leftovers (`.frames/`, `*.mov`, `autocomplete-*.gif`) so
   only the three deliverables can be committed.
 - The README wording says "Colorful **syntax scheme**" everywhere a scheme is meant: Colorful is

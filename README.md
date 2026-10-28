@@ -110,14 +110,14 @@ ARM64 Assembly support: highlighting, Run, and the LLDB debugger with its regist
 ### Modern languages (Dart / LSP)
 
 The retro shell now driving real LSP + an integrated Explorer. Two of the three media assets on
-this page belong here: `docs/media/explorer-tabs.png` (Explorer with an open project and several
-tabs and a new-tab “+”) and `docs/media/colorful-dart.png` (a Dart buffer with its Console output).
+this page belong here: the Explorer with its tab bar and new-tab “+”, and a Dart buffer with the
+Console output of its run.
 
 **🗂️ Explorer**
 
-| Explorer, tabs and the new-tab “+” |
-|:---:|
-| <img src="docs/media/explorer-tabs.png" width="420" alt="Explorer with an open project, the test.c and Untitled.c tabs and a + new-tab button”"> |
+| Explorer | Tabs and the new-tab “+” |
+|:---:|:---:|
+| <img src="docs/media/explorer-tabs.png" width="380" alt="Explorer with an open project and its folder tree”"> | <img src="docs/media/explorer-tabbar.png" width="380" alt="Tab bar with three open files and the + new-tab button”"> |
 
 **✨ Inline completion (also a full-screen walkthrough above)**
 
@@ -127,9 +127,9 @@ tabs and a new-tab “+”) and `docs/media/colorful-dart.png` (a Dart buffer wi
 
 **💡 Dart editor and Console**
 
-| Dart buffer and its Console output |
-|:---:|
-| <img src="docs/media/colorful-dart.png" width="420" alt="Dart buffer with syntax colours, a breakpoint bullet in the gutter and the run output in the Console”"> |
+| Editor | Console |
+|:---:|:---:|
+| <img src="docs/media/colorful-dart.png" width="380" alt="Dart buffer with syntax colours and a breakpoint bullet in the gutter”"> | <img src="docs/media/console-output.png" width="380" alt="Console panel showing a Dart program's run output and exit code 0”"> |
 
 ## ✨ Features
 
