@@ -71,7 +71,7 @@ Classic Code Editor is my attempt at a **production-quality IDE** with a retro s
 Switching between the authentic themes — the same IDE shell, restyled to each 90s environment.
 
 <p align="center">
-  <img src="docs/media/autocomplete.gif" width="860" alt="Inline completion demo: Ctrl+I opens print(|) from `pri`, `Timer` is completed by `import 'dart:async';`">
+  <img src="docs/media/autocomplete.gif" width="860" alt="Inline completion demo: print() is completed from pri, then Timer from import 'dart:async'">
 </p>
 
 <p align="center">
@@ -117,19 +117,19 @@ Console output of its run.
 
 | Explorer | Tabs and the new-tab “+” |
 |:---:|:---:|
-| <img src="docs/media/explorer-tabs.png" width="380" alt="Explorer with an open project and its folder tree”"> | <img src="docs/media/explorer-tabbar.png" width="380" alt="Tab bar with three open files and the + new-tab button”"> |
+| <img src="docs/media/explorer-tabs.png" width="380" alt="Explorer with an open project and its folder tree"> | <img src="docs/media/explorer-tabbar.png" width="380" alt="Tab bar with three open files and the + new-tab button"> |
 
 **✨ Inline completion (also a full-screen walkthrough above)**
 
 | Inline completion |
 |:---:|
-| <img src="docs/media/autocomplete.gif" width="860" alt="Inline/hover completion: print(|) is completed from `pri`, then `Timer` from `import 'dart:async';`, with a docs panel showing its members”"> |
+| <img src="docs/media/autocomplete.gif" width="860" alt="Inline completion: print() is completed from pri, then Timer from import 'dart:async', with the docs panel open"> |
 
 **💡 Dart editor and Console**
 
 | Editor | Console |
 |:---:|:---:|
-| <img src="docs/media/colorful-dart.png" width="380" alt="Dart buffer with syntax colours and a breakpoint bullet in the gutter”"> | <img src="docs/media/console-output.png" width="380" alt="Console panel showing a Dart program's run output and exit code 0”"> |
+| <img src="docs/media/colorful-dart.png" width="380" alt="Dart buffer with syntax colours and a breakpoint bullet in the gutter"> | <img src="docs/media/console-output.png" width="380" alt="Console panel showing a Dart program's run output and exit code 0"> |
 
 ## ✨ Features
 
