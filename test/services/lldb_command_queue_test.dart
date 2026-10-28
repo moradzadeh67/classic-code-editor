@@ -68,6 +68,29 @@ void main() {
     fail('the queue never finished; ${describe()}');
   }
 
+  /// Waits until [condition] holds, with a hard deadline.
+  ///
+  /// The queue writes on its own timer, so a fixed `Future.delayed` beats against
+  /// the test's clock: on a busy CI runner the queue's tick can land *after* the
+  /// test's sleep, which made `(a)` fail with `Bad state: No element` while it
+  /// passed locally. Polling removes that race without weakening the assertion.
+  Future<void> waitUntil(
+    bool Function() condition, {
+    Duration timeout = const Duration(seconds: 2),
+    String? reason,
+  }) async {
+    final deadline = DateTime.now().add(timeout);
+    while (!condition()) {
+      if (DateTime.now().isAfter(deadline)) {
+        fail(
+          'condition not met within ${timeout.inMilliseconds} ms'
+          '${reason == null ? '' : ' ($reason)'}; ${describe()}',
+        );
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+    }
+  }
+
   test(
     '(a) a command is held while the stop output is still arriving',
     () async {
@@ -89,7 +112,10 @@ void main() {
         reason: 'a command written during the stop report is what got split',
       );
 
-      await Future<void>.delayed(const Duration(milliseconds: 30));
+      await waitUntil(
+        () => written.isNotEmpty,
+        reason: 'the held command is written once lldb is quiet',
+      );
       expect(written.single, 'breakpoint set -a 0x1000\n');
       await drive(done);
     },

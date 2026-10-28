@@ -4,6 +4,16 @@ All notable changes to Classic Code Editor are documented here. The format follo
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Tests
+- **`lldb_command_queue_test.dart` no longer races its own clock.**  The
+  "a command is held while the stop output is still arriving" case slept a fixed 30 ms and then read
+  `written.single`; the queue writes on its own timer, so on a busy CI runner that tick could land after
+  the test's sleep and the test failed with `Bad state: No element` (519 passed / 1 failed on GitHub
+  Actions while passing locally). It now polls the expectation with a 2 s deadline, which keeps the
+  "nothing written during the stop report" assertion but removes the wall-clock dependency.
+
 ## [1.5.0] - 2026-10-28
 
 ### Fixed

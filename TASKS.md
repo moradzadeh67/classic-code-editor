@@ -1428,3 +1428,26 @@ galleries are untouched.
 `03_build_macos.sh`, `04_launch_smoke.sh`, `05_make_dmg.sh` (there is no `03_build.sh`); they run
 in that order and the DMG lands in `build/distributions/`. No application code changed for this
 task.
+
+### TASK-089: De-flake the LLDB command-queue test
+**Phase:** 25
+**Status:** ✅ DONE
+
+CI failed once on commit `9611c70` (a docs-only commit) with **519 passed / 1 failed**:
+`test/services/lldb_command_queue_test.dart` → `Bad state: No element` at `written.single`. The suite
+was green locally and green again on the next commit, so it was a flake, not a regression.
+
+**Cause.** Case `(a) a command is held while the stop output is still arriving` asserted the "held"
+state immediately (correct), then slept a **fixed 30 ms** before reading `written.single`. The queue
+releases the command from its own timer (`quietWindow`, 20 ms in this test), so the assertion depended
+on the test's sleep outlasting the queue's tick — true on a laptop, not guaranteed on a loaded CI
+runner, where the tick can land after the sleep.
+
+**Fix.** A `waitUntil(condition, timeout: 2 s)` helper polls every 5 ms and reports `describe()` plus
+the reason on timeout; case `(a)` now waits for `written.isNotEmpty` instead of sleeping. The two
+assertions that matter are unchanged: nothing is written before the quiet window (still a plain
+`expect(written, isEmpty)`), and exactly one line — `breakpoint set -a 0x1000\n` — is written after
+it. No production code touched.
+
+**Verified.** The file passes 5 runs in a row; `flutter analyze` clean; full `flutter test`
+**520 pass / 8 skipped**.
