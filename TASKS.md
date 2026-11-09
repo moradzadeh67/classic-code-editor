@@ -1451,3 +1451,36 @@ it. No production code touched.
 
 **Verified.** The file passes 5 runs in a row; `flutter analyze` clean; full `flutter test`
 **520 pass / 8 skipped**.
+
+### TASK-090: Read-only GitService (Git G1)
+**Phase:** 26
+**Status:** ✅ DONE
+
+Adds the service foundation for Git integration with no UI: `lib/models/git_models.dart`
+(`GitResult`, `GitAvailability`, `GitRemote`, `GitChange`, `GitRepoInfo`) and
+`lib/services/git_service.dart` (`GitService`, `GitProcessRunner`, `GitCancelToken`,
+`SystemGitProcessRunner`). Every command takes a directory path, so nothing here knows about
+the File Explorer or a widget.
+
+- **Availability.** `gitAvailability()` resolves `git` through `ToolPathResolver`. When the
+  only candidate is Apple's `/usr/bin/git` and `xcode-select -p` fails, it never executes the
+  stub (which would open an installer dialog); it reports the CLT/Brew hint instead and uses a
+  Homebrew/`/usr/local` git when one exists.
+- **Queries.** `findRepoRoot()` (`rev-parse --show-toplevel`), `repoInfo()` (branch or short
+  SHA when detached, `hasCommits`, upstream, ahead/behind, credential-stripped fetch URLs) and
+  `status()` (`--porcelain=v1 -z`, including rename/copy original paths and all conflict pairs
+  `UU`/`AA`/`DD`/`AU`/`UA`/`DU`/`UD`; Persian names and names with spaces are taken verbatim).
+- **Process hygiene.** `Process.start` with an argument list only (never a shell), working
+  directory = the repo root, resolved login-shell `PATH`, `GIT_TERMINAL_PROMPT=0`,
+  `GIT_OPTIONAL_LOCKS=0`, `LC_ALL=C`, `-c core.quotepath=false`, optional
+  `GIT_SSH_COMMAND=ssh -o BatchMode=yes` only when the user has not set one, 15 s timeout,
+  a `GitCancelToken` that kills the child, and 5 MB caps per captured stream. A
+  `ProcessException` becomes a `GitResult` with exit code `-1`, never an exception in the UI.
+
+**Tests:** `test/services/git_service_test.dart`, **23 tests, none skipped** on a machine with
+git installed — real temporary repositories only (local `user.name`/`user.email`, a local
+bare remote; the project repo is never touched) for root discovery, every status class,
+unborn/detached HEAD, ahead/behind and credential stripping; plus fake-runner tests for the
+argument-list/environment contract, timeout/cancel, the Apple-stub special case and the 5 MB
+cap. `flutter analyze` clean; full `flutter test` **543 pass / 8 skipped** (the 8 are the
+existing opt-in real-process tests).

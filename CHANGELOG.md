@@ -6,6 +6,9 @@ All notable changes to Classic Code Editor are documented here. The format follo
 
 ## [Unreleased]
 
+### Added
+- **Read-only `GitService` foundation (G1).**  `GitService` now resolves `git` through `ToolPathResolver` (never executing Apple's `/usr/bin/git` stub without Command Line Tools), finds a repository root, reads branch/detached SHA, commit/upstream/ahead-behind state, credential-stripped fetch URLs and `--porcelain=v1 -z` status (renames, untracked, all seven conflict pairs, Persian and spaced names), and runs every command as an argument list with a resolved `PATH`, `GIT_TERMINAL_PROMPT=0`, `GIT_OPTIONAL_LOCKS=0`, `LC_ALL=C`, `-c core.quotepath=false`, a 15 s timeout, cancellation and 5 MB output caps. No UI yet.
+
 ### Tests
 - **`lldb_command_queue_test.dart` no longer races its own clock.**  The
   "a command is held while the stop output is still arriving" case slept a fixed 30 ms and then read
