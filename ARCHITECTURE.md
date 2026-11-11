@@ -21,6 +21,8 @@ Borland Delphi (beige), Visual Basic 6.0, and Turbo Pascal 7.0 (DOS navy).
 - Exposes state via ChangeNotifier or streams
 - Independent of UI
 - ThemeService manages current theme and colors
+- `git_service.dart` (process) + `git_controller.dart` (snapshot for the status
+  bar) — see *Git status* under Data Flow
 
 ### Shell Composition (lib/ui/shell/)
 - `ide_shell.dart` — the app root: `RetroMenuBar` / `RetroToolbar` /
@@ -42,8 +44,10 @@ Borland Delphi (beige), Visual Basic 6.0, and Turbo Pascal 7.0 (DOS navy).
   shows `DebuggerSidebar` only while a session is `running` or `paused` — a
   gutter breakpoint alone no longer opens the panel. The bottom panel switches between Console,
   Diagnostics and Terminal via an internal retro tab strip.
-- `retro_status_bar.dart` — 24px; status text + analysis counts + LSP status +
-  `Ln x, Col y`.
+- `retro_status_bar.dart` — 24px; status text + analysis counts + Git
+  repository + LSP status + `Ln x, Col y`. The Git segment is optional: it is
+  passed a `GitController` and lays out nothing when that controller has no
+  repository (or no `git`), so the other segments keep their positions.
 
 ### File Explorer
 `File > Open Folder...` (`Cmd+Shift+O`), the panel's empty-state button or a
@@ -208,6 +212,73 @@ writes the real path and name. Tab names are unique (`Untitled`,
 `Untitled 2`, …) and `UnsavedBufferWorkspace.pathFor(config, bufferName:)`
 derives a distinct virtual document path from the name, so two untitled buffers
 never share diagnostics.
+
+### Git status (Phase 26, TASK-090/091):
+The status bar shows the repository next to the diagnostics, and nothing in it can
+write to it:
+
+```
+Folder opened / tab switched / file saved / window focused
+→ IDEShell pushes a directory into GitController (setExplorerFolder / setActiveFilePath)
+→ 400 ms debounce collapses the burst
+→ GitService reads `git` (argument lists only, GIT_OPTIONAL_LOCKS=0) and parses
+→ GitController notifies
+→ RetroStatusBar rebuilds and draws the segment (or hides it)
+```
+
+- **`lib/services/git_service.dart`** — the only place a `git` process is started.
+  `gitAvailability()` goes through `ToolPathResolver` and never executes Apple's
+  `/usr/bin/git` stub (which would open an installer dialog); `findRepoRoot()`,
+  `repoInfo()` and `status()` answer with models, and a `ProcessException` becomes
+  a `GitResult` with exit code `-1` rather than an exception in the UI.
+- **`lib/services/git_controller.dart`** — a `ChangeNotifier` that owns the
+  snapshot and never runs a command itself. The directory is the explorer's open
+  folder, else the active file-backed tab's directory, else nothing (and then no
+  command runs at all). A refresh requested while one is running is not lost, it
+  runs once more afterwards; a newer directory bumps a generation counter so a
+  late result from the previous directory is discarded instead of being painted
+  over the new one. No timer polls anything.
+- **`lib/ui/shell/retro_status_bar.dart`** — the optional segment: the branch
+  (or the short SHA when HEAD is detached), `● <n>`, `↑<ahead> ↓<behind>`, inside
+  a fixed 150 px box so the rest of the bar never shifts; the tooltip carries the
+  repository root, the detached flag, the upstream and the credential-stripped
+  remote URLs. Nothing is laid out when there is no repository or no `git`.
+
+### Git operations (Phase 26, TASK-092…095):
+The Source Control panel is the only place that writes to a repository, and it
+always writes through the same four layers:
+
+```
+Button pressed
+→ SourceControlPanel: confirm dialog first, then a GitCancelToken
+→ GitController:   single-flight, refuses with no repository, refreshes after
+→ GitService:      one git process, argument list only, fixed environment
+→ Console:         real git output behind a [Git <verb>] prefix
+→ GitController.refreshNow()
+→ panel + status bar rebuild from the same snapshot (they never disagree)
+```
+
+- **Argument lists, never a shell.** `stage`/`unstage` pass `--` so a path like
+  `--amend.txt` stays a path; `commit` writes the message to stdin (`git commit
+  -F -`) instead of an argument; `push` refuses an option-looking remote or
+  branch name before any process starts. `pull` is `git pull --ff-only` and
+  `fetch` is a bare `git fetch` — no forcing, pruning, squashing or rebasing flag
+  exists in the app.
+- **Timeouts are per verb, not one number.** 15 s for reads, 60 s for `commit`
+  (a slow hook) and for `fetch` (it runs on panel open, not on a user request),
+  120 s for the two network transfers (`push`, `pull`). Every one of them can be
+  killed by the shared `GitCancelToken`.
+- **A refresh stays instant and offline.** Network calls are never wired to a
+  refresh trigger (open folder, tab switch, save, focus regain); the only
+  automatic one is a single `fetch` per Source Control mount, because
+  `ahead`/`behind` are counted against the local remote-tracking refs and would
+  otherwise be as stale as the last terminal fetch. A failed background fetch is
+  a Console line, not a panel banner — the user pressed nothing.
+- **The panel does not touch the disk.** After a successful pull,
+  `FileService.reloadTabsFromDisk()` re-reads unmodified file-backed tabs through
+  an injectable `TabDiskReader` (tests describe "the disk" as a map instead of
+  using real I/O) and returns a `TabReloadResult`; a tab with unsaved edits is
+  reported as skipped and printed to the Console rather than overwritten.
 
 ### Static analysis fallback (Phase 09):
 Used while the language server is unavailable

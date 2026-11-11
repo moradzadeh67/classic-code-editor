@@ -55,7 +55,7 @@ class LspServerSpec {
   static const String clientId = 'ClassicCodeEditor';
 
   /// Client version sent in the LSP `initialize` handshake.
-  static const String clientVersion = '1.5.0';
+  static const String clientVersion = '1.6.0';
 
   /// The official Dart language server, shipped with the Dart SDK.
   static const LspServerSpec dart = LspServerSpec(

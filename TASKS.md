@@ -1484,3 +1484,354 @@ unborn/detached HEAD, ahead/behind and credential stripping; plus fake-runner te
 argument-list/environment contract, timeout/cancel, the Apple-stub special case and the 5 MB
 cap. `flutter analyze` clean; full `flutter test` **543 pass / 8 skipped** (the 8 are the
 existing opt-in real-process tests).
+
+### TASK-091: Git status-bar segment (Git G2)
+**Phase:** 26
+**Status:** ✅ DONE
+
+Puts the read-only Git state on screen. The new `lib/services/git_controller.dart` is a
+`ChangeNotifier` that owns the snapshot and `RetroStatusBar` gains an optional
+`gitController`; the shell only pushes the two directory inputs in and never reads the
+status itself.
+
+- **Segment.** A `⎇ <branch>` segment between the analysis and the LSP segments (`HEAD`
+  when the branch name is empty, the short SHA on a detached HEAD), then `● <n>` when the
+  index or worktree has changes, then `↑<ahead>` / `↓<behind>` — each arrow only when it is
+  not zero. Fixed 150 px, ellipsized, drawn with the existing `_segment` /
+  `RetroBorder.sunken()` styling inside the bar's `ListenableBuilder`. A `Tooltip` carries
+  the repository root, `detached HEAD`, the upstream (or `no upstream`) and the
+  credential-stripped remotes. Nothing is laid out at all when there is no repository or no
+  `git`, so the other segments keep their positions.
+- **Where the directory comes from.** The File Explorer's open folder wins; otherwise the
+  active file-backed tab's own directory. With neither, the state is "no repository" and
+  **no** git command runs (also true on an unavailable `git`: the root lookup is skipped).
+- **Refresh discipline.** No polling. Triggers are: opening/closing a folder, switching
+  tabs, saving a file and regaining window focus (`AppLifecycleListener.onResume`). A
+  trigger arms a 400 ms debounce; a request that arrives while a refresh is running is not
+  dropped but runs exactly once more afterwards (single flight); a newer directory bumps a
+  generation counter so a late result from the previous directory is discarded rather than
+  painted over the new one; `dispose()` cancels the timer, the cancel token and any
+  notification.
+- **One-shot, non-blocking.** The controller reads only through `GitService`, so the
+  argument-list/`GIT_OPTIONAL_LOCKS=0` hygiene of G1 (no `git status` index lock, no
+  terminal prompt) applies unchanged.
+
+**Tests:** `test/services/git_controller_test.dart` (14 fake-service tests) covers the debounce
+(nothing before 400 ms, one refresh for a burst), the single-flight collapse (a refresh
+requested mid-refresh runs exactly once more), the no-repository and unavailable-`git` paths
+(no command runs), the folder-over-file directory order plus the fallback and the drop back
+to nothing, and the label/tooltip shapes (branch + count + arrows, detached SHA, clean tree,
+a later refresh updating the count). `test/services/git_controller_real_repo_test.dart`
+(5 tests) repeats the path against real temporary repositories so the field names the
+controller reads are proven to be the ones `GitService` fills in — branch/`● 2`,
+`↑2` against a local bare remote, sub-folder root discovery, a plain folder hiding the
+segment without creating anything, and a detached SHA. `test/ui/shell/git_status_segment_test.dart`
+drives the real `RetroStatusBar`: the segment text, that the segment is absent with no
+repository, and that it renders without overflow in all four themes. `flutter analyze` clean;
+full `flutter test` **566 pass / 8 skipped**.
+
+**Manual check.** Launched the macOS build with a scratch repository (one modified file and
+two untracked) remembered as the explorer folder: the bar reads `⎇ main ● 2` between the
+diagnostics and LSP segments; adding a third change outside the app and then focusing the
+window updated it to `● 3` without a restart (the `onResume` trigger).
+
+### TASK-092: Source Control panel & staging (Git G3)
+**Phase:** 26
+**Status:** ✅ DONE
+
+G2 could only *report* the repository; this task makes it editable. A new bottom-panel tab
+lists the changes and stage/unstage moves them, and the status-bar segment becomes the
+shortcut into it.
+
+- **Staging plumbing.** `GitService.stage(root, paths)` runs `git add -- <paths>`;
+  `GitService.unstage(root, paths, hasCommits:)` runs `git restore --staged -- <paths>` when
+the branch has commits and `git rm --cached -- <paths>` on an unborn branch, where
+  `restore --staged` has no `HEAD` to restore from. Both keep the G1 hygiene: argument list,
+  `--` separator (so a file called `--amend.txt` is a path, not an option), resolved `PATH`,
+  `GIT_TERMINAL_PROMPT=0`, `GIT_OPTIONAL_LOCKS=0`, timeout and cancellation. An empty path
+  list is a no-op success and a missing `git` returns the install hint instead of throwing.
+  `GitController.stage`/`unstage` guard on "no repository", delegate, then `refreshNow()` so
+  the panel and the status bar update together.
+- **`SourceControlPanel`** (`lib/ui/git/source_control_panel.dart`), reached by a new
+  "Source Control" tab (index 4) in the bottom strip. In order: the four empty states
+  (`Git is not installed` with the resolver's hint, `No folder open`, `Not a Git repository`,
+  `No changes`), a branch header with `Refresh` / `Stage All` / `Unstage All`, an optional
+  one-line error banner, then `Staged Changes (n)` and `Changes (n)`. Rows show a status
+  letter — staged `A`/`M`/`D`/`R`, worktree `U` (untracked), `M`, `D`, `A`, `R`, `!` for a
+  conflicted pair — coloured per state, with the path ellipsized in LTR order so a Persian or
+  spaced name stays readable in the LTR chrome. Every row carries one button: `Unstage` on a
+  staged row, `Stage` on a worktree row, and a **disabled** `Stage` inside a
+  "Resolve conflicts in a terminal" tooltip on a conflicted row. `Stage All` skips conflicted
+  rows; `Unstage All` is disabled with nothing staged. Every operation is single-flight
+  (`_busy` disables all buttons) and a failure goes to the Console with the real multi-line
+  `git` message while the panel shows only its first line.
+- **Double-click opens a file.** The row's *path region* (not the whole row) has the
+  double-tap recogniser, so the button's tap wins the gesture arena immediately instead of
+  waiting for a double-tap that never comes — the first version wrapped the entire row and
+  the stage/unstage taps were swallowed and left pending timers. The file is opened through
+  the shell's existing `onOpenFile` only when it exists on disk, so a deleted or renamed path
+  cannot open an empty editor.
+- **The status-bar segment is the shortcut.** `RetroStatusBar`'s Git segment takes an
+  optional `onGitSegmentTap`; with a callback it gets a click cursor and a tap handler, and
+  `IDEShell` answers it by showing the bottom panel and selecting tab 4 through the new
+  public `PanelLayoutState.selectBottomTab`. Tabs beyond the strip's width now scroll
+  horizontally, because the strip grew to five buttons and used to overflow at narrow widths.
+
+**Tests:** `test/ui/git/source_control_panel_test.dart` (12 widget tests, canned
+`GitService`) covers the four empty states, the section headings and status letters, the
+per-row `Stage`/`Unstage` taps, `Stage All`/`Unstage All` (conflicted excluded), the disabled
+conflicted button and its tooltip, a failing operation reporting the full message to the
+Console and one line to the panel without wedging `_busy`, that `unstage` is told the branch
+is unborn, the double-click open (real temp file, created in `setUp` — genuine `dart:io`
+work inside a `testWidgets` body never completes in the fake-async zone), and that a 220 px
+panel lays out without an overflow (which is how the header's `Row` was caught: the three
+button labels cannot shrink, so the strip is a `Wrap` that spills onto a second line).
+`test/services/git_service_stage_test.dart` (5 tests) repeats staging against real temporary
+repositories: stage then unstage with commits, `git rm --cached` on an unborn branch, a
+Persian file name (`پیش‌نویس‌ها.txt`) surviving both directions, a path that looks like an
+option (`--amend.txt`) being staged after the `--` separator, and the controller refreshing
+itself after both calls. `test/ui/shell/source_control_tab_test.dart` (3 widget tests) drives
+the real `PanelLayout`: the tab exists, tapping it shows the panel, and `selectBottomTab(4)`
+from outside (what the segment tap does) selects it.
+`test/ui/shell/git_status_segment_test.dart` gained a case proving the segment fires its tap
+callback. `flutter analyze` clean; full `flutter test` **587 pass / 8 skipped** (was 566).
+
+**Manual check: not yet run.** Everything above is covered by automated tests only. The
+things worth a look in a real macOS build are the parts a widget test cannot see — the tab
+strip scrolling when the console is dragged very narrow, whether double-clicking the path
+region feels right next to the buttons, and the error banner's one-line height against a
+genuinely long `git` message.
+
+### TASK-093: Commit from the Source Control panel (Git G4)
+**Phase:** 26
+**Status:** ✅ DONE
+
+G3 could stage changes but the only way to record them was a terminal. This task adds a
+commit area under the two lists: a multi-line message box (2–4 lines), a `Commit` button and
+— only while a commit is in flight — a `Cancel` button.
+
+- **Enablement and the message.** `Commit` is enabled only when at least one file is staged,
+  the message is non-blank and the panel is not busy or mid-identity-form. The message's
+  first line is treated as the subject; a soft (non-blocking) hint appears under the box when
+  the subject exceeds 72 characters. `Cmd+Enter` (and `Ctrl+Enter`) inside the box commits
+  when the button is enabled.
+- **`GitService.commit(root, message)`.** Runs `git commit -F -` — the message is written to
+  the process's **stdin** (UTF-8, pipe closed afterwards), never an argument or a shell
+  string, so any text survives byte-for-byte. No `--no-verify`, `--amend` or `--all` exists
+  anywhere in the call. `GitProcessRunner.run` grew an optional `stdinInput`; a write error is
+  recorded and surfaced as stderr only when real stderr is empty, so it is never lost but
+  never masks a real git message. The call carries the usual G1 hygiene plus a 60 s timeout
+  (a hook may be slow); the status area disables its buttons and `Cancel` kills the process
+  through the shared `GitCancelToken`. Real git output (stdout and stderr) is forwarded to the
+  Console behind a `[Git commit]` prefix.
+- **Identity check before committing.** `git config user.name` / `user.email` are read first;
+  if either is unset the panel swaps the commit area for an inline form (name, email) that
+  explains the values are **stored only in this repository**. `Save and commit` writes them
+  with `git config <key> <value>` — never `--global` — and `setLocalConfig` refuses any key
+  outside the two identity keys and any blank value, so the method cannot be talked into
+  writing global or unrelated config. After the writes the commit proceeds in the same press.
+- **After success** the message box clears, the status refreshes immediately and a one-line
+  `Committed <short sha>` (`rev-parse --short HEAD`) replaces the form. Failures map to one
+  line: `Nothing staged to commit.` when the index was empty, `Git identity unknown — set
+  user.name and user.email.` when git could not decide the author, `Another git process is
+  running; if none is, delete .git/index.lock yourself.` when the lock file exists (git
+  **never** deletes it on the repository's behalf), `Commit timed out after 60 s (a hook may
+  be slow).` on timeout, `Commit cancelled.` on cancel, and otherwise the hook's own first
+  output line — probes on this machine confirmed a failing pre-commit hook's message arrives
+  as pure stderr with git adding nothing. The status refreshes even on failure, so the lists
+  never go stale after a partial operation.
+- **Git safety unchanged.** Every git invocation is a `Process.start`/`Process.run` argument
+  list; tests run only against throwaway `git init` repositories created with a local
+  identity and skip when `git` is not installed.
+
+**Tests:** `test/services/git_commit_service_test.dart` (14 tests) asserts the runner
+contract against a recording fake — the exact `commit -F -` arguments, the message never
+appearing in an argument list, the stdin payload, the 60 s default timeout, cancellation
+passthrough — plus the failure mapping as a table, and repeats the real flow against
+temporary repositories: a Persian message round-tripping through `git log -1 --format=%B`,
+a failing pre-commit hook (local `core.hooksPath`, because this machine has a global hooksPath)
+leaving the files staged, `nothing to commit` mapping, a missing identity (HOME overridden to
+a clean temp dir) reported as unset with `setLocalConfig` staying repository-local, and
+`setLocalConfig` refusing non-identity keys. `source_control_panel_test.dart` gained 7 widget
+tests in `group('commit area (Git G4)')`: the enablement table (no staged files / blank
+message / busy), the happy path (`Committed <sha>`, message box cleared, status refreshed),
+the identity form appearing for an unknown author and saving locally before committing, a
+hook failure reported as one line, Cancel during a held commit, `Cmd+Enter` committing only
+when enabled, and the 72-character subject hint. `flutter analyze` clean; full `flutter test`
+**608 pass / 8 skipped** (was 587).
+
+**Manual check: not yet run.** The automated suite cannot see how the commit area feels at
+real widths — the message box resizing between 2 and 4 lines, the success line and the hint
+sharing the narrow panel, and the identity form's two fields with a long repository path in
+the header above them.
+
+### TASK-094: Push from the Source Control panel (Git G5)
+**Phase:** 26
+**Status:** ✅ DONE
+
+G4 could record commits but the only way to send them anywhere was a terminal. This task adds
+a `Push` button to the Source Control panel header, with the same confirmation-first,
+argument-list-only hygiene the rest of the panel uses.
+
+- **Enablement.** `Push` is enabled only when the repository can actually be pushed: not
+  busy, not already pushing, not detached, on a born branch, with at least one remote and —
+  when an upstream exists — at least one commit ahead of it. The label carries the ahead
+  count (`Push ↑2`); with no remote the disabled button carries the tooltip
+  `No remote is configured. In a terminal run: git remote add origin <url>` and pressing the
+  code path anyway shows that line in the error banner while running nothing.
+- **`GitService.push(root, remote:, branch:, setUpstream:)`.** With an upstream the command
+  is a plain `git push`; without one it is `git push -u <remote> <branch>`. No `--force`,
+  `--force-with-lease`, `--delete`, `--mirror`, `--all` or `--tags` exists anywhere, and an
+  option-looking remote or branch name (a refspec must never double as an option) is refused
+  before any process starts. The call carries the G1 hygiene (`GIT_TERMINAL_PROMPT=0`,
+  BatchMode ssh, argument list) plus a 120 s timeout for the slow network case; `Cancel`
+  kills the process through the shared `GitCancelToken`. Real git output is forwarded to the
+  Console behind a `[Git push]` prefix.
+- **Confirmation dialog first, always.** The dialog shows the remote name (a dropdown
+  defaulting to `origin` when several remotes exist and no upstream is set), its
+  credential-stripped URL, the `local → remote` branch line and either the number of commits
+  to push or — for a branch without an upstream — the exact line
+  `will run: git push -u <remote> <branch>`. Cancelling the dialog runs nothing.
+- **Failure mapping.** One line in the panel, full output in the Console:
+  `Could not reach the remote. Check the network and the remote URL.` (ssh *and* https
+  resolve-host forms), `Add your key to ssh-agent (ssh-add --apple-use-keychain).`,
+  `Authentication failed. Push once from a terminal or run \`gh auth login\`, or check your
+  SSH key`, `The remote has new commits. Pull first`, `Push cancelled.`,
+  `Push timed out after 120 s (the network may be slow).`, or git's own first output line.
+  After success the status refreshes immediately (`refreshNow()`) and the panel shows
+  `Pushed` in the shared success line (renamed `git-success-line`; the commit message of G4
+  is unchanged).
+
+**Tests:** `test/services/git_push_service_test.dart` (15 tests) asserts the runner contract
+against a recording fake — the exact plain and `-u` argument lists, the 120 s default
+timeout, cancellation passthrough, and that none of the six forbidden flags ever appears for
+a table of inputs (option-looking remote/branch names start no process at all) — plus the
+failure mapping, and repeats the flow against real temporary repositories with a local bare
+remote: the first `-u` push setting `origin/main` as upstream, a second plain push sending
+new commits, and a divergent second clone making the push rejected — which maps to the Pull
+hint and leaves the local HEAD untouched. `source_control_panel_test.dart` gained 9 widget
+tests in `group('push (Git G5)')`: the label's ahead count, disabled with nothing to push and
+an upstream, enabled for an upstream-less branch, the no-remote disabled button with its
+tooltip and no process, the dialog's stripped URL / branch line / commit count with nothing
+run while it is up, the no-upstream dialog announcing the exact `-u` command, a dialog
+cancel running nothing, a rejected push showing the Pull hint and restoring the buttons, and
+Cancel killing a held push. `flutter analyze` clean; full `flutter test` **632 pass / 8
+skipped** (was 608).
+
+**Manual check: not yet run.** A real push over SSH has never been driven through the UI;
+worth a look are the dialog's reading order at panel width, the dropdown when a repository
+has remotes with long URLs, and that a real slow push shows the Cancel button for its whole
+duration.
+
+### TASK-095: Pull from the Source Control panel (Git G6)
+**Phase:** 26
+**Status:** ✅ DONE
+
+G5 could send commits but the only way to receive them was a terminal. This task adds a
+`Pull` button beside `Push`, with the same confirmation-first, argument-list-only hygiene —
+and fixes the reason a Pull button is easy to ship broken: `behind` is only as fresh as the
+remote-tracking refs, so **nothing in the app ever made it non-zero** without a manual
+`git fetch`.
+
+- **`GitService.fetch(root)` — the missing half.** `repoInfo()` counts `HEAD...@{u}` against
+  the *local* remote-tracking refs, so before this task a repository that had genuinely moved
+  on still reported `behind: 0` and the Pull button stayed disabled forever. The new call runs
+  exactly `git fetch` (no `--prune`, `--tags`, `--all`, `--force`, `--mirror` or `--depth`),
+  writes refs only — branch, index and worktree are untouched — with the G1 hygiene plus a
+  60 s timeout, because it runs when the panel opens rather than when the user asked for a
+  transfer.
+- **Where the fetch belongs.** `GitController.fetchNow()` fetches and then refreshes; it
+  starts nothing when there is no repository or no remote, and returns `null` in that case.
+  `SourceControlPanel` calls it once when it mounts (post-frame) and again whenever `Refresh`
+  is pressed. Both are needed: without the mount call a freshly opened panel cannot know it
+  /// is behind, and without the button `behind` would never change again while the panel
+  /// stays open — leaving Pull permanently disabled after one use.
+  ///
+  /// A refresh trigger (opening a folder, switching tabs, saving, regaining focus)
+  /// stays instant and offline — it never fetches.
+  ///
+  /// A failed fetch is reported to the Console as `[Git fetch] <one line>` and never as a
+  /// panel banner, because the user pressed nothing.
+- **Enablement and honesty.** `Pull` shows the upstream distance (`Pull ↓3`) and is enabled
+  only when there is something to pull: not busy, not detached, on a branch with an upstream,
+  with `behind > 0`. A disabled button now explains itself in a tooltip —
+  `HEAD is detached. Check out a branch to pull.`,
+  `No remote is configured. In a terminal run: git remote add origin <url>`,
+  `This branch has no upstream. Set one with: git push -u <remote> <branch>`, or
+  `Already up to date with origin/main.` The transient "an operation is running" case stays
+  silent, as in G5.
+- **`GitService.pull(root)`.** Runs exactly `git pull --ff-only` — no `--no-ff`, `--rebase`,
+  `--squash` or `--autostash`, so a diverged branch fails instead of silently merging — under
+  the G1 environment with a 120 s timeout and a `Cancel` that kills the process. Real output
+  streams to the Console behind `[Git pull]`.
+- **Confirmation dialog first.** The dialog shows the credential-stripped remote URL, the
+  `remote → local` branch line, `N commits will be pulled.` and the exact command that will
+  run. Cancelling runs nothing; a tracked file with uncommitted changes refuses up front with
+  `Commit or stash your changes first.`
+- **Failure mapping.** One line in the panel, full output in the Console: `Pull cancelled.`,
+  `Pull timed out after 120 s (the network may be slow).`,
+  `Branches have diverged. Resolve this in a terminal (merge or rebase).`,
+  `Commit or stash your changes first.`,
+  `Could not reach the remote. Check the network and the remote URL.`, the ssh-agent and
+  authentication hints, or git's own first output line. Success shows `Pulled` and refreshes
+  immediately, so the `↓behind` count drops to zero without a restart.
+- **Post-pull reload, without the UI touching the disk.** `FileService.reloadTabsFromDisk()`
+  re-reads every open file-backed tab through an injectable `TabDiskReader` and returns a
+  `TabReloadResult`. A tab with unsaved edits is **not** reloaded — it is reported as skipped
+  and the panel prints `<path> changed on disk but has unsaved edits; not reloaded` — while an
+  unmodified tab takes the new content and stays clean (`isModified == false`, because
+  `reloadTabFromDisk` builds a fresh `TabFile` so `originalContent` moves with it). A tab
+  whose file vanished from disk is skipped silently rather than emptied.
+
+**Tests:** `git_pull_service_test.dart` (was 10, now 18) asserts the pull contract and adds
+`group('GitService.fetch argument & timeout hygiene')` — the exact single-argument command,
+the 60 s default, cancellation passthrough and the absence of all six forbidden flags — plus
+`group('GitService.fetchFailureMessage')` and an integration test that is the actual
+regression for this task: after the remote moves on, `repoInfo` still reports `behind: 0`,
+`fetch` runs, `behind` becomes `1`, and the worktree file still holds the old content.
+`git_controller_test.dart` gained 5 tests covering `fetchNow` (one fetch and a refresh
+afterwards, a failed fetch still refreshing so a partial transfer shows, no process without a
+repository, no process without a remote, no process after `dispose`) and a status-label case
+proving `⎇ main` becomes `⎇ main ↓2` only after the fetch. `source_control_panel_pull_test.dart`
+grew from 8 to 14 widget tests: the `↓3` label and enablement, all disabled states, the
+dialog's URL / branch line / commit count and a cancel that runs nothing, the diverged
+banner, the post-pull reload with its skipped-tab warning, fetch-once-per-mount (and never on
+rebuild), no fetch without a remote, the failed-fetch Console line, and the three tooltip
+cases (no upstream, already up to date, and none at all when enabled). The reload test uses an
+in-memory disk map because **real file I/O inside `testWidgets` leaves its future pending on
+the fake clock and hangs the test** — the reason this task's first version hung for minutes.
+`flutter analyze` clean; full `flutter test` **669 pass / 8 skipped** (was 632).
+
+**Manual check: not yet run.** Worth a look with a real SSH remote: that opening Source
+Control shows `Pull ↓N` without a terminal `git fetch`, that a slow fetch never blocks the
+panel, and that the post-pull reload keeps the caret in a long file.
+
+### TASK-096: Git media in the README and the 1.6.0 release gate (Git G7b)
+**Phase:** 26
+**Status:** ✅ DONE
+
+The Git feature shipped with no picture in the docs. This task adds
+`docs/media/git-panel.png` to the README media gallery: a real capture of the running Release
+build, not a mock — the Explorer with `lib/services` expanded, `git_service.dart` in the editor,
+and the **Source Control** tab showing `⌥ main`, `Refresh`, `Stage All`, `Unstage All`, `Pull`,
+`Push`, `Changes (29)` with ten rows that each carry their status letter and a `Stage` button,
+plus the commit box and a disabled `Commit`. The image sits under "Modern languages" with alt
+text and a one-sentence caption; the four existing images are untouched and every path is
+relative. `docs/media/git-demo.gif` was **not** produced — there is no recorded workflow yet — so
+the panel is documented with the still alone.
+
+- **No application code changed.** The picture was taken from
+  `flutter build macos --release` output with the project folder open; nothing in `lib/` was
+  edited, and no widget was added to make a screenshot nicer.
+- **The release gate runs in order** — `01_analyze` (clean), `02_test` (671 pass / 8 skipped),
+  `03_build_macos`, `04_launch_smoke` (alive after 8 s) and `05_make_dmg` — and stops at the
+  first failure. The DMG is `build/distributions/Classic Code Editor-1.6.0+11.dmg`
+  (22,568,204 bytes, SHA-256 `2f59a4c62433ebdb65ab1f860bd30c18e31f75488106132e8b5aef3b27638448`,
+  `hdiutil verify` valid), because `pubspec.yaml` was bumped to `1.6.0+11` for this run (G7 is
+  the version-bump task; the media task itself shipped against `1.5.0+10`).
+- **Nothing was published.** No commit, tag, push or release. The version lives in
+  `pubspec.yaml` and `LspServerSpec.clientVersion` only; the README's version references and the
+  DMG name were updated to match.
+
+**Tests:** no test changes — documentation and packaging only. `flutter analyze` clean; full
+`flutter test` **671 pass / 8 skipped**.

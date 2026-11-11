@@ -131,6 +131,16 @@ Console output of its run.
 |:---:|:---:|
 | <img src="docs/media/colorful-dart.png" width="380" alt="Dart buffer with syntax colours and a breakpoint bullet in the gutter"> | <img src="docs/media/console-output.png" width="380" alt="Console panel showing a Dart program's run output and exit code 0"> |
 
+**🔀 Source Control (Git)**
+
+The **Source Control** tab in the bottom strip is the Git workflow inside the IDE: a
+`⌥ <branch>` header with `Refresh`, `Stage All`, `Unstage All`, `Pull ↓n` and `Push ↑n`, every changed
+file with its status letter and its own `Stage` button, and a commit box whose first line is the subject.
+
+| Source Control |
+|:---:|
+| <img src="docs/media/git-panel.png" width="860" alt="Source Control panel on branch main listing 29 changed files, each with a status letter and a Stage button, above the commit message box"> |
+
 ## ✨ Features
 
 ### 🎨 Authentic Retro UI
@@ -341,8 +351,8 @@ scripts/release_gate/05_make_dmg.sh     # package the .app into a DMG (hdiutil)
 ```
 
 `05_make_dmg.sh` names the artifact `Classic Code Editor-<version>.dmg` from `pubspec.yaml`, so **the
-pubspec version, the git tag and the DMG name stay in sync** (`1.5.0+10` → tag `v1.5.0` →
-`Classic Code Editor-1.5.0+10.dmg`).
+pubspec version, the git tag and the DMG name stay in sync** (`1.6.0+11` → tag `v1.6.0` →
+`Classic Code Editor-1.6.0+11.dmg`).
 
 > [!NOTE]
 > The app is **unsigned and not notarized** (that needs a paid Apple Developer account). Every user must
@@ -465,7 +475,7 @@ lib/
 
 | Platform | Status | Notes |
 |---|:---:|---|
-| 🖥️ macOS | ✅ Released | macOS 12+ (Monterey or later), Apple Silicon for ARM64 assembly — v1.5.0 · [download the DMG](https://github.com/moradzadeh67/classic-code-editor/releases/latest) |
+| 🖥️ macOS | ✅ Released | macOS 12+ (Monterey or later), Apple Silicon for ARM64 assembly — v1.6.0 · [download the DMG](https://github.com/moradzadeh67/classic-code-editor/releases/latest) |
 | 🪟 Windows | 🔜 Planned | Next major target (v1.x) |
 | 🐧 Linux | 🔜 Planned | After Windows |
 | 📱 iOS / Android | ❌ Not planned | An IDE needs a keyboard and a real shell |
@@ -487,7 +497,7 @@ Details: [docs/PRIVACY.md](docs/PRIVACY.md) · Vulnerability reports: [SECURITY.
 
 ### Download Pre-built Release
 
-1. Download the latest `.dmg` (`Classic Code Editor-1.5.0+10.dmg`) from [Releases](https://github.com/moradzadeh67/classic-code-editor/releases/latest)
+1. Download the latest `.dmg` (`Classic Code Editor-1.6.0+11.dmg`) from [Releases](https://github.com/moradzadeh67/classic-code-editor/releases/latest)
 2. Open the `.dmg` and drag `Classic Code Editor.app` to `Applications`
 3. **First launch (Gatekeeper):** the app is not notarized, so macOS blocks it — click **Done** on the dialog, then open **System Settings → Privacy & Security → Open Anyway** ([Apple: Safely open apps on your Mac](https://support.apple.com/en-us/102445))
 4. **Or skip the dialog from a terminal** — the quarantine flag is the only thing macOS is enforcing, so removing it once is enough:
