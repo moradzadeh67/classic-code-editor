@@ -380,7 +380,7 @@ Classic Code Editor follows a clean layered architecture with strict separation 
 
 ### Project Structure
 
-<img src="assets/diagrams/project-structure.svg" alt="Project Structure" width="600">
+<img src="assets/diagrams/project-structure.svg" alt="Project Structure" width="800">
 
 ### Architecture Layers
 
@@ -388,7 +388,7 @@ Classic Code Editor follows a clean layered architecture with strict separation 
 
 ### Data Flow
 
-<img src="assets/diagrams/data-flow.svg" alt="Data Flow" width="600">
+<img src="assets/diagrams/data-flow.svg" alt="Data Flow" width="800">
 
 ### Layer Breakdown
 
