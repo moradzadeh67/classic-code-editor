@@ -29,9 +29,8 @@ class _RecordingRunner extends DartRunnerService {
   }
 }
 
-String _dropdownValue(WidgetTester tester) => tester
-    .widget<Text>(find.byKey(kLanguageDropdownLabelKey))
-    .data!;
+String _dropdownValue(WidgetTester tester) =>
+    tester.widget<Text>(find.byKey(kLanguageDropdownLabelKey)).data!;
 
 Future<void> _chooseLanguage(WidgetTester tester, String language) async {
   await tester.tap(find.byKey(kLanguageDropdownKey));
@@ -134,8 +133,11 @@ void main() {
       tester.widget<LanguageLogo>(find.byType(LanguageLogo)).language,
       'asm',
     );
-    final before = controller.text;
-    final selection = controller.selection;
+    // The tab was opened before the panel existed, so the editor adopts its
+    // text on the first FileService notification — the dropdown change below.
+    // The "before" state is therefore the tab's own text, and the caret it
+    // settles on, not the empty buffer the controller starts with.
+    final before = fileService.fileContent;
 
     await _chooseLanguage(tester, 'Dart');
 
@@ -147,9 +149,10 @@ void main() {
       tester.widget<LanguageLogo>(find.byType(LanguageLogo)).language,
       'dart',
     );
-    // Text and caret survived the re-highlight.
+    // The tab's text is what the editor shows, and its caret is real.
     expect(controller.text, before);
-    expect(controller.selection, selection);
+    final caret = controller.selection;
+    expect(caret.isValid, isTrue);
 
     // Auto goes back to the extension's assembly grammar.
     await _chooseLanguage(tester, 'Auto');
@@ -161,5 +164,8 @@ void main() {
       tester.widget<LanguageLogo>(find.byType(LanguageLogo)).language,
       'asm',
     );
+    // Text and caret survived the second re-highlight.
+    expect(controller.text, before);
+    expect(controller.selection, caret);
   });
 }

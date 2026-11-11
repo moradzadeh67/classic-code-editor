@@ -7,7 +7,50 @@ import 'package:flutter/foundation.dart';
 import '../models/language_config.dart';
 import '../models/tab_file.dart';
 
+/// Reads the current bytes of a tab's file, or null when it is gone or
+/// unreadable.
+typedef TabDiskReader = Future<String?> Function(String path);
+
+/// What [FileService.reloadTabsFromDisk] did to the open tabs.
+class TabReloadResult {
+  const TabReloadResult({
+    this.reloaded = const <String>[],
+    this.skipped = const <String>[],
+  });
+
+  /// Files whose tab was replaced with the content found on disk.
+  final List<String> reloaded;
+
+  /// Files that changed on disk but kept their unsaved edits in the editor.
+  final List<String> skipped;
+
+  /// Whether nothing changed on disk for any open file-backed tab.
+  bool get isEmpty => reloaded.isEmpty && skipped.isEmpty;
+}
+
 class FileService extends ChangeNotifier {
+  FileService({TabDiskReader? readTabFromDisk})
+    : _readTabFromDisk = readTabFromDisk ?? _readFromDisk;
+
+  /// How a tab's file is read back from disk.
+  ///
+  /// Injectable so a test can describe the disk with a map instead of real
+  /// files: real I/O inside `testWidgets` leaves its future pending on the
+  /// fake clock and hangs the test.
+  final TabDiskReader _readTabFromDisk;
+
+  /// The production reader: null when the file disappeared or cannot be read.
+  static Future<String?> _readFromDisk(String path) async {
+    try {
+      final file = File(path);
+      if (!await file.exists()) return null;
+      return await file.readAsString();
+    } on FileSystemException catch (error) {
+      debugPrint('Could not read $path: $error');
+      return null;
+    }
+  }
+
   final List<TabFile> _openTabs = [];
   int _activeTabIndex = -1;
 
@@ -58,9 +101,7 @@ class FileService extends ChangeNotifier {
 
   /// Creates a new untitled tab for editing, making it the active tab.
   void createNewFile() {
-    _openTabs.add(
-      TabFile(fileName: _nextUntitledName(), content: ''),
-    );
+    _openTabs.add(TabFile(fileName: _nextUntitledName(), content: ''));
     _activeTabIndex = _openTabs.length - 1;
     notifyListeners();
   }
@@ -307,5 +348,46 @@ class FileService extends ChangeNotifier {
       tab.content = newContent;
       notifyListeners();
     }
+  }
+
+  /// Reloads tab at [index] with [newContent] from disk, resetting originalContent.
+  void reloadTabFromDisk(int index, String newContent) {
+    if (index < 0 || index >= _openTabs.length) return;
+    final tab = _openTabs[index];
+    _openTabs[index] = TabFile(
+      filePath: tab.filePath,
+      fileName: tab.fileName,
+      content: newContent,
+      languageOverride: tab.languageOverride,
+    );
+    notifyListeners();
+  }
+
+  /// Reloads every open file-backed tab whose content changed on disk.
+  ///
+  /// Called by the Git operations that rewrite the working tree (a pull). A
+  /// tab without unsaved edits takes the new content; a tab with unsaved edits
+  /// is left exactly as the user typed it and reported in
+  /// [TabReloadResult.skipped], so the caller warns instead of silently
+  /// discarding the user's work. A path that disappeared from disk is left
+  /// alone too: closing the user's tab is not this method's decision.
+  Future<TabReloadResult> reloadTabsFromDisk() async {
+    final reloaded = <String>[];
+    final skipped = <String>[];
+    for (var index = 0; index < _openTabs.length; index++) {
+      final path = _openTabs[index].filePath;
+      if (path == null) continue;
+      final diskContent = await _readTabFromDisk(path);
+      if (diskContent == null) continue;
+      final tab = _openTabs[index];
+      if (diskContent == tab.content) continue;
+      if (tab.isModified) {
+        skipped.add(path);
+      } else {
+        reloadTabFromDisk(index, diskContent);
+        reloaded.add(path);
+      }
+    }
+    return TabReloadResult(reloaded: reloaded, skipped: skipped);
   }
 }

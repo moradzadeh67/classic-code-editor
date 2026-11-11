@@ -26,8 +26,9 @@ class _Call {
     this.workingDirectory,
     this.environment,
     this.timeout,
-    this.cancel,
-  );
+    this.cancel, [
+    this.stdinInput,
+  ]);
 
   final String executable;
   final List<String> arguments;
@@ -35,6 +36,7 @@ class _Call {
   final Map<String, String>? environment;
   final Duration? timeout;
   final GitCancelToken? cancel;
+  final String? stdinInput;
 }
 
 class _FakeRunner implements GitProcessRunner {
@@ -52,6 +54,7 @@ class _FakeRunner implements GitProcessRunner {
     Map<String, String>? environment,
     Duration? timeout,
     GitCancelToken? cancel,
+    String? stdinInput,
   }) async {
     calls.add(
       _Call(
@@ -63,6 +66,7 @@ class _FakeRunner implements GitProcessRunner {
             : Map<String, String>.unmodifiable(environment),
         timeout,
         cancel,
+        stdinInput,
       ),
     );
     return handler(executable, arguments);

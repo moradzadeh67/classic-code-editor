@@ -10,6 +10,7 @@ import '../../services/theme_service.dart';
 import '../../services/dart_runner_service.dart';
 import '../../services/file_explorer_service.dart';
 import '../../services/file_service.dart';
+import '../../services/git_controller.dart';
 import '../../services/analyzer_service.dart';
 import '../../services/lsp_server_manager.dart';
 import '../../services/lsp_service.dart';
@@ -47,6 +48,10 @@ class _IDEShellState extends State<IDEShell> {
   final FileExplorerService _explorerService = FileExplorerService();
   final AnalyzerService _analyzerService = AnalyzerService();
 
+  /// Read-only Git snapshot for the status bar. It runs no command until a
+  /// folder or a file-backed tab tells it where a repository could be.
+  final GitController _gitController = GitController();
+
   /// Picks the language server per file (Dart, clangd, pyright/pylsp) and keeps
   /// each of them warm across tab switches.
   late final LspServerManager _lspManager = LspServerManager(
@@ -80,6 +85,19 @@ class _IDEShellState extends State<IDEShell> {
   /// Lets the shell ask the editor to jump to a line (Cmd+L).
   final GlobalKey<CodeEditorPanelState> _editorKey =
       GlobalKey<CodeEditorPanelState>();
+
+  /// Lets the shell drive the panel layout (e.g. selecting Source Control tab).
+  final GlobalKey<PanelLayoutState> _panelLayoutKey =
+      GlobalKey<PanelLayoutState>();
+
+  void _handleOpenSourceControlTab() {
+    setState(() {
+      _showConsole = true;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _panelLayoutKey.currentState?.selectBottomTab(4);
+    });
+  }
 
   /// Caret position shown in the status bar (`Ln 12, Col 5`). The editor
   /// reports it on every move; the shell only rebuilds when it really changes.
@@ -116,6 +134,7 @@ class _IDEShellState extends State<IDEShell> {
   void initState() {
     super.initState();
     _fileService.addListener(_onFileServiceChanged);
+    _explorerService.addListener(_onExplorerServiceChanged);
     // Mirror every language debugger's output into the Console stream so a
     // debug session is never silent.
     for (final debugger in _debuggerManager.factory.all) {
@@ -135,7 +154,12 @@ class _IDEShellState extends State<IDEShell> {
     _dartRunnerService.addListener(_flushPendingDocumentChange);
     // macOS routes Cmd+Q and the red window button through the engine's
     // cancelable exit request, so this is the single quit guard.
-    _appLifecycle = AppLifecycleListener(onExitRequested: _handleExitRequested);
+    _appLifecycle = AppLifecycleListener(
+      onExitRequested: _handleExitRequested,
+      // Coming back to the window is a good moment to re-read the repository:
+      // commits or branch switches made elsewhere show up without polling.
+      onResume: _gitController.refreshForExternalChange,
+    );
     unawaited(_restoreSession());
   }
 
@@ -165,6 +189,8 @@ class _IDEShellState extends State<IDEShell> {
     _shellFocusNode.dispose();
     _dartRunnerService.removeListener(_flushPendingDocumentChange);
     _fileService.removeListener(_onFileServiceChanged);
+    _explorerService.removeListener(_onExplorerServiceChanged);
+    _gitController.dispose();
     _lspManager.dispose();
     _unsavedWorkspace.dispose();
     for (final subscription in _debuggerOutputSubscriptions) {
@@ -176,6 +202,11 @@ class _IDEShellState extends State<IDEShell> {
     _fileService.dispose();
     _analyzerService.dispose();
     super.dispose();
+  }
+
+  /// Keeps the Git segment's folder in step with the explorer's open folder.
+  void _onExplorerServiceChanged() {
+    _gitController.setExplorerFolder(_explorerService.rootPath);
   }
 
   void _onFileServiceChanged() {
@@ -192,6 +223,10 @@ class _IDEShellState extends State<IDEShell> {
       _analyzerSnapshotContent = content;
       _analyzerService.clearDiagnostics();
     }
+
+    // A tab switch (or a save that gives a buffer its path) can move the Git
+    // segment to another repository.
+    _gitController.setActiveFilePath(path);
 
     unawaited(_syncLanguageServer(path, content));
 
@@ -258,6 +293,8 @@ class _IDEShellState extends State<IDEShell> {
     if (savedPath != null && _explorerService.contains(savedPath)) {
       unawaited(_explorerService.refresh());
     }
+    // The write changed the worktree: re-read the status (debounced).
+    _gitController.refresh();
   }
 
   /// File > "Open Folder..." / the explorer's empty-state button.
@@ -367,6 +404,9 @@ class _IDEShellState extends State<IDEShell> {
     if (folder != null && Directory(folder).existsSync()) {
       await _explorerService.openFolder(folder);
     }
+    // Seed the Git segment with the folder that came back from the session
+    // (the explorer may have opened it before the controller listened).
+    _gitController.setExplorerFolder(_explorerService.rootPath);
 
     // Always start empty: one Untitled buffer, whatever is on disk.
     _fileService.createNewFile();
@@ -546,6 +586,7 @@ class _IDEShellState extends State<IDEShell> {
                   ),
                   Expanded(
                     child: PanelLayout(
+                      key: _panelLayoutKey,
                       showFileExplorer: _showFileExplorer,
                       showConsole: _showConsole,
                       showDiagnostics: _showDiagnostics,
@@ -555,8 +596,10 @@ class _IDEShellState extends State<IDEShell> {
                       fileService: _fileService,
                       explorerService: _explorerService,
                       terminalService: _terminalService,
+                      gitController: _gitController,
                       activeFilePath: _fileService.currentFilePath,
-                      onOpenFile: (path) => unawaited(_openFileFromExplorer(path)),
+                      onOpenFile: (path) =>
+                          unawaited(_openFileFromExplorer(path)),
                       onOpenFolder: () => unawaited(_handleOpenFolder()),
                       debugger: _debuggerManager.activeDebugger,
                       codeEditorController: _codeController,
@@ -568,6 +611,8 @@ class _IDEShellState extends State<IDEShell> {
                     positionText: 'Ln $_caretLine, Col $_caretColumn',
                     analyzerService: _analyzerService,
                     lspService: _lspService,
+                    gitController: _gitController,
+                    onGitSegmentTap: _handleOpenSourceControlTab,
                   ),
                   Container(
                     height: 2,

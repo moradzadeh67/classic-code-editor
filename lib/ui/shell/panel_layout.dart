@@ -19,6 +19,8 @@ import '../terminal/terminal_panel.dart';
 import '../debugger/debugger_sidebar.dart';
 import '../explorer/file_explorer_panel.dart';
 import '../../services/terminal_service.dart';
+import '../../services/git_controller.dart';
+import '../git/source_control_panel.dart';
 import '../retro/retro_border.dart';
 import '../retro/retro_watch_window.dart';
 import '../retro/language_logo.dart';
@@ -64,6 +66,9 @@ class PanelLayout extends StatefulWidget {
   final BaseDebugger? debugger;
   final CodeController? codeEditorController;
 
+  /// Read-only Git controller for the Source Control panel.
+  final GitController? gitController;
+
   /// Lets the shell drive the editor ("Go to Line").
   final GlobalKey<CodeEditorPanelState>? editorKey;
 
@@ -87,18 +92,29 @@ class PanelLayout extends StatefulWidget {
     required this.onOpenFolder,
     this.debugger,
     this.codeEditorController,
+    this.gitController,
     this.editorKey,
     this.onCaretChanged,
   });
 
   @override
-  State<PanelLayout> createState() => _PanelLayoutState();
+  State<PanelLayout> createState() => PanelLayoutState();
 }
 
-class _PanelLayoutState extends State<PanelLayout> {
+class PanelLayoutState extends State<PanelLayout> {
   double _explorerWidth = 200;
   double _consoleHeight = 240;
-  int _activeBottomTab = 0; // 0: Console, 1: Diagnostics, 2: Terminal, 3: Watch
+  int _activeBottomTab =
+      0; // 0: Console, 1: Diagnostics, 2: Terminal, 3: Watch, 4: Source Control
+
+  /// Switches the active bottom tab to [index].
+  void selectBottomTab(int index) {
+    if (mounted) {
+      setState(() {
+        _activeBottomTab = index;
+      });
+    }
+  }
 
   /// Last tab whose dropdown value this panel painted, so a tab switch (or a
   /// dropdown change) rebuilds it without rebuilding on every keystroke.
@@ -263,6 +279,7 @@ class _PanelLayoutState extends State<PanelLayout> {
                   widget.analyzerService,
                   widget.lspService,
                   widget.fileService,
+                  if (widget.gitController != null) widget.gitController!,
                   ThemeService.instance,
                 ]),
                 builder: (context, _) => _buildBottomPanel(),
@@ -286,22 +303,43 @@ class _PanelLayoutState extends State<PanelLayout> {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              _buildTabButton('Console', _activeBottomTab == 0, () {
-                setState(() => _activeBottomTab = 0);
-              }),
-              const SizedBox(width: 4),
-              _buildTabButton('Diagnostics', _activeBottomTab == 1, () {
-                setState(() => _activeBottomTab = 1);
-              }),
-              const SizedBox(width: 4),
-              _buildTabButton('Terminal', _activeBottomTab == 2, () {
-                setState(() => _activeBottomTab = 2);
-              }),
-              const SizedBox(width: 4),
-              _buildTabButton('Watch', _activeBottomTab == 3, () {
-                setState(() => _activeBottomTab = 3);
-              }),
-              const Spacer(),
+              // The tab strip grows with every panel that is added, and the
+              // console can be dragged narrow, so the buttons scroll instead of
+              // overflowing. The language selector stays pinned to the right.
+              Expanded(
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      _buildTabButton('Console', _activeBottomTab == 0, () {
+                        setState(() => _activeBottomTab = 0);
+                      }),
+                      const SizedBox(width: 4),
+                      _buildTabButton('Diagnostics', _activeBottomTab == 1, () {
+                        setState(() => _activeBottomTab = 1);
+                      }),
+                      const SizedBox(width: 4),
+                      _buildTabButton('Terminal', _activeBottomTab == 2, () {
+                        setState(() => _activeBottomTab = 2);
+                      }),
+                      const SizedBox(width: 4),
+                      _buildTabButton('Watch', _activeBottomTab == 3, () {
+                        setState(() => _activeBottomTab = 3);
+                      }),
+                      const SizedBox(width: 4),
+                      _buildTabButton(
+                        'Source Control',
+                        _activeBottomTab == 4,
+                        () {
+                          setState(() => _activeBottomTab = 4);
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
               _buildLanguageDropdown(),
               const SizedBox(width: 6),
               _buildLanguageIcon(),
@@ -320,7 +358,17 @@ class _PanelLayoutState extends State<PanelLayout> {
                 )
               : _activeBottomTab == 2
               ? TerminalPanel(terminalService: widget.terminalService)
-              : const RetroWatchWindow(),
+              : _activeBottomTab == 3
+              ? const RetroWatchWindow()
+              : widget.gitController != null
+              ? SourceControlPanel(
+                  gitController: widget.gitController!,
+                  dartRunnerService: widget.dartRunnerService,
+                  fileService: widget.fileService,
+                  explorerService: widget.explorerService,
+                  onOpenFile: widget.onOpenFile,
+                )
+              : const SizedBox.shrink(),
         ),
       ],
     );
@@ -334,9 +382,9 @@ class _PanelLayoutState extends State<PanelLayout> {
     // The one resolver the runner and the highlighter also use: the tab's own
     // selection wins, then the extension, then content sniffing. The logo can
     // therefore never contradict Run/Debug.
-    final hasExtension = LanguageConfig.fromExtensionOrNull(
-      tab?.filePath ?? tab?.fileName,
-    ) != null;
+    final hasExtension =
+        LanguageConfig.fromExtensionOrNull(tab?.filePath ?? tab?.fileName) !=
+        null;
     if (!hasExtension && (tab?.content ?? '').trim().isEmpty) return '';
 
     switch (LanguageConfig.resolveTab(tab).language.highlightLanguage) {

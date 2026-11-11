@@ -329,6 +329,7 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
     if (!widget.lspService.isConnected) return _filePath;
     return widget.lspService.activeDocumentPath ?? _filePath;
   }
+
   int? _lastActiveTabIndex;
 
   /// True while a grammar swap is being applied. Assigning
@@ -370,6 +371,26 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
         preferredLanguage: widget.languageOverride,
       ).language.highlightLanguage,
     );
+    // A controller handed in by the shell arrives empty, so a tab that was
+    // already open before this panel was built would paint as a blank document
+    // until the next tab switch. Seed it here so the first frame already shows
+    // the file.
+    //
+    // Two guards, both load-bearing:
+    //  * Only an **empty** controller is seeded. A controller this panel built
+    //    itself already holds the file; re-assigning a non-empty text makes
+    //    flutter_code_editor diff two similar texts and resolve the read-only
+    //    range from a `-1` line, which throws RangeError.
+    //  * The value carries a real caret. `text =` puts offset -1 in the
+    //    selection, and the same range resolution then starts from -1.
+    final initialContent = widget.fileService.fileContent;
+    if (_controller.text.isEmpty && initialContent.isNotEmpty) {
+      _programmaticText = initialContent;
+      _controller.value = TextEditingValue(
+        text: initialContent,
+        selection: const TextSelection.collapsed(offset: 0),
+      );
+    }
     _controller.addListener(_onTextChanged);
     _controller.addListener(_onCaretMoved);
     _controller.addListener(_queueBandUpdate);
@@ -648,15 +669,16 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
     if (lines.isEmpty) return;
     final stackBox =
         _editorStackKey.currentContext?.findRenderObject() as RenderBox?;
-    final local = stackBox == null
-        ? global
-        : stackBox.globalToLocal(global);
+    final local = stackBox == null ? global : stackBox.globalToLocal(global);
     final bounds = _editorBounds();
     setState(() {
       _gutterTooltipLines = lines;
       _gutterTooltipPosition = Offset(
         local.dx + 12,
-        (local.dy + 12).clamp(0.0, (bounds.height - 24).clamp(0.0, double.infinity)),
+        (local.dy + 12).clamp(
+          0.0,
+          (bounds.height - 24).clamp(0.0, double.infinity),
+        ),
       );
     });
   }
@@ -686,7 +708,6 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
       }
     });
   }
-
 
   /// Recomputes the band position in a post-frame callback.
   ///
@@ -720,7 +741,6 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
   bool _bandUpdateQueued = false;
   double? _bandTop;
   double? _bandHeight;
-
 
   /// Messages of the gutter marker under the mouse, or null when no tooltip.
   List<String>? _gutterTooltipLines;
@@ -888,6 +908,48 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
       // A new/activated tab is what the user wants to type into: focus it so
       // the caret shows and completion works without an extra click.
       _requestFocusAfterFrame();
+    } else if (_controller.text != widget.fileService.fileContent) {
+      _reloadControllerText();
+    }
+  }
+
+  void _reloadControllerText() {
+    final newContent = widget.fileService.fileContent;
+    final oldText = _controller.text;
+    final oldSelection = _controller.selection;
+    final double oldScrollOffset = _editorScrollController.hasClients
+        ? _editorScrollController.offset
+        : 0.0;
+
+    final oldOffset = oldSelection.baseOffset.clamp(0, oldText.length);
+    final oldLine = oldText.substring(0, oldOffset).split('\n').length - 1;
+
+    final config = LanguageConfig.resolve(
+      _filePath,
+      newContent,
+      preferredLanguage: widget.languageOverride,
+    ).language;
+    _applyGrammar(config.highlightLanguage);
+
+    _programmaticText = newContent;
+    _controller.text = newContent;
+
+    final newLines = newContent.split('\n');
+    final targetLine = oldLine.clamp(0, newLines.length - 1);
+    int newOffset = 0;
+    for (int i = 0; i < targetLine; i++) {
+      newOffset += newLines[i].length + 1;
+    }
+    newOffset = newOffset.clamp(0, newContent.length);
+    _controller.selection = TextSelection.collapsed(offset: newOffset);
+
+    if (_editorScrollController.hasClients) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_editorScrollController.hasClients) {
+          final maxExtent = _editorScrollController.position.maxScrollExtent;
+          _editorScrollController.jumpTo(oldScrollOffset.clamp(0.0, maxExtent));
+        }
+      });
     }
   }
 
@@ -1458,11 +1520,7 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
       // 5. Main insertion plus every server edit (the auto-import lands above
       // the caret, so the caret is shifted past it).
       final edits = <CompletionEdit>[
-        CompletionEdit(
-          start: wordStart,
-          end: offset,
-          newText: insertion.text,
-        ),
+        CompletionEdit(start: wordStart, end: offset, newText: insertion.text),
       ];
       final additional = _usableAdditionalEdits(item, resolved);
       for (final edit in additional) {
@@ -1519,9 +1577,7 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
     final resolvedVersion = resolved?.documentVersion;
     if (resolvedVersion == null) return edits;
 
-    final currentVersion = widget.lspService.documentVersion(
-      _lspDocumentPath,
-    );
+    final currentVersion = widget.lspService.documentVersion(_lspDocumentPath);
     if (currentVersion != null && currentVersion != resolvedVersion) {
       return const [];
     }
@@ -1576,7 +1632,8 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
     final config = LanguageConfig.fromPathOrContent(filePath, _controller.text);
     final language = config.highlightLanguage;
     final selection = _controller.selection;
-    final offset = (selection.isValid && selection.isCollapsed && selection.start >= 0)
+    final offset =
+        (selection.isValid && selection.isCollapsed && selection.start >= 0)
         ? selection.start
         : _controller.text.length;
     final requestId = ++_completionRequestId;
@@ -1588,7 +1645,9 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
     var usedServer = false;
     if (lspConnected) {
       items = await widget.lspService.requestCompletion(
-        _lspDocumentPath, line + 1, column + 1,
+        _lspDocumentPath,
+        line + 1,
+        column + 1,
         triggerKind: triggerKind,
       );
       usedServer = items.isNotEmpty;
@@ -1929,9 +1988,7 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
         if (_showAutocomplete) {
           _acceptSelected();
         } else {
-          _handleTabPressed(
-            shift: HardwareKeyboard.instance.isShiftPressed,
-          );
+          _handleTabPressed(shift: HardwareKeyboard.instance.isShiftPressed);
         }
         // Tab always belongs to the editor: returning `ignored` here let
         // Flutter's default focus traversal move the caret out of the field.
@@ -2343,7 +2400,8 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
                                   // the editor owns the scroll.
                                   ListView.builder(
                                     controller: _gutterScrollController,
-                                    physics: const NeverScrollableScrollPhysics(),
+                                    physics:
+                                        const NeverScrollableScrollPhysics(),
                                     itemCount: gutterRows.length,
                                     itemExtent: _metrics.lineHeight,
                                     itemBuilder: (context, index) {
@@ -2378,21 +2436,29 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
                                           _metrics.lineHeight * 0.7;
                                       final lineDiagnostics =
                                           diagnosticsByLine[lineNumber];
-                                      final markerColor =
-                                          _markerColorFor(lineDiagnostics);
+                                      final markerColor = _markerColorFor(
+                                        lineDiagnostics,
+                                      );
                                       // The caret's row is tinted in the gutter
                                       // with the same fill as the band behind the
                                       // code, but the paused line keeps its own
                                       // stronger colour so the two never fight.
                                       final gutterTint = isPausedLine
-                                          ? ThemeService.instance.colors.pausedLine
+                                          ? ThemeService
+                                                .instance
+                                                .colors
+                                                .pausedLine
                                           : lineNumber == _caretLine
-                                          ? ThemeService.instance.colors.selection
+                                          ? ThemeService
+                                                .instance
+                                                .colors
+                                                .selection
                                                 .withValues(alpha: 0.14)
                                           : null;
                                       return GestureDetector(
                                         onTap: lineNumber > 0
-                                            ? () => _toggleBreakpoint(lineNumber)
+                                            ? () =>
+                                                  _toggleBreakpoint(lineNumber)
                                             : null,
                                         behavior: HitTestBehavior.opaque,
                                         child: Container(
@@ -2439,15 +2505,18 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
                                                   // Same family as the code, so a
                                                   // number never looks foreign
                                                   // beside the text it labels.
-                                                  fontFamily: _metrics.fontFamily,
+                                                  fontFamily:
+                                                      _metrics.fontFamily,
                                                   fontFamilyFallback: const [
-                                                    EditorMetrics.fallbackFamily,
+                                                    EditorMetrics
+                                                        .fallbackFamily,
                                                   ],
-                                                  fontSize:
-                                                      _metrics.lineNumberFontSize,
+                                                  fontSize: _metrics
+                                                      .lineNumberFontSize,
                                                   height:
                                                       _metrics.lineHeight /
-                                                      _metrics.lineNumberFontSize,
+                                                      _metrics
+                                                          .lineNumberFontSize,
                                                   fontWeight:
                                                       lineNumber == _caretLine
                                                       ? FontWeight.bold
@@ -2458,13 +2527,14 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
                                                   // code stays the focus, except
                                                   // lines with a diagnostic
                                                   // marker or the paused line.
-                                                  color: lineNumber == _caretLine
+                                                  color:
+                                                      lineNumber == _caretLine
                                                       ? ThemeService
                                                             .instance
                                                             .colors
                                                             .text
                                                       : (markerColor != null ||
-                                                                isPausedLine)
+                                                            isPausedLine)
                                                       ? ThemeService
                                                             .instance
                                                             .colors
@@ -2482,18 +2552,21 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
                                               // number can never overflow the row.
                                               Flexible(
                                                 child: Align(
-                                                  alignment: Alignment.centerRight,
-                                                  child: !isPausedLine &&
+                                                  alignment:
+                                                      Alignment.centerRight,
+                                                  child:
+                                                      !isPausedLine &&
                                                           !hasBp &&
                                                           markerColor == null
                                                       ? null
                                                       : FittedBox(
                                                           fit: BoxFit.scaleDown,
-                                                          alignment:
-                                                              Alignment.centerRight,
+                                                          alignment: Alignment
+                                                              .centerRight,
                                                           child: Row(
                                                             mainAxisSize:
-                                                                MainAxisSize.min,
+                                                                MainAxisSize
+                                                                    .min,
                                                             children: [
                                                               // The paused-line arrow
                                                               // and the breakpoint
@@ -2510,8 +2583,9 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
                                                                         .instance
                                                                         .colors
                                                                         .selection,
-                                                                    fontSize: _metrics
-                                                                        .markerFontSize,
+                                                                    fontSize:
+                                                                        _metrics
+                                                                            .markerFontSize,
                                                                   ),
                                                                 ),
                                                               if (hasBp)
@@ -2521,11 +2595,10 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
                                                                   height:
                                                                       markerDiameter,
                                                                   decoration: BoxDecoration(
-                                                                    color:
-                                                                        ThemeService
-                                                                            .instance
-                                                                            .colors
-                                                                            .error,
+                                                                    color: ThemeService
+                                                                        .instance
+                                                                        .colors
+                                                                        .error,
                                                                     shape: BoxShape
                                                                         .circle,
                                                                   ),
@@ -2543,27 +2616,33 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
                                                               // still reaches the
                                                               // row's breakpoint
                                                               // toggle.
-                                                              if (markerColor != null)
+                                                              if (markerColor !=
+                                                                  null)
                                                                 Padding(
                                                                   padding:
                                                                       const EdgeInsets.only(
-                                                                    left: 4,
-                                                                  ),
+                                                                        left: 4,
+                                                                      ),
                                                                   child: MouseRegion(
-                                                                    onEnter: (event) =>
-                                                                        _showGutterTooltip(
+                                                                    onEnter:
+                                                                        (
+                                                                          event,
+                                                                        ) => _showGutterTooltip(
                                                                           lineDiagnostics!,
                                                                           event
                                                                               .position,
                                                                         ),
-                                                                    onHover: (event) =>
-                                                                        _showGutterTooltip(
+                                                                    onHover:
+                                                                        (
+                                                                          event,
+                                                                        ) => _showGutterTooltip(
                                                                           lineDiagnostics!,
                                                                           event
                                                                               .position,
                                                                         ),
-                                                                    onExit: (_) =>
-                                                                        _hideGutterTooltip(),
+                                                                    onExit: (
+                                                                      _,
+                                                                    ) => _hideGutterTooltip(),
                                                                     child: Container(
                                                                       key: gutterMarkerKey(
                                                                         lineNumber,
@@ -2653,163 +2732,166 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
                                       _focusNode.requestFocus();
                                     },
                                     child: Stack(
-                                    fit: StackFit.expand,
-                                    children: [
-                                      // Current-line band. Clicking anywhere on
-                                      // a row - including the empty space past
-                                      // the last character - puts the caret on
-                                      // that line, and this paints the whole row
-                                      // behind the code so the selection is
-                                      // visible across the full editor width.
-                                      //
-                                      // The row comes from the renderer's own
-                                      // caret rect, not from the gutter's wrap
-                                      // model: if the cached rows ever lag behind
-                                      // the text (an edit, a resize, a paste) the
-                                      // band used to be painted a few rows above
-                                      // the caret while the numbers still looked
-                                      // aligned. Reading the caret rect makes that
-                                      // disagreement impossible. Its height spans
-                                      // every row of the logical line, so a
-                                      // wrapped line is highlighted as a whole.
-                                      Positioned.fill(
-                                        child: IgnorePointer(
-                                          child: Builder(
-                                            builder: (context) {
-                                              final accent = ThemeService
-                                                  .instance
-                                                  .colors
-                                                  .selection;
-                                              // Measured here for an instant
-                                              // response; a post-frame pass
-                                              // corrects it when the field
-                                              // scrolled after build (see
-                                              // _queueBandUpdate).
-                                              final band = _bandRectForCaret(
-                                                metrics.lineHeight,
-                                              );
-                                              return Stack(
-                                                clipBehavior: Clip.hardEdge,
-                                                children: [
-                                                  Positioned(
-                                                    left: 0,
-                                                    right: 0,
-                                                    top: band.top,
-                                                    height: band.height,
-                                                    // Fill plus a hairline
-                                                    // outline, the equivalent
-                                                    // of VS Code's
-                                                    // `editor.lineHighlightBackground`
-                                                    // and
-                                                    // `editor.lineHighlightBorder`.
-                                                    child: DecoratedBox(
-                                                      decoration: BoxDecoration(
-                                                        color: accent
-                                                            .withValues(
-                                                              alpha: 0.14,
-                                                            ),
-                                                        border: Border.all(
-                                                          color: accent
-                                                              .withValues(
-                                                                alpha: 0.45,
+                                      fit: StackFit.expand,
+                                      children: [
+                                        // Current-line band. Clicking anywhere on
+                                        // a row - including the empty space past
+                                        // the last character - puts the caret on
+                                        // that line, and this paints the whole row
+                                        // behind the code so the selection is
+                                        // visible across the full editor width.
+                                        //
+                                        // The row comes from the renderer's own
+                                        // caret rect, not from the gutter's wrap
+                                        // model: if the cached rows ever lag behind
+                                        // the text (an edit, a resize, a paste) the
+                                        // band used to be painted a few rows above
+                                        // the caret while the numbers still looked
+                                        // aligned. Reading the caret rect makes that
+                                        // disagreement impossible. Its height spans
+                                        // every row of the logical line, so a
+                                        // wrapped line is highlighted as a whole.
+                                        Positioned.fill(
+                                          child: IgnorePointer(
+                                            child: Builder(
+                                              builder: (context) {
+                                                final accent = ThemeService
+                                                    .instance
+                                                    .colors
+                                                    .selection;
+                                                // Measured here for an instant
+                                                // response; a post-frame pass
+                                                // corrects it when the field
+                                                // scrolled after build (see
+                                                // _queueBandUpdate).
+                                                final band = _bandRectForCaret(
+                                                  metrics.lineHeight,
+                                                );
+                                                return Stack(
+                                                  clipBehavior: Clip.hardEdge,
+                                                  children: [
+                                                    Positioned(
+                                                      left: 0,
+                                                      right: 0,
+                                                      top: band.top,
+                                                      height: band.height,
+                                                      // Fill plus a hairline
+                                                      // outline, the equivalent
+                                                      // of VS Code's
+                                                      // `editor.lineHighlightBackground`
+                                                      // and
+                                                      // `editor.lineHighlightBorder`.
+                                                      child: DecoratedBox(
+                                                        decoration:
+                                                            BoxDecoration(
+                                                              color: accent
+                                                                  .withValues(
+                                                                    alpha: 0.14,
+                                                                  ),
+                                                              border: Border.all(
+                                                                color: accent
+                                                                    .withValues(
+                                                                      alpha:
+                                                                          0.45,
+                                                                    ),
                                                               ),
-                                                        ),
+                                                            ),
                                                       ),
                                                     ),
-                                                  ),
-                                                ],
-                                              );
-                                            },
-                                          ),
-                                        ),
-                                      ),
-                                      MouseRegion(
-                                        onHover: (event) {
-                                          // No manual offset here:
-                                          // `_requestHover` derives the popup
-                                          // anchor from the caret, and this
-                                          // handler used to clobber it with
-                                          // `event.position + 24` before that
-                                          // ran, so a hover that found nothing
-                                          // left the tooltip/autocomplete
-                                          // anchored 24px below the mouse.
-                                          _requestHover();
-                                        },
-                                        onExit: (event) {
-                                          _hoverDebounce?.cancel();
-                                          Timer(
-                                            const Duration(milliseconds: 100),
-                                            () {
-                                              if (mounted) {
-                                                setState(() {
-                                                  _hoverInfo = null;
-                                                });
-                                              }
-                                            },
-                                          );
-                                        },
-                                        child: TextField(
-                                          key: _editorKey,
-                                          controller: _controller,
-                                          focusNode: _focusNode,
-                                          scrollController:
-                                              _editorScrollController,
-                                          maxLines: null,
-                                          expands: true,
-                                          // Pin every line to exactly
-                                          // [editorLineHeight]; Flutter rounds
-                                          // a paragraph's line height to a whole
-                                          // logical pixel, so the strut keeps
-                                          // the render and the gutter on the
-                                          // same grid.
-                                          strutStyle: _metrics.strutStyle,
-                                          // The built-in caret is used again:
-                                          // its blink speed is a private
-                                          // Flutter constant (500 ms), so only
-                                          // the thickness is customised.
-                                          cursorWidth: kEditorCaretWidth,
-                                          // The app's own retro menu; Flutter
-                                          // shows it for every secondary click
-                                          // at the pointer and the actions run
-                                          // through this field's own
-                                          // EditableTextState.
-                                          contextMenuBuilder:
-                                              (context, editableTextState) {
-                                                // The toolbar slot is laid out
-                                                // at the window origin, so the
-                                                // pointer and the window size
-                                                // are used as-is.
-                                                return EditorContextMenu(
-                                                  state: editableTextState,
-                                                  anchor:
-                                                      _contextMenuPointer ??
-                                                      Offset.zero,
-                                                  boundary:
-                                                      MediaQuery.sizeOf(context),
+                                                  ],
                                                 );
                                               },
-                                          style: _metrics.textStyle.copyWith(
-                                            color: ThemeService
-                                                .instance
-                                                .colors
-                                                .editorText,
-                                          ),
-                                          decoration:
-                                              const InputDecoration.collapsed(
-                                                hintText:
-                                                    '// Type code here...',
-                                              ),
-                                        ),
-                                      ),
-                                      if (_showAutocomplete)
-                                        Positioned.fill(
-                                          child: TapRegion(
-                                            onTapOutside: (_) =>
-                                                _dismissCompletion(),
-                                            child: const SizedBox.expand(),
+                                            ),
                                           ),
                                         ),
-                                    ],
+                                        MouseRegion(
+                                          onHover: (event) {
+                                            // No manual offset here:
+                                            // `_requestHover` derives the popup
+                                            // anchor from the caret, and this
+                                            // handler used to clobber it with
+                                            // `event.position + 24` before that
+                                            // ran, so a hover that found nothing
+                                            // left the tooltip/autocomplete
+                                            // anchored 24px below the mouse.
+                                            _requestHover();
+                                          },
+                                          onExit: (event) {
+                                            _hoverDebounce?.cancel();
+                                            Timer(
+                                              const Duration(milliseconds: 100),
+                                              () {
+                                                if (mounted) {
+                                                  setState(() {
+                                                    _hoverInfo = null;
+                                                  });
+                                                }
+                                              },
+                                            );
+                                          },
+                                          child: TextField(
+                                            key: _editorKey,
+                                            controller: _controller,
+                                            focusNode: _focusNode,
+                                            scrollController:
+                                                _editorScrollController,
+                                            maxLines: null,
+                                            expands: true,
+                                            // Pin every line to exactly
+                                            // [editorLineHeight]; Flutter rounds
+                                            // a paragraph's line height to a whole
+                                            // logical pixel, so the strut keeps
+                                            // the render and the gutter on the
+                                            // same grid.
+                                            strutStyle: _metrics.strutStyle,
+                                            // The built-in caret is used again:
+                                            // its blink speed is a private
+                                            // Flutter constant (500 ms), so only
+                                            // the thickness is customised.
+                                            cursorWidth: kEditorCaretWidth,
+                                            // The app's own retro menu; Flutter
+                                            // shows it for every secondary click
+                                            // at the pointer and the actions run
+                                            // through this field's own
+                                            // EditableTextState.
+                                            contextMenuBuilder:
+                                                (context, editableTextState) {
+                                                  // The toolbar slot is laid out
+                                                  // at the window origin, so the
+                                                  // pointer and the window size
+                                                  // are used as-is.
+                                                  return EditorContextMenu(
+                                                    state: editableTextState,
+                                                    anchor:
+                                                        _contextMenuPointer ??
+                                                        Offset.zero,
+                                                    boundary: MediaQuery.sizeOf(
+                                                      context,
+                                                    ),
+                                                  );
+                                                },
+                                            style: _metrics.textStyle.copyWith(
+                                              color: ThemeService
+                                                  .instance
+                                                  .colors
+                                                  .editorText,
+                                            ),
+                                            decoration:
+                                                const InputDecoration.collapsed(
+                                                  hintText:
+                                                      '// Type code here...',
+                                                ),
+                                          ),
+                                        ),
+                                        if (_showAutocomplete)
+                                          Positioned.fill(
+                                            child: TapRegion(
+                                              onTapOutside: (_) =>
+                                                  _dismissCompletion(),
+                                              child: const SizedBox.expand(),
+                                            ),
+                                          ),
+                                      ],
                                     ),
                                   ),
                                 ),

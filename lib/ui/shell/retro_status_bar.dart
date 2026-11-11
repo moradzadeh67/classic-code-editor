@@ -2,9 +2,22 @@ import 'package:flutter/material.dart';
 
 import '../../services/analyzer_service.dart';
 import '../../services/diagnostics_source.dart';
+import '../../services/git_controller.dart';
 import '../../services/lsp_service.dart';
 import '../../services/theme_service.dart';
 import '../retro/retro_border.dart';
+
+/// Key of the Git segment (absent when no repository is shown).
+const Key kGitSegmentKey = ValueKey<String>('git-segment');
+
+/// Key of the Git segment's label.
+const Key kGitSegmentTextKey = ValueKey<String>('git-segment-text');
+
+/// Fixed width of the Git segment.
+///
+/// A constant keeps the segments beside it from shifting while a refresh
+/// resolves; a long branch name is ellipsized instead of overflowing.
+const double kGitSegmentWidth = 150;
 
 class RetroStatusBar extends StatelessWidget {
   final String statusText;
@@ -12,12 +25,21 @@ class RetroStatusBar extends StatelessWidget {
   final AnalyzerService? analyzerService;
   final LspService? lspService;
 
+  /// Read-only Git snapshot; when null (or with no repository) the segment is
+  /// not drawn at all.
+  final GitController? gitController;
+
+  /// Callback invoked when the Git segment is clicked.
+  final VoidCallback? onGitSegmentTap;
+
   const RetroStatusBar({
     super.key,
     this.statusText = 'Ready',
     this.positionText = 'Ln 1, Col 1',
     this.analyzerService,
     this.lspService,
+    this.gitController,
+    this.onGitSegmentTap,
   });
 
   @override
@@ -25,6 +47,7 @@ class RetroStatusBar extends StatelessWidget {
     final listenables = <Listenable>[ThemeService.instance];
     if (analyzerService != null) listenables.add(analyzerService!);
     if (lspService != null) listenables.add(lspService!);
+    if (gitController != null) listenables.add(gitController!);
 
     return ListenableBuilder(
       listenable: Listenable.merge(listenables),
@@ -58,6 +81,12 @@ class RetroStatusBar extends StatelessWidget {
 
         final lspText = lsp?.statusLabel ?? 'LSP: Stopped';
         final lspConnected = lsp?.isConnected ?? false;
+
+        // Null while no repository is shown (or Git is unavailable): the
+        // segment is not laid out at all, so nothing is left behind.
+        final git = gitController;
+        final gitLabel = git?.statusLabel;
+        final gitTooltip = git?.tooltipText ?? '';
 
         // Compact, matching the classic Windows 9x status bar (~22-24px).
         return Container(
@@ -101,6 +130,39 @@ class RetroStatusBar extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 4),
+              if (gitLabel != null) ...[
+                MouseRegion(
+                  cursor: onGitSegmentTap != null
+                      ? SystemMouseCursors.click
+                      : SystemMouseCursors.basic,
+                  child: GestureDetector(
+                    onTap: onGitSegmentTap,
+                    behavior: HitTestBehavior.opaque,
+                    child: _segment(
+                      key: kGitSegmentKey,
+                      width: kGitSegmentWidth,
+                      child: Tooltip(
+                        message: gitTooltip,
+                        child: Text(
+                          gitLabel,
+                          key: kGitSegmentTextKey,
+                          maxLines: 1,
+                          softWrap: false,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 12.0,
+                            fontWeight: FontWeight.w400,
+                            fontFamily: 'Arial',
+                            height: 1.0,
+                            color: textColor,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 4),
+              ],
               _segment(
                 width: 110,
                 child: Tooltip(
@@ -169,11 +231,13 @@ class RetroStatusBar extends StatelessWidget {
   }
 
   Widget _segment({
+    Key? key,
     required Widget child,
     double? width,
     Alignment alignment = Alignment.centerLeft,
   }) {
     return Container(
+      key: key,
       width: width,
       padding: const EdgeInsets.symmetric(horizontal: 6),
       alignment: alignment,

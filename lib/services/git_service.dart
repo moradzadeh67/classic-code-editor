@@ -52,6 +52,10 @@ class GitCancelToken {
 /// exact arguments, environment, timeout and cancellation token.
 abstract class GitProcessRunner {
   /// Runs [executable] with [arguments] and captures its output.
+  ///
+  /// When [stdinInput] is given it is written to the child's standard input
+  /// (UTF-8) and the pipe is closed, so data never has to travel as an
+  /// argument — a commit message with newlines or Persian text goes this way.
   Future<GitResult> run(
     String executable,
     List<String> arguments, {
@@ -59,6 +63,7 @@ abstract class GitProcessRunner {
     Map<String, String>? environment,
     Duration? timeout,
     GitCancelToken? cancel,
+    String? stdinInput,
   });
 }
 
@@ -78,6 +83,7 @@ class SystemGitProcessRunner implements GitProcessRunner {
     Map<String, String>? environment,
     Duration? timeout,
     GitCancelToken? cancel,
+    String? stdinInput,
   }) async {
     if (cancel?.isCancelled ?? false) {
       return const GitResult(-1, '', 'Cancelled', false, true);
@@ -97,6 +103,16 @@ class SystemGitProcessRunner implements GitProcessRunner {
     } catch (error) {
       return GitResult(-1, '', '$error', false, false);
     }
+
+    // Write the payload and close the pipe, concurrently with the output
+    // capture (a large write must not wait for a reader that drains stdout
+    // first). A child that exits without reading everything — because it
+    // rejected an argument, say — makes the write fail; the exit code already
+    // reports that failure, so the write error is only recorded, never shown
+    // in place of the real one.
+    final writing = stdinInput == null
+        ? null
+        : _writeStdin(process, stdinInput);
 
     var timedOut = false;
     var cancelled = false;
@@ -133,8 +149,12 @@ class SystemGitProcessRunner implements GitProcessRunner {
         _capture(process.stderr),
       ]);
       final exitCode = await process.exitCode;
+      String? stdinNote;
+      if (writing != null) stdinNote = await writing;
       finished = true;
-      return GitResult(exitCode, streams[0], streams[1], timedOut, cancelled);
+      var stderr = streams[1];
+      if (stdinNote != null && stderr.trim().isEmpty) stderr = stdinNote;
+      return GitResult(exitCode, streams[0], stderr, timedOut, cancelled);
     } catch (error) {
       finished = true;
       process.kill(ProcessSignal.sigkill);
@@ -144,6 +164,27 @@ class SystemGitProcessRunner implements GitProcessRunner {
       killTimer?.cancel();
       cancel?.removeListener(onCancel);
     }
+  }
+
+  /// Writes [payload] to [process.stdin] and closes the pipe.
+  ///
+  /// Returns a description of a write failure, or `null` on success. A broken
+  /// pipe means the child exited before reading (git then reports the real
+  /// problem on its own stderr), so the note is only surfaced when there is
+  /// no real stderr to show.
+  Future<String?> _writeStdin(Process process, String payload) async {
+    try {
+      process.stdin.add(utf8.encode(payload));
+      await process.stdin.flush();
+    } catch (error) {
+      return 'git message could not be written to stdin: $error';
+    }
+    try {
+      await process.stdin.close();
+    } catch (error) {
+      return 'git stdin could not be closed: $error';
+    }
+    return null;
   }
 
   /// Reads [stream] as UTF-8, keeping at most [maxCaptureBytes].
@@ -388,6 +429,462 @@ class GitService {
     return parseStatus(result.stdout);
   }
 
+  /// Stages [paths] using `git add -- <paths>`.
+  Future<GitResult> stage(
+    String root,
+    List<String> paths, {
+    GitCancelToken? cancel,
+  }) async {
+    final gitPath = await _resolver.find('git');
+    if (gitPath == null) {
+      return const GitResult(-1, '', installHint, false, false);
+    }
+    if (paths.isEmpty) {
+      return const GitResult(0, '', '', false, false);
+    }
+    return _runGit(
+      gitPath,
+      <String>['add', '--', ...paths],
+      workingDirectory: root,
+      environment: await _gitEnvironment(),
+      cancel: cancel,
+    );
+  }
+
+  /// Unstages [paths].
+  ///
+  /// Uses `git restore --staged -- <paths>` when [hasCommits] is true, or
+  /// `git rm --cached -- <paths>` when [hasCommits] is false (unborn branch).
+  Future<GitResult> unstage(
+    String root,
+    List<String> paths, {
+    required bool hasCommits,
+    GitCancelToken? cancel,
+  }) async {
+    final gitPath = await _resolver.find('git');
+    if (gitPath == null) {
+      return const GitResult(-1, '', installHint, false, false);
+    }
+    if (paths.isEmpty) {
+      return const GitResult(0, '', '', false, false);
+    }
+    final arguments = hasCommits
+        ? <String>['restore', '--staged', '--', ...paths]
+        : <String>['rm', '--cached', '--', ...paths];
+    return _runGit(
+      gitPath,
+      arguments,
+      workingDirectory: root,
+      environment: await _gitEnvironment(),
+      cancel: cancel,
+    );
+  }
+
+  /// The default timeout for a commit: 60 s, because a pre-commit hook may be
+  /// slow and must not be killed mid-run by the shorter read timeout.
+  static const Duration commitTimeout = Duration(seconds: 60);
+
+  /// Commits the staged changes by running `git commit -F -`.
+  ///
+  /// [message] is written to the process's standard input — never passed as
+  /// an argument or through a shell — so multi-line messages and Persian
+  /// text survive byte for byte. Hooks run (no `--no-verify`); `--amend` and
+  /// `--all` are never used. The commit gets [timeout] (60 s by default) and
+  /// can be killed through [cancel].
+  Future<GitResult> commit(
+    String root,
+    String message, {
+    GitCancelToken? cancel,
+    Duration timeout = commitTimeout,
+  }) async {
+    final gitPath = await _resolver.find('git');
+    if (gitPath == null) {
+      return const GitResult(-1, '', installHint, false, false);
+    }
+    return _runGit(
+      gitPath,
+      const <String>['commit', '-F', '-'],
+      workingDirectory: root,
+      environment: await _gitEnvironment(),
+      cancel: cancel,
+      timeout: timeout,
+      stdinInput: message,
+    );
+  }
+
+  /// The default timeout for a push: 120 s, because a remote over a slow
+  /// network must not be killed mid-transfer by the shorter read timeout.
+  static const Duration pushTimeout = Duration(seconds: 120);
+
+  /// Pushes the current branch to [remote].
+  ///
+  /// With [setUpstream] true the command is `git push -u <remote> <branch>`
+  /// (the first push of a branch that has no upstream yet); otherwise it is a
+  /// plain `git push`, which uses the branch's configured upstream. Only the
+  /// plain form ever runs: no `--force`, `--force-with-lease`, `--delete`,
+  /// `--mirror`, `--all` or `--tags` exists anywhere in the call, and an
+  /// option-looking remote or branch name is refused before any process
+  /// starts. The call carries the usual G1 hygiene plus [timeout] (120 s by
+  /// default) and can be killed through [cancel].
+  Future<GitResult> push(
+    String root, {
+    required String remote,
+    required String branch,
+    bool setUpstream = false,
+    GitCancelToken? cancel,
+    Duration timeout = pushTimeout,
+  }) async {
+    final gitPath = await _resolver.find('git');
+    if (gitPath == null) {
+      return const GitResult(-1, '', installHint, false, false);
+    }
+    // A refspec must never double as an option: a remote or branch that
+    // starts with `-` is refused before any process starts, so no input can
+    // turn the call into `git push --force` or friends.
+    if (remote.startsWith('-')) {
+      return const GitResult(
+        -1,
+        '',
+        'Refusing to push to an option-looking remote name',
+        false,
+        false,
+      );
+    }
+    if (branch.startsWith('-')) {
+      return const GitResult(
+        -1,
+        '',
+        'Refusing to push an option-looking branch name',
+        false,
+        false,
+      );
+    }
+    final arguments = setUpstream
+        ? <String>['push', '-u', remote, branch]
+        : <String>['push'];
+    return _runGit(
+      gitPath,
+      arguments,
+      workingDirectory: root,
+      environment: await _gitEnvironment(),
+      cancel: cancel,
+      timeout: timeout,
+    );
+  }
+
+  /// The default timeout for a fetch: 60 s.
+  ///
+  /// Shorter than [pullTimeout] on purpose: a fetch runs when the Source
+  /// Control panel opens rather than when the user asked for a transfer, so an
+  /// unreachable remote must not keep the Pull button stale for two minutes.
+  static const Duration fetchTimeout = Duration(seconds: 60);
+
+  /// Updates the remote-tracking refs of [root] so that `ahead`/`behind` are
+  /// real rather than as stale as the last fetch.
+  ///
+  /// Runs exactly `git fetch`: no `--prune`, no `--tags`, no `--all`, no
+  /// `--force`, and it only ever writes the remote-tracking refs — the
+  /// repository's own branches, index and worktree are untouched. This is what
+  /// makes the Pull button reachable at all: [repoInfo] counts `HEAD...@{u}`
+  /// against those refs, and nothing else in the app moves them.
+  ///
+  /// It is never called from a refresh trigger, which must stay instant and
+  /// offline (see [GitController.fetchNow]).
+  Future<GitResult> fetch(
+    String root, {
+    GitCancelToken? cancel,
+    Duration timeout = fetchTimeout,
+  }) async {
+    final gitPath = await _resolver.find('git');
+    if (gitPath == null) {
+      return const GitResult(-1, '', installHint, false, false);
+    }
+    return _runGit(
+      gitPath,
+      const <String>['fetch'],
+      workingDirectory: root,
+      environment: await _gitEnvironment(),
+      cancel: cancel,
+      timeout: timeout,
+    );
+  }
+
+  /// The default timeout for a pull: 120 s, because a remote over a slow
+  /// network must not be killed mid-transfer by the shorter read timeout.
+  static const Duration pullTimeout = Duration(seconds: 120);
+
+  /// Pulls fast-forward only from the current branch's upstream.
+  ///
+  /// Runs exactly `git pull --ff-only`. No `--rebase`, `--merge`, or `--force`
+  /// is ever used. The call carries the usual G1 hygiene plus [timeout] (120 s
+  /// by default) and can be killed through [cancel].
+  Future<GitResult> pull(
+    String root, {
+    GitCancelToken? cancel,
+    Duration timeout = pullTimeout,
+  }) async {
+    final gitPath = await _resolver.find('git');
+    if (gitPath == null) {
+      return const GitResult(-1, '', installHint, false, false);
+    }
+    return _runGit(
+      gitPath,
+      const <String>['pull', '--ff-only'],
+      workingDirectory: root,
+      environment: await _gitEnvironment(),
+      cancel: cancel,
+      timeout: timeout,
+    );
+  }
+
+  /// Reads the effective value of `git config <key>` for [root], or `null`
+  /// when it is unset (a read-only command).
+  Future<String?> configValue(
+    String root,
+    String key, {
+    GitCancelToken? cancel,
+  }) async {
+    final gitPath = await _resolver.find('git');
+    if (gitPath == null) return null;
+    final result = await _runGit(
+      gitPath,
+      <String>['config', '--get', key],
+      workingDirectory: root,
+      environment: await _gitEnvironment(),
+      cancel: cancel,
+    );
+    if (!result.succeeded) return null;
+    final value = result.stdout.trim();
+    return value.isEmpty ? null : value;
+  }
+
+  /// The only keys [setLocalConfig] may write.
+  static const Set<String> _configurableKeys = <String>{
+    'user.name',
+    'user.email',
+  };
+
+  /// Writes [key] = [value] to the **repository-local** config of [root].
+  ///
+  /// The command never carries `--global` or `--system`: the value lands in
+  /// `.git/config` of this repository only. [key] must be one of the commit
+  /// identity keys (`user.name` / `user.email`).
+  Future<GitResult> setLocalConfig(
+    String root,
+    String key,
+    String value, {
+    GitCancelToken? cancel,
+  }) async {
+    if (!_configurableKeys.contains(key)) {
+      return GitResult(
+        -1,
+        '',
+        'Refusing to write git config key "$key"',
+        false,
+        false,
+      );
+    }
+    if (value.trim().isEmpty) {
+      return const GitResult(
+        -1,
+        '',
+        'Refusing to write an empty git config value',
+        false,
+        false,
+      );
+    }
+    final gitPath = await _resolver.find('git');
+    if (gitPath == null) {
+      return const GitResult(-1, '', installHint, false, false);
+    }
+    return _runGit(
+      gitPath,
+      <String>['config', key, value],
+      workingDirectory: root,
+      environment: await _gitEnvironment(),
+      cancel: cancel,
+    );
+  }
+
+  /// The short SHA of the current HEAD, or `null` when it cannot be read
+  /// (an unborn branch, or a failed command).
+  Future<String?> headShortSha(String root, {GitCancelToken? cancel}) async {
+    final gitPath = await _resolver.find('git');
+    if (gitPath == null) return null;
+    final result = await _runGit(
+      gitPath,
+      const <String>['rev-parse', '--short', 'HEAD'],
+      workingDirectory: root,
+      environment: await _gitEnvironment(),
+      cancel: cancel,
+    );
+    if (!result.succeeded) return null;
+    final sha = result.stdout.trim();
+    return sha.isEmpty ? null : sha;
+  }
+
+  /// Maps a failed `git commit` to one clear line for the panel.
+  ///
+  /// The full output still goes to the Console; this is only the one line the
+  /// panel can show. A failing pre-commit hook produces no message of its
+  /// own — git just forwards the hook's output — so the hook's first output
+  /// line is what the panel shows.
+  static String commitFailureMessage(GitResult result) {
+    if (result.cancelled) return 'Commit cancelled.';
+    if (result.timedOut) {
+      return 'Commit timed out after 60 s (a hook may be slow).';
+    }
+    final output = '${result.stdout}\n${result.stderr}';
+    if (output.contains('index.lock')) {
+      return 'Another git process is running; if none is, delete '
+          '.git/index.lock yourself.';
+    }
+    if (output.contains('no changes added to commit') ||
+        output.contains('nothing to commit')) {
+      return 'Nothing staged to commit.';
+    }
+    if (output.contains('Author identity unknown') ||
+        output.contains('Please tell me who you are') ||
+        output.contains('unable to auto-detect email')) {
+      return 'Git identity unknown — set user.name and user.email.';
+    }
+    final lines = output
+        .split('\n')
+        .map((line) => line.trim())
+        .where((line) => line.isNotEmpty)
+        .toList();
+    if (lines.isEmpty) {
+      return 'git commit failed (exit ${result.exitCode}).';
+    }
+    return lines.first;
+  }
+
+  /// Maps a failed `git push` to one clear line for the panel.
+  ///
+  /// The full output still goes to the Console; this is only the one line the
+  /// panel can show. The mappings cover the failures a push can actually hit:
+  /// an unreachable host, a key whose passphrase ssh-agent does not hold, an
+  /// authentication rejection and a remote that moved ahead.
+  static String pushFailureMessage(GitResult result) {
+    if (result.cancelled) return 'Push cancelled.';
+    if (result.timedOut) {
+      return 'Push timed out after 120 s (the network may be slow).';
+    }
+    final output = '${result.stdout}\n${result.stderr}';
+    if (output.contains('Could not resolve host') ||
+        output.contains('Could not resolve hostname') ||
+        output.contains('ssh: connect to host')) {
+      return 'Could not reach the remote. Check the network and the remote '
+          'URL.';
+    }
+    if (output.contains('passphrase')) {
+      return 'Add your key to ssh-agent (ssh-add --apple-use-keychain).';
+    }
+    if (output.contains('Permission denied') ||
+        output.toLowerCase().contains('authentication failed')) {
+      return 'Authentication failed. Push once from a terminal or run '
+          '`gh auth login`, or check your SSH key';
+    }
+    if (output.contains('[rejected]') ||
+        output.contains('non-fast-forward') ||
+        output.contains('Updates were rejected') ||
+        output.contains('fetch first')) {
+      return 'The remote has new commits. Pull first';
+    }
+    final lines = output
+        .split('\n')
+        .map((line) => line.trim())
+        .where((line) => line.isNotEmpty)
+        .toList();
+    if (lines.isEmpty) {
+      return 'git push failed (exit ${result.exitCode}).';
+    }
+    return lines.first;
+  }
+
+  /// Maps a failed background `git fetch` to one line for the Console.
+  ///
+  /// A fetch is not a user-initiated command, so its failure is reported as a
+  /// console line rather than a panel banner: the panel's own error area is
+  /// reserved for what the user pressed.
+  static String fetchFailureMessage(GitResult result) {
+    if (result.cancelled) return 'Fetch cancelled.';
+    if (result.timedOut) {
+      return 'Fetch timed out after 60 s (the network may be slow).';
+    }
+    final output = '${result.stdout}\n${result.stderr}';
+    if (output.contains('Could not resolve host') ||
+        output.contains('Could not resolve hostname') ||
+        output.contains('ssh: connect to host')) {
+      return 'Could not reach the remote. Check the network and the remote '
+          'URL.';
+    }
+    if (output.contains('passphrase')) {
+      return 'Add your key to ssh-agent (ssh-add --apple-use-keychain).';
+    }
+    if (output.contains('Permission denied') ||
+        output.toLowerCase().contains('authentication failed')) {
+      return 'Authentication failed. Fetch once from a terminal or run '
+          '`gh auth login`, or check your SSH key';
+    }
+    if (output.contains('does not appear to be a git repository')) {
+      return 'The remote is not a Git repository. Check the remote URL.';
+    }
+    final lines = output
+        .split('\n')
+        .map((line) => line.trim())
+        .where((line) => line.isNotEmpty)
+        .toList();
+    if (lines.isEmpty) return 'git fetch failed (exit ${result.exitCode}).';
+    return lines.first;
+  }
+
+  /// Maps a failed `git pull` to one clear line for the panel.
+  ///
+  /// The full output still goes to the Console; this is only the one line the
+  /// panel can show.
+  static String pullFailureMessage(GitResult result) {
+    if (result.cancelled) return 'Pull cancelled.';
+    if (result.timedOut) {
+      return 'Pull timed out after 120 s (the network may be slow).';
+    }
+    final output = '${result.stdout}\n${result.stderr}';
+    if (output.contains('Not possible to fast-forward') ||
+        output.contains('divergent branches') ||
+        output.contains('Not fast-forward') ||
+        output.contains('Diverging branches') ||
+        output.contains('not possible to fast-forward')) {
+      return 'Branches have diverged. Resolve this in a terminal (merge or rebase).';
+    }
+    if (output.contains(
+          'Your local changes to the following files would be overwritten',
+        ) ||
+        output.contains('Please commit your changes or stash them')) {
+      return 'Commit or stash your changes first.';
+    }
+    if (output.contains('Could not resolve host') ||
+        output.contains('Could not resolve hostname') ||
+        output.contains('ssh: connect to host')) {
+      return 'Could not reach the remote. Check the network and the remote URL.';
+    }
+    if (output.contains('passphrase')) {
+      return 'Add your key to ssh-agent (ssh-add --apple-use-keychain).';
+    }
+    if (output.contains('Permission denied') ||
+        output.toLowerCase().contains('authentication failed')) {
+      return 'Authentication failed. Push once from a terminal or run `gh auth login`, or check your SSH key';
+    }
+    final lines = output
+        .split('\n')
+        .map((line) => line.trim())
+        .where((line) => line.isNotEmpty)
+        .toList();
+    if (lines.isEmpty) {
+      return 'git pull failed (exit ${result.exitCode}).';
+    }
+    return lines.first;
+  }
+
   /// Parses the NUL-separated output of `git status --porcelain=v1 -z`.
   ///
   /// A rename/copy entry is followed by a second NUL field holding the
@@ -483,6 +980,8 @@ class GitService {
     required String workingDirectory,
     required Map<String, String> environment,
     GitCancelToken? cancel,
+    Duration? timeout,
+    String? stdinInput,
   }) async {
     if (cancel?.isCancelled ?? false) {
       return const GitResult(-1, '', 'Cancelled', false, true);
@@ -492,8 +991,9 @@ class GitService {
       <String>['-c', 'core.quotepath=false', ...arguments],
       workingDirectory: workingDirectory,
       environment: environment,
-      timeout: _readTimeout,
+      timeout: timeout ?? _readTimeout,
       cancel: cancel,
+      stdinInput: stdinInput,
     );
   }
 
