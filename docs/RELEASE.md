@@ -12,8 +12,13 @@ web/mobile distribution (see Platform Support in the README).
 | macOS | `Classic Code Editor-<version>.dmg` on the [Releases page](https://github.com/moradzadeh67/classic-code-editor/releases/latest) | **Unsigned and not notarized** — Gatekeeper requires "Open Anyway" on first launch |
 | Windows / Linux | Not released (planned) | — |
 
-Latest: **v1.6.0** (`Classic Code Editor-1.6.0+11.dmg`, universal build).
+Latest: **v1.6.0** (`Classic.Code.Editor-1.6.0+11.dmg`, universal build).
 Previous: v1.5.0+10, v1.4.3+9, v1.4.2+8, v1.4.1+7, v1.4.0+6, v1.3.0+5, v1.2.0+4, v1.1.0+3.
+
+**Naming:** the locally built artifact keeps its spaces (`Classic Code Editor-1.6.0+11.dmg` in
+`build/distributions/`), but GitHub replaces them with dots in the asset it serves, so the download
+appears as `Classic.Code.Editor-1.6.0+11.dmg`. Same bytes, same SHA-256 — links copied from the
+Releases page are the safe ones.
 
 ## How the DMG is built
 
@@ -29,7 +34,8 @@ scripts/release_gate/05_make_dmg.sh     # packages the .app into a DMG via hdiut
 
 `05_make_dmg.sh` reads `version:` from `pubspec.yaml` and names the artifact
 `Classic Code Editor-<version>.dmg`, so the **pubspec version, the git tag and the DMG name must agree**
-(e.g. `1.6.0+11` → tag `v1.6.0` → `Classic Code Editor-1.6.0+11.dmg`).
+(e.g. `1.6.0+11` → tag `v1.6.0` → `Classic Code Editor-1.6.0+11.dmg`, which GitHub serves as
+`Classic.Code.Editor-1.6.0+11.dmg`).
 
 ## Checklist before every release
 

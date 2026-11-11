@@ -88,6 +88,7 @@ commits, pushes and pulls — and nothing that can destroy your work.**
 
 ## Install
 
-1. Download `Classic Code Editor-1.6.0+11.dmg` (universal build) below.
+1. Download `Classic.Code.Editor-1.6.0+11.dmg` (universal build) below — the built file is
+   `Classic Code Editor-1.6.0+11.dmg`; GitHub replaces the spaces with dots, and the bytes are identical.
 2. Drag **Classic Code Editor** into `Applications`.
 3. First launch: right-click the app → **Open** (the build is unsigned and not notarized), then confirm.

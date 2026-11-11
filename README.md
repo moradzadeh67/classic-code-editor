@@ -355,6 +355,10 @@ pubspec version, the git tag and the DMG name stay in sync** (`1.6.0+11` → tag
 `Classic Code Editor-1.6.0+11.dmg`).
 
 > [!NOTE]
+> The local artifact keeps its spaces. GitHub rewrites them to dots in the asset name it serves, so the
+> file you actually download is `Classic.Code.Editor-1.6.0+11.dmg` — same bytes, same checksum.
+
+> [!NOTE]
 > The app is **unsigned and not notarized** (that needs a paid Apple Developer account). Every user must
 > therefore use **System Settings → Privacy & Security → Open Anyway** once on first launch, or clear the
 > quarantine flag from a terminal:
@@ -497,7 +501,8 @@ Details: [docs/PRIVACY.md](docs/PRIVACY.md) · Vulnerability reports: [SECURITY.
 
 ### Download Pre-built Release
 
-1. Download the latest `.dmg` (`Classic Code Editor-1.6.0+11.dmg`) from [Releases](https://github.com/moradzadeh67/classic-code-editor/releases/latest)
+1. Download the latest `.dmg` (`Classic.Code.Editor-1.6.0+11.dmg` — GitHub turns the spaces in the built
+   name into dots) from [Releases](https://github.com/moradzadeh67/classic-code-editor/releases/latest)
 2. Open the `.dmg` and drag `Classic Code Editor.app` to `Applications`
 3. **First launch (Gatekeeper):** the app is not notarized, so macOS blocks it — click **Done** on the dialog, then open **System Settings → Privacy & Security → Open Anyway** ([Apple: Safely open apps on your Mac](https://support.apple.com/en-us/102445))
 4. **Or skip the dialog from a terminal** — the quarantine flag is the only thing macOS is enforcing, so removing it once is enough:
