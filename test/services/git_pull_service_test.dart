@@ -114,9 +114,20 @@ class _FakeControllerService extends GitService {
   }
 }
 
+/// Resolves `git` without ever running a real login shell.
+///
+/// The resolver's `lookup()` asks the login shell first, so a resolver fake that
+/// leaves `loginShellWhich` unset runs `/bin/zsh -lc 'command -v git'` for real —
+/// and the answer is `/opt/homebrew/bin/git` on a developer Mac but
+/// `/usr/bin/git` on a CI runner, which is exactly how these two tests passed
+/// locally and failed on GitHub Actions.
 ToolPathResolver _fakeResolver() {
   return ToolPathResolver(
+    loginShellWhich: (String name) async =>
+        name == 'git' ? '/opt/homebrew/bin/git' : null,
+    loginShellPath: () async => '/opt/homebrew/bin:/usr/bin:/bin',
     fileExists: (path) => path == '/opt/homebrew/bin/git',
+    environment: const <String, String>{'PATH': '/usr/bin:/bin'},
   );
 }
 
