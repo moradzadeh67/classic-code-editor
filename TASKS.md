@@ -1835,3 +1835,28 @@ the panel is documented with the still alone.
 
 **Tests:** no test changes — documentation and packaging only. `flutter analyze` clean; full
 `flutter test` **671 pass / 8 skipped**.
+
+### TASK-097: Publish v1.6.0 (release notes, tag and GitHub Release)
+**Phase:** 27
+**Status:** ✅ DONE
+
+The Git work was merged but a user could not install it: there was no release note for
+1.6.0, `docs/RELEASE.md` still advertised 1.5.0 as the latest download, and the DMG that the
+release gate had just built sat only in `build/distributions/` on this machine.
+
+- **Release notes.** `docs/RELEASE_NOTES_1.6.0.md` describes what the panel does, the fetch
+  bug it fixes (`↓behind` was always 0 because nothing moved the remote-tracking refs), the
+  post-pull tab reload that refuses to clobber unsaved edits, and the safety rules (argument
+  lists only, no forcing flag, timeouts, repository-local identity), plus the real known
+  limitations: no conflict editor, no history or discard, no disk watching.
+- **Docs corrected.** `docs/RELEASE.md` now says v1.6.0 / `Classic Code Editor-1.6.0+11.dmg`,
+  lists v1.5.0+10 under Previous, and its gate description carries the current **671** tests
+  instead of 520. `CHANGELOG.md` moved `[Unreleased]` to `[1.6.0] - 2026-11-12` with a new
+  bullet for the Git feature and one for the diagram corrections.
+- **Published.** `v1.6.0` tag on `main` and a GitHub Release whose body is the notes file, with
+  the DMG (22,568,204 bytes, `hdiutil verify` valid) and its `.sha256` attached. The build is
+  still unsigned and not notarized, so the first launch keeps the "Open Anyway" step.
+
+**Tests:** no code changed in this task — the numbers come from the gate that produced the
+DMG: `flutter analyze` clean, `flutter test` **671 pass / 8 skipped**, release build,
+launch smoke alive after 8 s.
