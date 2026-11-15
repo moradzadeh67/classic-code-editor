@@ -6,7 +6,7 @@ plugins {
 
 android {
     namespace = "com.example.classic_code_editor"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
