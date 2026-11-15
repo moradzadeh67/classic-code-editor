@@ -77,7 +77,7 @@ class FileExplorerService extends ChangeNotifier {
   /// Returns the chosen path, or null when the dialog was cancelled.
   Future<String?> pickFolder() async {
     try {
-      final picked = await FilePicker.platform.getDirectoryPath();
+      final picked = await FilePicker.getDirectoryPath();
       if (picked == null) return null;
       await openFolder(picked);
       return picked;

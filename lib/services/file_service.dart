@@ -108,13 +108,13 @@ class FileService extends ChangeNotifier {
 
   Future<void> openFile() async {
     try {
-      FilePickerResult? result = await FilePicker.platform.pickFiles(
+      final result = await FilePicker.pickFile(
         type: FileType.custom,
         allowedExtensions: ['dart', 'c', 'cpp', 'py', 's'],
       );
 
-      if (result != null && result.files.single.path != null) {
-        final filePath = result.files.single.path!;
+      if (result != null && result.path != null) {
+        final filePath = result.path!;
         final file = File(filePath);
         final content = await file.readAsString();
         openFilePath(filePath, content);
@@ -303,14 +303,18 @@ class FileService extends ChangeNotifier {
       // Show the native save dialog FIRST, before spawning any subprocess
       // (e.g. the formatter), so there is no black overlay on macOS.
       //
-      // FileType.any (no allowedExtensions) on purpose: with a custom filter the
-      // macOS save panel opened its own un-themed window that rendered black.
-      // The suggested file name still carries the right extension.
-      String? path = await FilePicker.platform.saveFile(
+      // file_picker 13.x writes [bytes] itself at the chosen destination; the
+      // formatted content is written back over it right after.
+      //
+      // No extension filter on purpose: with a custom filter the macOS save
+      // panel opened its own un-themed window that rendered black. The
+      // suggested file name still carries the right extension.
+      final savedUri = await FilePicker.saveFile(
         dialogTitle: 'Save File As',
         fileName: activeTab?.fileName ?? 'main.dart',
-        type: FileType.any,
+        bytes: utf8.encode(content),
       );
+      final path = savedUri?.toFilePath();
       if (path == null) return false;
       // Only format/write once the user has chosen a destination.
       final formattedContent = await _formatCode(content, path);
