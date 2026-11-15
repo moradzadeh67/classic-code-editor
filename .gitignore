@@ -96,3 +96,4 @@ compile_flags.txt
 # Scratch saves
 samples/Untitled*
 lib/Untitled*
+.backup-*/
