@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:classic_code_editor/services/file_explorer_service.dart';
 import 'package:classic_code_editor/ui/explorer/file_explorer_panel.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 Widget _wrap(Widget child) {

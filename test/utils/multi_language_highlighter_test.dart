@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:classic_code_editor/utils/multi_language_highlighter.dart';
 import 'package:highlight/highlight.dart' show Highlight, Mode, Node;

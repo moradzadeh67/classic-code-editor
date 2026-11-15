@@ -1,6 +1,6 @@
 import 'dart:math' as math;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// A language logo widget that tries to load a raster asset image
 /// from [assets/icons/{language}.png] first, and gracefully falls back

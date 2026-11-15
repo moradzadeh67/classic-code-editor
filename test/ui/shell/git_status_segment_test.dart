@@ -3,7 +3,7 @@ import 'package:classic_code_editor/services/git_controller.dart';
 import 'package:classic_code_editor/services/git_service.dart';
 import 'package:classic_code_editor/services/theme_service.dart';
 import 'package:classic_code_editor/ui/shell/retro_status_bar.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// A [GitService] whose four reads return canned answers, so the segment text

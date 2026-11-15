@@ -4,7 +4,7 @@ import 'package:classic_code_editor/services/editor_settings_service.dart';
 import 'package:classic_code_editor/services/theme_service.dart';
 import 'package:classic_code_editor/ui/editor/autocomplete_popup.dart';
 import 'package:classic_code_editor/utils/completion_kind.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// The completion popup shows a kind badge (M/F/C/K/…) and, when the server

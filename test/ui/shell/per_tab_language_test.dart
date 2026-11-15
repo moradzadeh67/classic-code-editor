@@ -8,7 +8,7 @@ import 'package:classic_code_editor/services/terminal_service.dart';
 import 'package:classic_code_editor/ui/retro/language_logo.dart';
 import 'package:classic_code_editor/ui/shell/panel_layout.dart';
 import 'package:classic_code_editor/utils/multi_language_highlighter.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_code_editor/flutter_code_editor.dart';
 import 'package:flutter_test/flutter_test.dart';
 

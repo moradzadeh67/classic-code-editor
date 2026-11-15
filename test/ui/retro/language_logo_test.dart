@@ -1,5 +1,5 @@
 import 'package:classic_code_editor/ui/retro/language_logo.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Reads the asset path of the single [Image] the logo resolved to.

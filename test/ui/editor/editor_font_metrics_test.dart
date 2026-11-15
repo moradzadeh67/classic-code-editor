@@ -1,7 +1,7 @@
 import 'package:classic_code_editor/services/editor_settings_service.dart';
 import 'package:classic_code_editor/ui/editor/code_editor_panel.dart';
 import 'package:classic_code_editor/ui/editor/editor_metrics.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// R2: every measurement still comes from [fontSize] alone, and the family only

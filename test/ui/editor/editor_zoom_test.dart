@@ -3,7 +3,7 @@ import 'package:classic_code_editor/services/file_service.dart';
 import 'package:classic_code_editor/services/lsp_service.dart';
 import 'package:classic_code_editor/services/editor_settings_service.dart';
 import 'package:classic_code_editor/ui/editor/code_editor_panel.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// A language server that never connects, keeping the widget test offline.

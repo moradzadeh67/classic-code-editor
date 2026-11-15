@@ -9,7 +9,7 @@ import 'package:classic_code_editor/services/lsp_service.dart';
 import 'package:classic_code_editor/services/terminal_service.dart';
 import 'package:classic_code_editor/ui/git/source_control_panel.dart';
 import 'package:classic_code_editor/ui/shell/panel_layout.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _FakeGitService extends GitService {

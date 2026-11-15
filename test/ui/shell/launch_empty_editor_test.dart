@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:classic_code_editor/services/session_service.dart';
 import 'package:classic_code_editor/ui/editor/tab_bar.dart';
 import 'package:classic_code_editor/ui/shell/ide_shell.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// A launch always starts on one empty Untitled editor.

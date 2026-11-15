@@ -6,7 +6,7 @@ import 'package:classic_code_editor/services/git_controller.dart';
 import 'package:classic_code_editor/services/git_service.dart';
 import 'package:classic_code_editor/ui/git/source_control_panel.dart';
 import 'package:classic_code_editor/ui/retro/retro_button.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _FakeGitService extends GitService {

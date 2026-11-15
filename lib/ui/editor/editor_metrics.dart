@@ -1,5 +1,5 @@
 import 'package:classic_code_editor/services/editor_settings_service.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// Pure value class that computes all editor/gutter metrics from a single
 /// [fontSize] and [family]. Every measurement is a whole logical pixel so the

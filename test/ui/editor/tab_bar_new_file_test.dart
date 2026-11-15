@@ -2,7 +2,7 @@ import 'package:classic_code_editor/models/language_config.dart';
 import 'package:classic_code_editor/services/file_service.dart';
 import 'package:classic_code_editor/services/unsaved_buffer_workspace.dart';
 import 'package:classic_code_editor/ui/editor/tab_bar.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 Widget _wrap(Widget child) {

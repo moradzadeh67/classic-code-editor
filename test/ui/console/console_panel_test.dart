@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:classic_code_editor/services/dart_runner_service.dart';
 import 'package:classic_code_editor/services/debugger_factory.dart';
 import 'package:classic_code_editor/ui/console/console_panel.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// End-to-end check of the debugger -> Console chain, wired exactly the way
