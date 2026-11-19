@@ -31,6 +31,10 @@
 | 22 | Editor zoom, fonts & renderer-derived gutter rows | ✅ DONE |
 | 23 | Language server selection (per-language warm servers, clangd) | ✅ DONE |
 | 24 | Completion, workspace polish & v1.5.0 release | ✅ DONE |
+| 25 | v1.5.0 README media & test de-flaking | ✅ DONE |
+| 26 | Git in the IDE (status bar, Source Control, commit/push/pull) | ✅ DONE |
+| 27 | v1.6.0 release, Finder-launch completion, file dialogs & v1.6.1 | ✅ DONE |
+| 28 | v1.6.1 maintenance release (gate, docs, DMG) | ✅ DONE |
 
 ## Next Ideas
 - Windows & Linux desktop platform support

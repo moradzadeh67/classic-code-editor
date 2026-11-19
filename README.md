@@ -351,12 +351,12 @@ scripts/release_gate/05_make_dmg.sh     # package the .app into a DMG (hdiutil)
 ```
 
 `05_make_dmg.sh` names the artifact `Classic Code Editor-<version>.dmg` from `pubspec.yaml`, so **the
-pubspec version, the git tag and the DMG name stay in sync** (`1.6.0+11` → tag `v1.6.0` →
-`Classic Code Editor-1.6.0+11.dmg`).
+pubspec version, the git tag and the DMG name stay in sync** (`1.6.1+12` → tag `v1.6.1` →
+`Classic Code Editor-1.6.1+12.dmg`).
 
 > [!NOTE]
 > The local artifact keeps its spaces. GitHub rewrites them to dots in the asset name it serves, so the
-> file you actually download is `Classic.Code.Editor-1.6.0+11.dmg` — same bytes, same checksum.
+> file you actually download is `Classic.Code.Editor-1.6.1+12.dmg` — same bytes, same checksum.
 
 > [!NOTE]
 > The app is **unsigned and not notarized** (that needs a paid Apple Developer account). Every user must
@@ -479,20 +479,20 @@ lib/
 
 | Platform | Status | Notes |
 |---|:---:|---|
-| 🖥️ macOS | ✅ Released | macOS 12+ (Monterey or later), Apple Silicon for ARM64 assembly — v1.6.0 · [download the DMG](https://github.com/moradzadeh67/classic-code-editor/releases/latest) |
+| 🖥️ macOS | ✅ Released | macOS 12+ (Monterey or later), Apple Silicon for ARM64 assembly — v1.6.1 · [download the DMG](https://github.com/moradzadeh67/classic-code-editor/releases/latest) |
 | 🪟 Windows | 🔜 Planned | Next major target (v1.x) |
 | 🐧 Linux | 🔜 Planned | After Windows |
 | 📱 iOS / Android | ❌ Not planned | An IDE needs a keyboard and a real shell |
 | 🌐 Web | ❌ Not planned | Requires a backend — out of scope |
 
-> **Note:** This app spawns external processes (`dart`, `python3`, `clang`, `lldb`). The macOS App Sandbox is **disabled** (`com.apple.security.app-sandbox = false`) to allow `Process.start`.
+> **Note:** This app spawns external processes (`dart`, `python3`, `clang`, `lldb`). The macOS App Sandbox is **disabled** (`com.apple.security.app-sandbox = false`) to allow `Process.start`, and the bundle declares `com.apple.security.files.user-selected.read-write` so the native file and folder dialogs may open.
 
 ## 🔒 Privacy & Security
 
 > [!IMPORTANT]
 > - **Local only.** No accounts, no analytics, no crash reporting, no backend. Your code, file names and terminal output never leave your machine.
 > - **Local processes.** Running, debugging and the language server all start processes on *your* machine; the VM Service connection is bound to `localhost`.
-> - **Sandbox disabled by design.** An IDE must be able to spawn compilers, debuggers and shells, so `com.apple.security.app-sandbox = false`. The app has the same file access as any normal unsigned macOS app — only run code you trust.
+> - **Sandbox disabled by design.** An IDE must be able to spawn compilers, debuggers and shells, so `com.apple.security.app-sandbox = false`. The one file entitlement (`com.apple.security.files.user-selected.read-write`) only unlocks the Open/Save panels — it grants nothing beyond what you pick in them. The app has the same file access as any normal unsigned macOS app — only run code you trust.
 > - **No secrets in this repository**, and the app needs none.
 
 Details: [docs/PRIVACY.md](docs/PRIVACY.md) · Vulnerability reports: [SECURITY.md](SECURITY.md).
@@ -501,7 +501,7 @@ Details: [docs/PRIVACY.md](docs/PRIVACY.md) · Vulnerability reports: [SECURITY.
 
 ### Download Pre-built Release
 
-1. Download the latest `.dmg` (`Classic.Code.Editor-1.6.0+11.dmg` — GitHub turns the spaces in the built
+1. Download the latest `.dmg` (`Classic.Code.Editor-1.6.1+12.dmg` — GitHub turns the spaces in the built
    name into dots) from [Releases](https://github.com/moradzadeh67/classic-code-editor/releases/latest)
 2. Open the `.dmg` and drag `Classic Code Editor.app` to `Applications`
 3. **First launch (Gatekeeper):** the app is not notarized, so macOS blocks it — click **Done** on the dialog, then open **System Settings → Privacy & Security → Open Anyway** ([Apple: Safely open apps on your Mac](https://support.apple.com/en-us/102445))
@@ -669,6 +669,11 @@ This project is actively developed and tested using:
 - [x] Phase 19 — ARM64 Assembly, Turbo Pascal theme & editor UX
 - [x] Phase 23 — Language servers for C/C++ (`clangd`) and Python (`pyright`/`pylsp`)
 - [x] Phase 24 — Completion, documentation panel, File Explorer, per-tab language, Finder launch fixes & Colorful palette
+- [x] Phase 25 — v1.5.0 README media & test de-flaking
+- [x] Phase 26 — Git in the IDE (status bar, Source Control, commit/push/pull)
+- [x] Phase 26 — Git in the IDE (status bar, Source Control, commit/push/pull)
+- [x] Phase 27 — v1.6.0 release, Finder-launch completion, file dialogs
+- [x] Phase 28 — v1.6.1 maintenance release (gate, docs, DMG)
 - [ ] On-device ML for code suggestions
 
 See [ROADMAP.md](ROADMAP.md) for the canonical phase list and

@@ -2022,4 +2022,32 @@ no `[FilePickerDarwin]` line, and `Open File` / `Save As` use the same path.
 **Tests:** no unit test can cover a native `NSOpenPanel` or a code-signature entitlement;
 `flutter analyze` clean, full `flutter test` **678 pass / 8 skipped**.
 
+### TASK-101: v1.6.1 — maintenance release (fixes only, no new features)
+**Phase:** 28
+**Status:** ✅ DONE
+
+**Step A — decision.** The three changes since v1.6.0 (TASK-098, TASK-099, TASK-100) fix behaviour that
+was broken in the *installed* build; none adds a feature, a dependency, a menu or an API. So the release
+is a **patch release: `1.6.1+12`** (tag `v1.6.1`), not a minor bump, and the DMG is a replacement for
+the 1.6.0 one rather than a "what's new" announcement.
+
+**Step B — documentation.** `CHANGELOG.md` gained a `[1.6.1] - 2026-11-20` section (three *Fixed*
+entries plus the test list), `docs/RELEASE_NOTES_1.6.1.md` is written as the GitHub release body
+(highlight-free: fixes, requirements, known limitations, verification, install/upgrade),
+`docs/RELEASE.md` moves *Latest* to `v1.6.1+12`, lists `v1.6.0+11` under *Previous*, refreshes the
+naming example and the test count (671 → 678), `README.md` updates the version strings, the DMG name and
+the sandbox note (the bundle now also carries `files.user-selected.read-write` for the dialogs), and
+`ROADMAP.md` gained phases 25–27 (it stopped at 24 while `TASKS.md` was at 27).
+
+**Step C — the gate** (in order, `scripts/release_gate/`): `01_analyze` clean, `02_test` **678 pass /
+8 skipped**, `03_build_macos` release build, `04_launch_smoke` alive after 8 s, `05_make_dmg` →
+`build/distributions/Classic Code Editor-1.6.1+12.dmg`, 21,719,348 bytes, `hdiutil verify` VALID,
+SHA-256 `8ccb96e85f96e12ae9ff1fc678e120be473e3a8e907d5bcd6fee84e66d1b664c`. The finished bundle replaces
+the installed copy in `/Applications`, and its entitlements (`app-sandbox = false`,
+`files.user-selected.read-write = true`) and version (`1.6.1` / build `12`) were read back from the
+installed app.
+
+**Not done on purpose:** `gh release create v1.6.1 …` is publishing — it runs only with an explicit
+go-ahead from the owner, per the repository rules.
+
 
