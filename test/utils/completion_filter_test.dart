@@ -281,6 +281,23 @@ void main() {
       expect(labels, contains('score'));
     });
 
+    test('generateFallbackCompletions speaks AArch64 for .s buffers', () {
+      const doc = '.global _main\n_main:\n    mov x0, #0';
+      List<String> labelsFor(String query) => CompletionFilter
+          .generateFallbackCompletions(doc, query, 'armasm')
+          .map((c) => c.label)
+          .toList();
+
+      expect(labelsFor('mo'), containsAll(<String>['mov', 'movz', 'movk']));
+      expect(labelsFor('ld'), containsAll(<String>['ldr', 'ldp', 'ldrb']));
+      // Labels in the document are still offered.
+      expect(labelsFor('_ma'), contains('_main'));
+      // The old behaviour handed an assembly buffer the Dart keyword list.
+      expect(labelsFor('ba'), isNot(contains('await')));
+      expect(labelsFor('cl'), contains('cls'));
+      expect(labelsFor('cl'), isNot(contains('class')));
+    });
+
     test('ranking: exact case-sensitive first, then case-insensitive', () {
       final items = [
         CompletionItem(label: 'alpha', kind: 'method'),

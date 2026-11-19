@@ -63,6 +63,16 @@ const double kEditorCaretWidth = 5.0;
 /// completion log so a slow first answer can be timed from launch.
 final DateTime _appStartTime = DateTime.now();
 
+/// How long the popup waits for the first server answer before it shows the
+/// built-in keyword/word list instead.
+///
+/// A warm server answers in a few dozen milliseconds, but a cold one (or one
+/// whose workspace root is wrong) can take seconds or never answer at all. The
+/// local list appears after this grace period and `CompletionRetry` upgrades it
+/// as soon as the server's real answer arrives, so a slow or stuck server can
+/// never look like "autocomplete is broken".
+const Duration kCompletionServerGrace = Duration(milliseconds: 700);
+
 /// Size of the square diagnostic marker painted at the gutter's inner edge.
 const double kGutterMarkerSize = 8;
 
@@ -1135,13 +1145,23 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
 
     List<CompletionItem> serverItems = const <CompletionItem>[];
     if (lspConnected) {
-      serverItems = await widget.lspService.requestCompletion(
-        _lspDocumentPath,
-        line + 1,
-        column + 1,
-        triggerKind: decision.triggerKind,
-        triggerCharacter: decision.triggerCharacter,
-      );
+      // A connected server is not necessarily a *responsive* one: a server that
+      // is still indexing (or rooted at the wrong folder) must not keep the
+      // popup empty for the whole JSON-RPC deadline. The local list is shown
+      // after [kCompletionServerGrace] and the retry below upgrades it when the
+      // real answer arrives; the pending request is simply left to finish.
+      serverItems = await widget.lspService
+          .requestCompletion(
+            _lspDocumentPath,
+            line + 1,
+            column + 1,
+            triggerKind: decision.triggerKind,
+            triggerCharacter: decision.triggerCharacter,
+          )
+          .timeout(
+            kCompletionServerGrace,
+            onTimeout: () => const <CompletionItem>[],
+          );
     }
     if (!mounted || requestId != _completionRequestId) return;
 

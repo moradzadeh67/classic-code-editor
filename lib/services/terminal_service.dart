@@ -13,7 +13,20 @@ class TerminalService extends ChangeNotifier {
   final List<String> _commandHistory = [];
   int _historyIndex = -1;
 
-  TerminalService() : _currentDirectory = Directory.current.path;
+  TerminalService({String? initialDirectory})
+    : _currentDirectory = _resolveInitialDirectory(initialDirectory);
+
+  static String _resolveInitialDirectory([String? initialDirectory]) {
+    final candidate = initialDirectory ?? Directory.current.path;
+    if (candidate != '/' && Directory(candidate).existsSync()) {
+      return candidate;
+    }
+    final home = Platform.environment['HOME'];
+    if (home != null && home.isNotEmpty && Directory(home).existsSync()) {
+      return home;
+    }
+    return Directory.systemTemp.path;
+  }
 
   Stream<String> get outputStream => _outputController.stream;
   bool get isRunning => _isRunning;

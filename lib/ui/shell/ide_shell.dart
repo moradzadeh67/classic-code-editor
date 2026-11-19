@@ -142,15 +142,11 @@ class _IDEShellState extends State<IDEShell> {
         debugger.output.listen(_dartRunnerService.emitOutput),
       );
     }
-    // Warm up the default language server (Dart) while the user is still
-    // opening their first file; the server for another language starts on the
-    // first file that needs it.
-    unawaited(_lspManager.activateFor(null));
-    // Start the Dart server immediately instead of waiting for the first tab:
-    // `initialize` takes a while, and the first completion request needs it.
-    unawaited(_lspService.startServer());
-    // A run must see the latest text, whichever button started it (toolbar,
-    // menu or F5): the runner notifies when its state changes.
+    // The language server is *not* started here: a `.app` opened from Finder or
+    // Launchpad starts with `Directory.current == "/"`, and a server rooted
+    // there (or at `$HOME`) indexes the whole tree, pegs a core and never
+    // answers a completion inside its deadline. [_restoreSession] re-opens the
+    // project folder first and roots the servers at it.
     _dartRunnerService.addListener(_flushPendingDocumentChange);
     // macOS routes Cmd+Q and the red window button through the engine's
     // cancelable exit request, so this is the single quit guard.
@@ -256,13 +252,61 @@ class _IDEShellState extends State<IDEShell> {
   /// served by the Dart server as a virtual `.dart` document instead of being
   /// flagged by clangd. Activation is asynchronous, so a token inside
   /// [TabLanguageServerSync] discards a superseded tab switch.
-  Future<void> _syncLanguageServer(String? path, String content) {
+  Future<void> _syncLanguageServer(String? path, String content) async {
+    // With no project folder open the servers are rooted at the file's folder,
+    // so a file from another directory (Open Recent, a second project) has to
+    // move them: a server that cannot see the file's package context answers
+    // completion with nothing at all.
+    await _rebaseToFileDirectory(path);
     final tab = _fileService.activeTab;
     return _lspSync.sync(
       effective: LanguageConfig.resolveTab(tab).language,
       realPath: path,
       content: content,
       bufferName: tab?.fileName ?? path?.split('/').last,
+    );
+  }
+
+  /// Folder the language servers should be rooted at.
+  ///
+  /// The open project first, then the folder of the file being edited (a file
+  /// opened with no folder open), then `null` so [LspServerManager] falls back
+  /// to the temp workspace instead of `"/"` or `$HOME`.
+  String? _languageServerRoot() {
+    final folder = _explorerService.rootPath;
+    if (folder != null && folder.isNotEmpty) return folder;
+    return _activeFileDirectory();
+  }
+
+  String? _activeFileDirectory() {
+    final path = _fileService.currentFilePath;
+    if (path == null || path.isEmpty) return null;
+    return File(path).parent.path;
+  }
+
+  /// Re-roots the servers at the active file's folder when no project folder is
+  /// open and the file lives outside the current root.
+  ///
+  /// A no-op while the open project already contains the file, so typing and
+  /// switching tabs never restart a warm server.
+  Future<void> _rebaseToFileDirectory(String? path) async {
+    if (path == null || path.isEmpty) return;
+    if (_explorerService.rootPath != null) return;
+    final directory = File(path).parent.path;
+    if (LspServerManager.containsPath(_lspManager.workspaceRoot, directory)) {
+      return;
+    }
+    await _lspManager.rebase(directory);
+  }
+
+  /// Re-roots the servers after the project folder changed, then re-opens the
+  /// active document on the new server.
+  Future<void> _rebaseServersAndResync() async {
+    await _lspManager.rebase(_languageServerRoot());
+    if (!mounted) return;
+    await _syncLanguageServer(
+      _fileService.currentFilePath,
+      _fileService.fileContent,
     );
   }
 
@@ -300,13 +344,19 @@ class _IDEShellState extends State<IDEShell> {
   /// File > "Open Folder..." / the explorer's empty-state button.
   Future<void> _handleOpenFolder() async {
     final path = await _explorerService.pickFolder();
-    if (path != null) SessionService.instance.setOpenFolderPath(path);
+    if (path == null) return;
+    SessionService.instance.setOpenFolderPath(path);
+    // The new project is the folder the servers must root themselves at before
+    // the active buffer is opened on them again.
+    await _rebaseServersAndResync();
   }
 
   /// File > "Close Folder": forgets the folder in this and the next session.
   void _handleCloseFolder() {
     _explorerService.closeFolder();
     SessionService.instance.setOpenFolderPath(null);
+    // Back to the file's own folder (or the temp workspace).
+    unawaited(_rebaseServersAndResync());
   }
 
   /// Double-click in the explorer: the one open path, with the size/binary
@@ -407,6 +457,13 @@ class _IDEShellState extends State<IDEShell> {
     // Seed the Git segment with the folder that came back from the session
     // (the explorer may have opened it before the controller listened).
     _gitController.setExplorerFolder(_explorerService.rootPath);
+
+    // Root the language servers at the restored project *before* the first
+    // document is opened on them. This is the step that makes a Finder/Launchpad
+    // launch behave like `flutter run`: without it the root is whatever
+    // `Directory.current` holds, which launchd sets to `"/"`, and the server
+    // spends minutes walking the filesystem instead of answering completion.
+    await _lspManager.rebase(_languageServerRoot());
 
     // Always start empty: one Untitled buffer, whatever is on disk.
     _fileService.createNewFile();

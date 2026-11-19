@@ -22,10 +22,44 @@ class LspServerManager extends ChangeNotifier {
     CompileFlagsEnsurer? compileFlags,
     this._serviceFactory,
     this._onOutput,
-  }) : _workspaceRoot = workspaceRoot ?? Directory.current.path,
+  }) : _workspaceRoot = sanitizeWorkspaceRoot(workspaceRoot),
        _compileFlags = compileFlags ?? CompileFlagsEnsurer();
 
-  final String _workspaceRoot;
+  /// Resolves the folder the language servers are rooted at.
+  ///
+  /// A server derives its analysis contexts (package config, build flags) from
+  /// the folder it is rooted at, so the root has to be a real project — never
+  /// `"/"` and never `$HOME`:
+  ///
+  /// * `"/"` is what launchd hands a `.app` opened from Finder or Launchpad as
+  ///   `Directory.current`, and a server rooted there walks the whole
+  ///   filesystem;
+  /// * `$HOME` is just as unusable: hundreds of thousands of unrelated files
+  ///   keep the server at one core for minutes, and every completion request
+  ///   misses its deadline while it indexes.
+  ///
+  /// A missing or invalid candidate therefore falls back to the system temp
+  /// directory, which is where an unsaved buffer's virtual workspace lives.
+  static String sanitizeWorkspaceRoot(String? path) {
+    final candidate = (path == null || path.isEmpty)
+        ? Directory.current.path
+        : path;
+    if (candidate != '/' && Directory(candidate).existsSync()) return candidate;
+    return Directory.systemTemp.path;
+  }
+
+  /// Whether [path] is [root] itself or lives inside it.
+  ///
+  /// Used by the shell to decide whether a file still belongs to the folder the
+  /// servers are rooted at (a plain string test, so it never touches the disk).
+  static bool containsPath(String root, String? path) {
+    if (path == null || path.isEmpty) return false;
+    if (path == root) return true;
+    final prefix = root.endsWith('/') ? root : '$root/';
+    return path.startsWith(prefix);
+  }
+
+  String _workspaceRoot;
   final CompileFlagsEnsurer _compileFlags;
   final LspService Function(LspServerSpec spec)? _serviceFactory;
   final void Function(String message)? _onOutput;
@@ -45,6 +79,41 @@ class LspServerManager extends ChangeNotifier {
 
   /// `LanguageConfig.highlightLanguage` behind [active] (`dart`, `c`, …).
   String get activeLanguage => _activeLanguage;
+
+  /// Folder every server of this manager is rooted at.
+  ///
+  /// Always a real directory (see [sanitizeWorkspaceRoot]); it is what a server
+  /// uses to find package roots and build flags.
+  String get workspaceRoot => _workspaceRoot;
+
+  /// Moves every language server to [root] (`null` is resolved by
+  /// [sanitizeWorkspaceRoot]).
+  ///
+  /// A server cannot be re-rooted over the protocol — its analysis contexts are
+  /// built at `initialize` — so the cached services are shut down and the next
+  /// [activateFor] starts a fresh one under the new root. When the resolved
+  /// root is unchanged nothing restarts, which is what keeps a tab switch from
+  /// killing a warm server.
+  Future<void> rebase(String? root) async {
+    if (_disposed) return;
+
+    final next = sanitizeWorkspaceRoot(root);
+    if (next == _workspaceRoot) return;
+    _workspaceRoot = next;
+
+    final stale = _services.values.toList(growable: false);
+    _services.clear();
+    // The active language must be re-selected, or `activateFor` would return
+    // the stale (now disposed) service and no server would ever start again.
+    _activeLanguage = '';
+    // Point the UI at "no server" *before* the old ones are disposed, so no
+    // listener is left holding a disposed service.
+    _setActive(_build(LspServerSpec.off));
+    for (final service in stale) {
+      service.dispose();
+    }
+    _safeNotify();
+  }
 
   /// Selects and starts the server for [filePath], then returns it.
   ///

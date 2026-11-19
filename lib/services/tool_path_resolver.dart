@@ -118,6 +118,17 @@ class ToolPathResolver {
       if (home != null && home.isNotEmpty) ...<String>[
         '$home/.pub-cache/bin',
         '$home/flutter/bin/cache/dart-sdk/bin',
+        '$home/flutter/bin',
+        '$home/dev/flutter_sdk/bin/cache/dart-sdk/bin',
+        '$home/dev/flutter_sdk/bin',
+        '$home/dev/flutter/bin/cache/dart-sdk/bin',
+        '$home/dev/flutter/bin',
+        '$home/Development/flutter/bin/cache/dart-sdk/bin',
+        '$home/Development/flutter/bin',
+        '$home/developer/flutter/bin',
+        '$home/fvm/default/bin',
+        '$home/fvm/current/bin',
+        '$home/.fvm/flutter_sdk/bin',
       ],
     ];
     // Every directory on the login-shell PATH is a legitimate install place

@@ -8,6 +8,7 @@ import '../models/diagnostic.dart';
 import '../models/language_config.dart';
 import '../models/lsp_models.dart';
 import '../utils/json_rpc_client.dart';
+import 'lsp_server_manager.dart';
 import 'lsp_server_spec.dart';
 import 'tool_path_resolver.dart';
 
@@ -34,7 +35,7 @@ class LspService extends ChangeNotifier {
     this._prepareWorkspace,
     @visibleForTesting this._requestSender,
     @visibleForTesting this._notificationSender,
-  }) : _rootPath = workspaceRoot ?? Directory.current.path,
+  }) : _rootPath = LspServerManager.sanitizeWorkspaceRoot(workspaceRoot),
        _spec = spec ?? LspServerSpec.dart;
 
   static const Duration _initializeTimeout = Duration(seconds: 20);
@@ -311,7 +312,8 @@ class LspService extends ChangeNotifier {
   int get errorCount => diagnostics.where((d) => d.severity == 'error').length;
 
   /// Total warning count across all open documents (original behavior preserved).
-  int get warningCount => diagnostics.where((d) => d.severity == 'warning').length;
+  int get warningCount =>
+      diagnostics.where((d) => d.severity == 'warning').length;
 
   /// Starts the configured language server and performs the LSP handshake.
   ///
@@ -356,6 +358,13 @@ class LspService extends ChangeNotifier {
         includeParentEnvironment: true,
       );
       _process = process;
+      // The manager may have re-rooted (or the app quit) while Process.start was
+      // in flight. stopServer() has already run by then, so nothing else would
+      // ever kill this child: kill it here instead of leaving it orphaned.
+      if (_disposed) {
+        process.kill(ProcessSignal.sigkill);
+        return;
+      }
 
       final rpc = JsonRpcClient(process.stdin);
       _rpc = rpc;

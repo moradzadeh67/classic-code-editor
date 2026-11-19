@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:classic_code_editor/models/lsp_models.dart';
 import 'package:classic_code_editor/services/file_service.dart';
 import 'package:classic_code_editor/services/lsp_service.dart';
@@ -33,6 +35,32 @@ class _WarmingLspService extends LspService {
         detail: 'void print(Object? object)',
       ),
     ];
+  }
+
+  @override
+  Future<HoverInfo?> requestHover(String filePath, int line, int column) async {
+    return null;
+  }
+}
+
+/// A connected server that never answers: the request is simply never
+/// completed, exactly like a `dart language-server` that is stuck indexing.
+class _SilentLspService extends LspService {
+  int requests = 0;
+
+  @override
+  bool get isConnected => true;
+
+  @override
+  Future<List<CompletionItem>> requestCompletion(
+    String filePath,
+    int line,
+    int column, {
+    String? triggerCharacter,
+    int? triggerKind,
+  }) {
+    requests++;
+    return Completer<List<CompletionItem>>().future;
   }
 
   @override
@@ -104,6 +132,35 @@ void main() {
         .toList();
     expect(badges.first.letter, 'M');
     expect(find.text('void print(Object? object)'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a server that never answers still shows the local list', (
+    tester,
+  ) async {
+    final silent = _SilentLspService();
+    addTearDown(silent.dispose);
+
+    await tester.pumpWidget(
+      _wrap(CodeEditorPanel(fileService: fileService, lspService: silent)),
+    );
+
+    await tester.enterText(find.byType(TextField), 'pri');
+    // The 150 ms typing debounce fires and the request is sent, but the server
+    // never completes it.
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(silent.requests, 1);
+    expect(find.byType(AutocompletePopup), findsNothing);
+
+    // After the grace period the built-in keyword list is shown instead of an
+    // empty popup; the pending request is left to finish on its own.
+    await tester.pump(
+      kCompletionServerGrace + const Duration(milliseconds: 50),
+    );
+    await tester.pump();
+
+    expect(find.byType(AutocompletePopup), findsOneWidget);
+    expect(_suggestion('print'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }

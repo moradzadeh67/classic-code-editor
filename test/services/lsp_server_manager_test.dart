@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:classic_code_editor/services/lsp_server_manager.dart';
@@ -12,6 +14,7 @@ class _FakeLspService extends LspService {
   final bool connects;
   final String? startError;
   int starts = 0;
+  bool disposed = false;
 
   @override
   LspServerSpec get spec => fakeSpec;
@@ -25,6 +28,12 @@ class _FakeLspService extends LspService {
   @override
   Future<void> startServer() async {
     starts++;
+  }
+
+  @override
+  void dispose() {
+    disposed = true;
+    super.dispose();
   }
 }
 
@@ -164,4 +173,79 @@ void main() {
       expect(notifications, afterFirstSwitch);
     },
   );
+
+  group('workspace root', () {
+    test('keeps a real directory and never uses "/"', () {
+      final existing = Directory.systemTemp.path;
+      expect(LspServerManager.sanitizeWorkspaceRoot(existing), existing);
+      expect(LspServerManager.sanitizeWorkspaceRoot('/'), existing);
+      expect(
+        LspServerManager.sanitizeWorkspaceRoot('/definitely/not/here'),
+        existing,
+      );
+      expect(Directory(existing).existsSync(), isTrue);
+    });
+
+    test('containsPath is a plain prefix test, not a disk lookup', () {
+      expect(LspServerManager.containsPath('/a/b', '/a/b'), isTrue);
+      expect(LspServerManager.containsPath('/a/b', '/a/b/c.dart'), isTrue);
+      expect(LspServerManager.containsPath('/a/b', '/a/bc/c.dart'), isFalse);
+      expect(LspServerManager.containsPath('/a/b/', '/a/b/c.dart'), isTrue);
+      expect(LspServerManager.containsPath('/a/b', null), isFalse);
+      expect(LspServerManager.containsPath('/a/b', ''), isFalse);
+    });
+
+    test(
+      'rebase stops the old servers and starts fresh with the new root',
+      () async {
+        final project = Directory.systemTemp.createTempSync('ccedit_root_');
+        addTearDown(() => project.deleteSync(recursive: true));
+        final manager = buildManager();
+        addTearDown(manager.dispose);
+
+        await manager.activateFor('/tmp/main.c');
+        final oldClangd = fakes['clangd']!;
+        expect(oldClangd.starts, 1);
+
+        await manager.rebase(project.path);
+
+        expect(manager.workspaceRoot, project.path);
+        expect(oldClangd.disposed, isTrue);
+        expect(manager.active.spec.id, 'off');
+
+        // The next document re-activates the language: a *new* server, because
+        // the old one was rooted at the previous folder.
+        await manager.activateFor('/tmp/main.c');
+
+        expect(manager.active.spec.id, 'clangd');
+        expect(identical(manager.active, oldClangd), isFalse);
+        expect(fakes['clangd']!.starts, 1);
+      },
+    );
+
+    test('rebase to the same root keeps a warm server', () async {
+      final project = Directory.systemTemp.createTempSync('ccedit_root_');
+      addTearDown(() => project.deleteSync(recursive: true));
+      final manager = buildManager();
+      addTearDown(manager.dispose);
+
+      await manager.rebase(project.path);
+      await manager.activateFor('/tmp/main.c');
+      final warm = manager.active;
+
+      await manager.rebase(project.path);
+
+      expect(identical(manager.active, warm), isTrue);
+      expect(fakes['clangd']!.disposed, isFalse);
+    });
+
+    test('rebase falls back to the temp workspace when handed "/"', () async {
+      final manager = buildManager();
+      addTearDown(manager.dispose);
+
+      await manager.rebase('/');
+
+      expect(manager.workspaceRoot, Directory.systemTemp.path);
+    });
+  });
 }

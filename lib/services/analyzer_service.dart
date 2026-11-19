@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 
 import '../models/diagnostic.dart';
 
+import 'tool_path_resolver.dart';
+
 class AnalyzerService extends ChangeNotifier {
   List<Diagnostic> _diagnostics = [];
   bool _isAnalyzing = false;
@@ -21,23 +23,23 @@ class AnalyzerService extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // Find dart executable
+      // Find dart executable via ToolPathResolver so Finder-launched app finds it
       String dartExecutable = 'dart';
       try {
-        final whichResult = await Process.run('which', ['dart']);
-        if (whichResult.exitCode == 0) {
-          dartExecutable = (whichResult.stdout as String).trim();
-        }
+        final path = await ToolPathResolver.instance.find('dart');
+        if (path != null) dartExecutable = path;
       } catch (e) {
         // Fallback to 'dart'
       }
+
+      final env = await ToolPathResolver.instance.processEnvironment();
 
       // Run dart analyze with machine format
       final result = await Process.run(dartExecutable, [
         'analyze',
         '--format=machine',
         filePath,
-      ]);
+      ], environment: env);
 
       // Parse output
       final lines = result.stdout.toString().split('\n');
