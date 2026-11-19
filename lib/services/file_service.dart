@@ -108,6 +108,7 @@ class FileService extends ChangeNotifier {
 
   Future<void> openFile() async {
     try {
+      await FilePicker.skipEntitlementsChecks();
       final result = await FilePicker.pickFile(
         type: FileType.custom,
         allowedExtensions: ['dart', 'c', 'cpp', 'py', 's'],
@@ -299,6 +300,7 @@ class FileService extends ChangeNotifier {
       // native panel is shown: opening it mid-frame is what produced the empty
       // black window on macOS.
       await Future<void>.delayed(Duration.zero);
+      await FilePicker.skipEntitlementsChecks();
 
       // Show the native save dialog FIRST, before spawning any subprocess
       // (e.g. the formatter), so there is no black overlay on macOS.

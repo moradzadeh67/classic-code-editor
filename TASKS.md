@@ -1862,3 +1862,164 @@ release gate had just built sat only in `build/distributions/` on this machine.
 **Tests:** no code changed in this task — the numbers come from the gate that produced the
 DMG: `flutter analyze` clean, `flutter test` **671 pass / 8 skipped**, release build,
 launch smoke alive after 8 s.
+
+### TASK-098: Autocomplete dead in the installed `.app` (language server rooted at `/`)
+**Phase:** 27
+**Status:** ✅ DONE
+
+**Step A — investigation (owner report: completion works in the Android emulator, not in
+the built/installed macOS app):**
+
+1. **The server's workspace root was `"/"`.** `IDEShell` built `LspServerManager()` with no
+   root, so it fell back to `Directory.current` — which launchd sets to `"/"` for an app
+   opened from Finder, Launchpad, `/Applications` or `open`. Reproduced with a
+   launchd-shaped environment:
+   ```
+   cd / && env -i HOME=… PATH=/usr/bin:/bin:/usr/sbin:/sbin \
+     build/macos/Build/Products/Release/"Classic Code Editor.app"/Contents/MacOS/"Classic Code Editor"
+   # lsof -a -p <dart language-server pid> -d cwd  ->  /
+   # ps -o %cpu -p <pid>                          ->  94.3 % for 5+ minutes
+   ```
+   A `dart language-server` rooted at `/` walks the whole filesystem: it never finishes,
+   every `textDocument/completion` misses the 20 s JSON-RPC deadline
+   (`LspService._sendRequest`), and each keystroke bumps `_completionRequestId` so the answer
+   that finally arrives is discarded. `flutter run -d macos` inherits the project directory
+   as `Directory.current`, which is why the same build mode worked from the IDE.
+2. **Why the emulator looked fine:** an Android Flutter app cannot spawn `dart`, so
+   `isConnected` is false there and completion always comes from the built-in
+   keyword/word list (`CompletionFilter.generateFallbackCompletions`) — a different, local
+   code path that never touches the language server.
+3. **The home-directory "fix" was not a fix.** The uncommitted `sanitizeWorkspaceRoot`
+   mapped `"/"` to `$HOME`; that tree is just as unusable (hundreds of thousands of
+   unrelated files) and additionally made clangd write `$HOME/compile_flags.txt`.
+4. **Secondary reason it felt like "no autocomplete at all":** the popup shows nothing until
+   the server answers, and a connected-but-stuck server suppressed the local list for up to
+   20 s (plus a 200 ms warm-up retry) — then the next keystroke threw that answer away.
+
+**Step B — fix:**
+
+- **The root is the project, not the process.** `LspServerManager.sanitizeWorkspaceRoot`
+  rejects `"/"` and any path that does not exist and falls back to
+  `Directory.systemTemp.path` (the folder an unsaved buffer's virtual workspace already
+  lives in) — never `$HOME`. New `LspServerManager.containsPath` is a plain prefix test for
+  "does this file still belong to the root".
+- **New `LspServerManager.rebase(root)`** moves every cached server to a new root: servers
+  cannot be re-rooted over the protocol (analysis contexts are built at `initialize`), so
+  the cached services are shut down, `active` goes to `Off` *before* the disposal so no
+  listener holds a dead service, and the next `activateFor` starts a fresh server. An
+  unchanged root is a no-op, which is what keeps a tab switch from killing a warm server.
+- **`IDEShell` no longer starts a server in `initState`.** `_restoreSession` re-opens the
+  project folder first and then calls `rebase(_languageServerRoot())`, so the first
+  `didOpen` already lands on a correctly rooted server. `File > Open Folder` and
+  `File > Close Folder` rebase and re-sync the active buffer; with no project folder open
+  the root follows the edited file's folder (`_rebaseToFileDirectory`), so "Open Recent"
+  on a file in another project re-roots instead of analyzing with no package context.
+- **A slow or stuck server can no longer look like a missing feature.**
+  `kCompletionServerGrace` (700 ms) caps how long the popup waits for the *first* answer:
+  the local keyword/word list is shown at the deadline and `CompletionRetry` upgrades it
+  when the real answer arrives. The pending request is left to finish (a late answer is
+  dropped by the existing `_completionRequestId` guard). The manual `Ctrl+Space` path is
+  untouched, so "a connected server that deliberately has nothing" still dismisses.
+- **No orphaned servers on a rebase.** `LspService._startServer` kills the child if
+  `dispose()` ran while `Process.start` was still in flight — otherwise `stopServer` had
+  already run with `_process == null` and nothing would ever have killed that process.
+
+**Verified in the real Release build** (launchd-shaped environment, `cwd=/`):
+`openFolderPath` restored to the project → the server's cwd is the project folder, **0.0 %
+CPU** after the initial index (was 94.3 % on `/`); with no folder open → the server's cwd is
+the temp workspace, never `/` and never `$HOME`. A separate probe against a throwaway Dart
+package proved the "file's folder" fallback still yields real answers (`prin` → `print(…)`)
+for both the package root and a nested `lib/utils` root.
+
+**Tests:** `test/services/lsp_server_manager_test.dart` gained a `workspace root` group:
+`sanitizeWorkspaceRoot` keeps an existing directory and maps `/` and a missing path to the
+temp directory, `containsPath` (including the `/a/b` vs `/a/bc` edge and null/empty),
+`rebase` disposes the old services and re-starts on the new root, an unchanged root keeps
+the warm server, and `"/"` resolves to the temp workspace.
+`test/ui/editor/completion_retry_widget_test.dart` gained "a server that never answers still
+shows the local list": the request is sent, nothing is shown before the grace period, and
+the keyword list appears afterwards. `flutter analyze` clean, full `flutter test`
+**677 pass / 8 skipped**.
+
+### TASK-099: An ARM64 Assembly buffer offered Dart keywords
+**Phase:** 27
+**Status:** ✅ DONE
+
+**Step A — report and cause.** After TASK-098 the owner confirmed completion for Dart, C/C++
+and Python in the installed build, with one exception: `LSP: Off` for `.s` files, and no
+useful suggestions while typing assembly.
+
+- `LSP: Off` is **correct**: `LspServerSpec.candidatesForLanguage` has no server for
+  `armasm`, which is the documented design (an opt-in `asm-lsp` was never added, and that
+  tool needs a `.git` root plus a config to target an instruction set).
+- The real defect was one level below it: with no server, completion falls back to
+  `CompletionFilter.generateFallbackCompletions(… , language)`, and
+  `_getKeywordsForLanguage` had no `armasm` branch — so an `.s` buffer was offered the
+  **Dart** keyword list (`abstract`, `class`, `factory`, `print`, …) plus its own document
+  tokens. Typing `cl` in assembly suggested `class`.
+
+**Step B — fix.** `_getKeywordsForLanguage` gained `armasm`/`asm`/`assembly`: an AArch64
+instruction list (`mov`/`movz`/`movk`, `ldr`/`ldp`/`ldrb`, `stp`, `add`/`subs`, `adrp`,
+`cbz`/`tbz`, `csel`, SIMD `ld1`/`zip1`/`tbl`, `paciasp`/`autiasp`, …), the special registers
+worth completing (`sp`, `wsp`, `xzr`, `wzr`, `lr`, `fp`, `pc`) and nothing else. Conditional
+branches (`b.eq`) and GAS directives (`.global`) are deliberately left out: the query word
+`CompletionFilter.currentWord` extracts can never contain a `.`, so those entries could
+never match a typed prefix — they would only be dead weight. Labels and symbols still come
+from the document itself, and the offline 3-character minimum
+(`offlineMinimumPrefixLength`) is unchanged.
+
+**Tests:** `test/utils/completion_filter_test.dart` —
+"generateFallbackCompletions speaks AArch64 for .s buffers": `mo` → `mov`/`movz`/`movk`,
+`ld` → `ldr`/`ldp`/`ldrb`, `cl` → `cls` and **not** `class`, `ba` → not `await`, and a
+document label (`_main`) is still offered. `flutter analyze` clean, full `flutter test`
+**678 pass / 8 skipped**, rebuilt and reinstalled (1.6.0+11) — the installed app launches
+from a launchd-shaped environment with the server rooted at the per-user temp folder when
+no project is open.
+
+### TASK-100: Open File / Open Folder do nothing in the installed `.app` (file_picker entitlements)
+**Phase:** 27
+**Status:** ✅ DONE
+
+**Step A — investigation (owner report: after the TASK-098/099 build, *File > Open Folder* and
+*File > Open* do nothing at all on the installed app):**
+
+1. Reproduced on the **installed** Release bundle, launched with a launchd-shaped environment
+   (`cd / && env -i HOME=… PATH=/usr/bin:/bin:/usr/sbin:/sbin`), pressing `Cmd+Shift+O` through
+   System Events. The Console showed:
+   ```
+   flutter: [FilePickerDarwin] Could not resolve directory path: Either the Read-Only or
+            Read-Write entitlement is required for this action.
+   ```
+2. **Cause:** `file_picker` 13.3.3 delegates macOS to `file_picker_darwin` 2.5.1 (the dependency
+   split landed in `faf9495`), whose `MacOSFilePickerHandler.checkEntitlement` asks
+   `SecTaskCopyValueForEntitlement` for `com.apple.security.files.user-selected.read-only` or
+   `.read-write` **before every panel**, with no regard for the App Sandbox. Our
+   `Release.entitlements` / `DebugProfile.entitlements` declare only `app-sandbox = false`, so the
+   check answered `ENTITLEMENT_NOT_FOUND` and no panel was ever built. `Save As` needs the same
+   key in its stricter `requireWrite` mode, so it was dead as well.
+3. **Why it looked like "nothing happens":** `FilePickerDarwin.getDirectoryPath` catches the
+   `PlatformException`, prints it and returns `null`; the two call sites
+   (`FileService.openFile`, `FileExplorerService.pickFolder`) report only through `debugPrint`,
+   which a Finder-launched `.app` never shows. A cancelled dialog and a refused one look identical.
+
+**Step B — fix (both halves, as approved):**
+
+- **Entitlements.** `com.apple.security.files.user-selected.read-write = true` added to
+  `macos/Runner/Release.entitlements` and `macos/Runner/DebugProfile.entitlements`. The sandbox stays
+  off (the IDE must spawn `dart`, `clang`, `lldb`), and the key is what the plugin's gate — and a
+  future sandboxed build — actually reads.
+- **Dart.** `FilePicker.skipEntitlementsChecks()` is called immediately before each panel
+  (`FileService.openFile`, `FileService.saveFileAs`, `FileExplorerService.pickFolder`), the API the
+  plugin documents for exactly this case ("only relevant for non-sandboxed macOS apps"). It is a
+  one-shot flag on the native handler, so it costs one channel call per dialog and makes the
+  dialogs independent of the entitlements files being picked up by a given Xcode configuration.
+
+**Verified in the real Release build** (launchd-shaped environment): the binary carries
+`com.apple.security.files.user-selected.read-write`, `Cmd+Shift+O` on the installed app now opens
+its sheet (System Events reports one sheet on the window, screenshot captured), the Console prints
+no `[FilePickerDarwin]` line, and `Open File` / `Save As` use the same path.
+
+**Tests:** no unit test can cover a native `NSOpenPanel` or a code-signature entitlement;
+`flutter analyze` clean, full `flutter test` **678 pass / 8 skipped**.
+
+
