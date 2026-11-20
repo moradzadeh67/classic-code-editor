@@ -2041,8 +2041,8 @@ the sandbox note (the bundle now also carries `files.user-selected.read-write` f
 
 **Step C — the gate** (in order, `scripts/release_gate/`): `01_analyze` clean, `02_test` **678 pass /
 8 skipped**, `03_build_macos` release build, `04_launch_smoke` alive after 8 s, `05_make_dmg` →
-`build/distributions/Classic Code Editor-1.6.1+12.dmg`, 21,719,348 bytes, `hdiutil verify` VALID,
-SHA-256 `8ccb96e85f96e12ae9ff1fc678e120be473e3a8e907d5bcd6fee84e66d1b664c`. The finished bundle replaces
+`build/distributions/Classic Code Editor-1.6.1+12.dmg`, 21,714,487 bytes, `hdiutil verify` VALID,
+SHA-256 `9611588caa80002bef05e6e680a8c6dda4951e128043f0cc16db26314824ea8f`. The finished bundle replaces
 the installed copy in `/Applications`, and its entitlements (`app-sandbox = false`,
 `files.user-selected.read-write = true`) and version (`1.6.1` / build `12`) were read back from the
 installed app.

@@ -65,8 +65,8 @@ it; if a downloaded copy misbehaved, this is the build to use.
   (`cd / && env -i HOME=… PATH=/usr/bin:/bin:/usr/sbin:/sbin`): the Dart language server starts with
   its working directory at the project folder (temp folder when no project is open) and **0.0 % CPU**
   instead of `/` and 94 %, and *Open Folder* opens its sheet with no `[FilePickerDarwin]` error.
-- DMG: 21,719,348 bytes, `hdiutil verify` valid,
-  SHA-256 `8ccb96e85f96e12ae9ff1fc678e120be473e3a8e907d5bcd6fee84e66d1b664c`.
+- DMG: 21,714,487 bytes, `hdiutil verify` valid,
+  SHA-256 `9611588caa80002bef05e6e680a8c6dda4951e128043f0cc16db26314824ea8f`.
 
 ## Install
 
