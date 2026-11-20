@@ -390,6 +390,8 @@ Classic Code Editor follows a clean layered architecture with strict separation 
 
 <img src="assets/diagrams/data-flow.svg" alt="Data Flow" width="800">
 
+> The diagrams are stamped with the current release (`v1.6.1+12`) and phase count.
+
 ### Layer Breakdown
 
 ```text
@@ -603,6 +605,20 @@ for Dart programs. Verify with `which dart python3 clang lldb` in a terminal.
 
 The language server starts when a Dart file is open. Open a `.dart` file from *File → Open* and give it a
 moment; if it stays disconnected, make sure `dart` is on `PATH` (the app spawns `dart language-server`).
+When the app is launched from Finder or Launchpad it inherits launchd's minimal `PATH`, so `dart` (kept in
+the Flutter SDK) can be invisible; since v1.6.1 the app resolves it through your login shell and the common
+install locations, and the segment's tooltip lists every location it tried. If it still cannot find `dart`,
+run `xcode-select --install` or add the Flutter SDK's `bin` to your `PATH`.
+</details>
+
+<details>
+<summary><b>3b. Autocomplete is empty, or Open File / Open Folder does nothing.</b></summary>
+
+Both were defects of builds before **v1.6.1** and are fixed there: the language servers are now rooted at
+the project folder (not `/`), and the Open/Save panels carry the `files.user-selected.read-write`
+entitlement. If completion still looks empty, open the project with *File → Open Folder* first so the Dart
+server can see the package context, then check that the status bar reads `LSP: Connected` (hover it for the
+reason it is not). Get the latest build from [Releases](https://github.com/moradzadeh67/classic-code-editor/releases/latest).
 </details>
 
 <details>
