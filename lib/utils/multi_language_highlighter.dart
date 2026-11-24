@@ -44,9 +44,9 @@ class MultiLanguageHighlighter {
     'class': _SyntaxCategory.className,
     'string': _SyntaxCategory.string,
     'quote': _SyntaxCategory.string,
-    // The Python grammar wraps every f-string `{...}` interpolation in this
-    // class; without an entry it fell back to the default (black) text color.
-    'subst': _SyntaxCategory.string,
+    // String interpolation expressions ($variable or ${expression}) emit 'subst';
+    // mapping to variable so interpolated variables stand out from the string.
+    'subst': _SyntaxCategory.variable,
     'title': _SyntaxCategory.functionTitle,
     'title.function': _SyntaxCategory.functionTitle,
     'function': _SyntaxCategory.function,
@@ -540,10 +540,16 @@ class DartHighlighter {
 /// They are declared in one place so changing the Colorful accent colors is a
 /// single edit.
 const Color colorfulOperatorColor = Color(0xFF687d01); // #687d01
-const Color colorfulCurlyBraceColor = Color(0xFF1e64d8); // #1e64d8 (bold braces)
-const Color colorfulStringColor = Color(0xFF409175); // #409175 (green strings, Colorful only)
+const Color colorfulCurlyBraceColor = Color(
+  0xFF1e64d8,
+); // #1e64d8 (bold braces)
+const Color colorfulStringColor = Color(
+  0xFF409175,
+); // #409175 (green strings, Colorful only)
 
-const Color colorfulSquareBracketColor = Color(0xFF00796f); // #00796f (bold brackets)
+const Color colorfulSquareBracketColor = Color(
+  0xFF00796f,
+); // #00796f (bold brackets)
 
 /// Colorful comments: neutral grey, italic. Standard keeps `#596E48` italic.
 const Color colorfulCommentColor = Color(0xFF666666); // #666666 (italic)

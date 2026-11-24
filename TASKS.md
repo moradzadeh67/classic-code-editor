@@ -2050,4 +2050,13 @@ installed app.
 **Not done on purpose:** `gh release create v1.6.1 …` is publishing — it runs only with an explicit
 go-ahead from the owner, per the repository rules.
 
+### TASK-102: String Interpolation Syntax Highlighting
+**Phase:** 28
+**Status:** ✅ DONE
+**Completed:**
+- Updated `MultiLanguageHighlighter._categoryByClass` in `lib/utils/multi_language_highlighter.dart` to map the `subst` token class (emitted by `highlight` for string interpolations like `$variable` and `${expression}` in Dart and Python) to `_SyntaxCategory.variable` instead of `_SyntaxCategory.string`.
+- String interpolation variables inside string literals (e.g. `$name` and `$age` in `print('I am $name, $age years old');`) are now highlighted in variable color instead of matching the string text color.
+- Verified with full test suite: 678 passed / 8 skipped.
+
+
 
