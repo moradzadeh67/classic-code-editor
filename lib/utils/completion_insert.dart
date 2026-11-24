@@ -28,7 +28,12 @@ const Set<int> callableCompletionKinds = {2, 3, 4};
 
 /// Builds the text inserted for an accepted completion item.
 ///
-/// - A snippet (`insertTextFormat == 2`) is expanded through
+/// - A *call* snippet — `name(...)` where the argument list holds nothing but
+///   placeholders — becomes `name()` with the caret inside. The placeholder
+///   defaults there are parameter *declarations* (`Object? object`,
+///   `int a`), so expanding them typed a signature the user never wrote. See
+///   [collapseToEmptyCall].
+/// - Any other snippet (`insertTextFormat == 2`) is expanded through
 ///   [SnippetExpander] with [indent]; the server's own snippet is authoritative,
 ///   so no parentheses are ever appended to it.
 /// - A plain callable item (`method` = 2, `function` = 3, `constructor` = 4)
@@ -50,6 +55,16 @@ CompletionInsertion buildCompletionInsertion({
   }
 
   if (insertTextFormat == 2) {
+    final callName = collapseToEmptyCall(insertText);
+    if (callName != null && !nextCharIsParen) {
+      final text = '$callName()';
+      return CompletionInsertion(
+        text: text,
+        caretOffset: text.length - 1,
+        addedParens: true,
+      );
+    }
+
     final expanded = SnippetExpander.expand(insertText, indent: indent ?? '');
     return CompletionInsertion(text: expanded.$1, caretOffset: expanded.$2);
   }
@@ -69,8 +84,48 @@ CompletionInsertion buildCompletionInsertion({
     );
   }
 
-  return CompletionInsertion(
-    text: insertText,
-    caretOffset: insertText.length,
-  );
+  return CompletionInsertion(text: insertText, caretOffset: insertText.length);
+}
+
+/// Matches a snippet that is exactly one call: `name(...)`.
+///
+/// The argument list is captured so its contents can be inspected.
+final RegExp _callSnippetShape = RegExp(
+  r'^([A-Za-z_$][A-Za-z0-9_$]*)\((.*)\)$',
+  dotAll: true,
+);
+
+/// A `${n:default}` placeholder, default included.
+final RegExp _bracedPlaceholder = RegExp(r'\$\{\d+[^}]*\}');
+
+/// A bare `$n` placeholder.
+final RegExp _plainPlaceholder = RegExp(r'\$\d+');
+
+/// What may remain in an argument list once every placeholder is removed:
+/// separators only, so the list carries no real code.
+final RegExp _separatorsOnly = RegExp(r'^[\s,\[\]{}]*$');
+
+/// Returns the callee name when [snippet] is a call whose argument list is
+/// nothing but placeholders — `print(${1:Object? object})`, `f(${1:int a},
+/// ${2:int b})` — and `null` otherwise.
+///
+/// The Dart language server describes every parameter as a placeholder whose
+/// default is the parameter *declaration*. Expanding those defaults typed a
+/// signature the user never wrote (`print(Object? object)`), so the caller
+/// turns such a snippet into an empty `name()` and lets the user fill it in.
+///
+/// A snippet that carries real code inside the call is left untouched: the
+/// `setState(() { $0 })` shape keeps its closure body because `()` is not a
+/// separator.
+String? collapseToEmptyCall(String snippet) {
+  // A trailing `$0` is only “leave the caret at the end of the call”.
+  final trimmed = snippet.replaceAll(r'$0', '').trim();
+  final match = _callSnippetShape.firstMatch(trimmed);
+  if (match == null) return null;
+
+  final inner = match.group(2)!.replaceAll(_bracedPlaceholder, '');
+  final rest = inner.replaceAll(_plainPlaceholder, '');
+  if (!_separatorsOnly.hasMatch(rest)) return null;
+
+  return match.group(1);
 }

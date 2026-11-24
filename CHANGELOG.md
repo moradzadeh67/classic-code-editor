@@ -4,6 +4,51 @@ All notable changes to Classic Code Editor are documented here. The format follo
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+- **The autocomplete popup no longer pre-selects its first suggestion.**  The list used to open with row 0
+  already highlighted, so a stray `Enter`/`Tab` inserted a symbol the user never chose and the only way out
+  was `Escape`. The highlight now starts *off* the list (`_selectedCompletionIndex == -1`) and is cleared
+  again on every new list: `↓` lands on the first row, `↑` on the last, `Tab` moves the highlight onto the
+  first row and only the *next* `Tab` accepts it, `Escape` still dismisses, and a bare `Enter` just types a
+  newline. The documentation panel — which can only describe a highlighted row — stays hidden until one is
+  picked. See TASK-103.
+- **No suggestions while the caret sits inside an empty `{}` or `()`.**  Right after `{}`, `{ }`, an
+  auto-indented `{` + newline, or an auto-paired `()` / a bare `foo(` the popup used to offer every keyword
+  in the language, which is noise: every mainstream editor waits for the first character.
+  `CompletionFilter.isInsideEmptyPair` (with `silentOpeners = {'{', '('}`) now suppresses the request until
+  a character is typed, while `{pri`, `${pri`, `foo(ba` and `print(pri` complete exactly as before. `[` is
+  deliberately left alone: empty indexing brackets are rare and the same reasoning does not apply. Because
+  the rule lives in `CompletionFilter.decide` — the single entry point every language goes through — it
+  applies to Dart, Python, C/C++, AArch64 assembly and the offline keyword fallback alike, not just to Dart.
+  See TASK-103.
+- **Accepting a function no longer types its parameter list.**  The Dart server sends `print` as the
+  snippet `print(${1:Object? object})`, and expanding that snippet wrote the placeholder *default* — the
+  parameter declaration — into the buffer, so accepting `print` produced `print(Object? object)` and the
+  user had to delete `Object? object` by hand. `CompletionInsert.collapseToEmptyCall` now recognises a
+  snippet that is a single call whose argument list holds nothing but placeholders (`,` / `[` / `]` / `{` /
+  `}` aside) and inserts an empty `name()` with the caret between the parentheses instead. Snippets that
+  carry real code keep their body — `setState(() { $0 })` still expands its closure — and declaration
+  snippets keep their defaults, so `stless` still inserts `class MyWidget extends StatelessWidget {`. See
+  TASK-103.
+
+### Tests
+- **693 pass / 8 skipped** (was 678/8). `completion_filter_test.dart` gained the empty-bracket suppression
+  cases for `{}` (four shapes, incl. newline + indentation) and for `()` (`()`, `( )`, `foo(`, `print(`,
+  multi-line), the “a typed prefix still completes” cases (`{pri`, `${pri`, `void f() { prin`, `foo(ba`,
+  `print(pri`) and an `isInsideEmptyPair` unit test (typed word, non-opener predecessor incl. `[`, empty
+  string, out-of-range offsets). `code_editor_panel_test.dart` gained “the popup opens with no row
+  highlighted”, “Enter dismisses the popup instead of accepting when nothing is highlighted”, “ArrowDown
+  selects the first row, then Tab accepts it” and “Tab highlights the first row when nothing is selected
+  yet”; the eleven existing acceptance and documentation-panel cases now press `↓` first.
+  `completion_insert_test.dart` gained the snippet cases: a parameter placeholder default is dropped
+  (`print(${1:Object? object})` → `print()`, caret inside), several parameters collapse to one empty pair
+  (`f(${1:int a}, ${2:String b})` → `f()`), a trailing `$0` still collapses, a call snippet with real code
+  keeps its body (`setState(() { $0 })`), and a declaration snippet keeps its defaults (`class
+  ${1:MyWidget} …`), plus a Python case (`print(${1:value})`) and a C case (`printf(${1:const char
+  *format})`) that collapse the same way — the rule has no language branch.
+
 ## [1.6.1] - 2026-11-20
 
 ### Fixed

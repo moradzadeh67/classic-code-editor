@@ -2058,5 +2058,71 @@ go-ahead from the owner, per the repository rules.
 - String interpolation variables inside string literals (e.g. `$name` and `$age` in `print('I am $name, $age years old');`) are now highlighted in variable color instead of matching the string text color.
 - Verified with full test suite: 678 passed / 8 skipped.
 
+### TASK-103: Autocomplete opens with no row pre-selected, and stays quiet inside empty `{}`
+**Phase:** 29
+**Status:** ✅ DONE
+**Completed:**
+
+**Step A — no pre-selection.**  `_selectedCompletionIndex` in
+`lib/ui/editor/code_editor_panel.dart` now starts at **`-1`** (“nothing highlighted”) and
+`_requestCompletion` resets it to `-1` every time a fresh list is built, so the popup never
+opens with the first suggestion already armed. `_moveSelection` treats `-1` as “off the list”:
+`ArrowDown` lands on the first row and `ArrowUp` on the last, then the index clamps within the
+list. `Enter` with `-1` closes the popup and simply types a newline (it no longer accepts a
+suggestion the user never chose); `Tab` with `-1` only moves the highlight onto the first row and
+accepts on the *next* `Tab`; `Escape` still dismisses. `_acceptSelected`, `_scheduleCompletionDoc`
+and `_dismissCompletion` all guard against `-1`, so no invalid index is ever dereferenced, and the
+documentation panel (which can only describe a highlighted row) stays hidden until one is picked.
+`@visibleForTesting debugSelectedCompletionIndex` exposes the index to the widget tests.
+
+**Step B — no suggestions inside an empty `{}` or `()`.**  New
+`CompletionFilter.isInsideEmptyPair(text, offset)` in `lib/utils/completion_filter.dart` returns true
+when the caret sits with **no identifier typed yet** and the previous non-whitespace character is one
+of `silentOpeners = {'{', '('}` — so `{}`, `{ }`, `{\n    `, an auto-indented `void f() {\n    `,
+`()`, `( )`, `foo(` and `print(` all stay quiet, while `{pri`, `${pri`, `foo(ba` and `print(pri`
+still complete normally. The closing bracket does not have to be present, so the rule also covers the
+instant right after `{` or `(` is typed, before any auto-paired `}` / `)` is inserted. `[` is
+deliberately excluded: empty indexing brackets are rare and the reasoning does not carry over.
+`decide()` consults it first and returns `CompletionDecision.none`, which covers every language: the
+same function decides completion for Dart, Python, C/C++, AArch64 assembly and the offline keyword
+lists, so this is not a Dart-only rule.
+
+**Step C — accepting a call no longer types its parameter list.**  The Dart server sends `print` as the
+snippet `print(${1:Object? object})`. `SnippetExpander` follows the snippet spec and writes every
+`${n:default}` default into the buffer, so accepting `print` produced `print(Object? object)` — a
+signature the user never wrote, which had to be deleted by hand. New
+`CompletionInsert.collapseToEmptyCall` in `lib/utils/completion_insert.dart` recognises a snippet that is
+exactly one call (`^name(…)$`, an optional trailing `$0` ignored) whose argument list is nothing but
+placeholders — only separators (`,`, `[`, `]`, `{`, `}`, whitespace) may remain once the placeholders are
+stripped — and inserts an empty `name()` with the caret between the parentheses instead. Everything else
+keeps the old behaviour: `setState(() { $0 })` still expands its closure body because `()` is not a
+separator, and declaration snippets keep their defaults, so `stless` still inserts
+`class MyWidget extends StatelessWidget {` and `fori` still inserts its loop header.
+
+**Step D — tests.**  Test suite **693 pass / 8 skipped** (was 678/8; +15 net).
+`completion_filter_test.dart` gained four cases: `decide()` stays silent after an opening brace (four
+shapes, incl. newline + indentation), `decide()` stays silent inside empty parentheses (`()`, `( )`,
+`foo(`, `print(`, multi-line), a typed prefix still completes in both (`{pri`, `${pri`,
+`void f() { prin`, `foo(ba`, `print(pri`), and an `isInsideEmptyPair` unit test covering a typed
+word, a non-opener predecessor (incl. `[`), the empty string and out-of-range offsets.
+`code_editor_panel_test.dart` gained `the popup opens with no row highlighted`, `Enter dismisses the
+popup instead of accepting when nothing is highlighted`, `ArrowDown selects the first row, then Tab
+accepts it` and `Tab highlights the first row when nothing is selected yet`, and the eleven existing
+acceptance / documentation-panel cases now press `ArrowDown` first, which is exactly what a user does
+now. `completion_insert_test.dart` gained six snippet cases: a parameter placeholder default is dropped
+(`print(${1:Object? object})` → `print()` with the caret inside), several parameters collapse to a single
+empty pair (`f(${1:int a}, ${2:String b})` → `f()`), a trailing `$0` after the call still collapses, a
+call snippet carrying real code keeps its body (`setState(() { $0 })`), a declaration snippet keeps its
+placeholder defaults (`class ${1:MyWidget} extends StatelessWidget {`), and a Python case
+(`print(${1:value})`) plus a C case (`printf(${1:const char *format})`) collapse exactly like Dart's.
+
+**Step E — language coverage.**  Both rules live in language-free code and are checked here rather than
+assumed: `CompletionFilter.decide` / `isInsideEmptyPair` take no language argument and are the single
+decision point for every buffer, and `buildCompletionInsertion` has exactly one call site
+(`CodeEditorPanelState._acceptSelected`) with no language branch — so Dart (via the Dart server's snippets),
+Python (pyright), C/C++ (clangd) and the offline keyword lists all take the same path. The only Dart-gated
+piece is `dart_snippets.snippetCompletions`, which decides *which built-in snippets exist*, not how an
+accepted snippet is inserted.
+
 
 

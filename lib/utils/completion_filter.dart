@@ -74,17 +74,22 @@ class CompletionFilter {
 
   /// Decides what happens after a keystroke that left the caret at [offset].
   ///
+  /// - whitespace, closing brackets, an empty `{}` / `()` or a bare caret →
+  ///   nothing (see [isInsideEmptyPair]);
   /// - a trigger character (server list ∪ legacy set) with an LSP server
   ///   attached → request immediately, `triggerKind = 2`;
   /// - an identifier prefix of [minimumPrefixLength] (LSP) or
-  ///   [offlineMinimumPrefixLength] (fallback list) → request on the debounce;
-  /// - whitespace, closing brackets or a bare caret → nothing.
+  ///   [offlineMinimumPrefixLength] (fallback list) → request on the debounce.
   static CompletionDecision decide({
     required String text,
     required int offset,
     required bool lspConnected,
     required Iterable<String> triggerCharacters,
   }) {
+    if (isInsideEmptyPair(text, offset)) {
+      return CompletionDecision.none;
+    }
+
     final word = currentWord(text, offset);
     final previous = previousChar(text, offset);
 
@@ -102,12 +107,47 @@ class CompletionFilter {
         ? minimumPrefixLength
         : offlineMinimumPrefixLength;
     if (word.length >= minimum) {
-      return const CompletionDecision(
-        shouldRequest: true,
-        immediate: false,
-      );
+      return const CompletionDecision(shouldRequest: true, immediate: false);
     }
     return CompletionDecision.none;
+  }
+
+  /// Opening brackets that keep the popup closed until a character is typed.
+  ///
+  /// * `{` — an empty block body: `{}`, `{ }`, or an auto-indented `{` plus a
+  ///   newline. Offering every keyword of the language there is pure noise.
+  /// * `(` — an empty argument list: `()`, `( )`, or `foo(`. The caller wants
+  ///   an argument, not a list of keywords.
+  ///
+  /// `[` is deliberately absent: indexing brackets are rarely empty for long
+  /// and the same reasoning does not apply to them.
+  static const Set<String> silentOpeners = {'{', '('};
+
+  /// Whether the caret at [offset] sits inside an empty/whitespace-only
+  /// bracket pair — `{}` or `()` — with no identifier typed yet.
+  ///
+  /// Only whitespace may separate the caret from the opening bracket, so
+  /// `{pri` and `foo(ba` still complete normally: once the first character is
+  /// typed the list is useful again. The closing bracket does not have to be
+  /// present, so the rule also covers the moment right after `{` or `(` is
+  /// typed, before any auto-paired `}` / `)` is inserted.
+  static bool isInsideEmptyPair(String text, int offset) {
+    if (offset < 0 || offset > text.length) return false;
+    final word = currentWord(text, offset);
+    if (word.isNotEmpty) return false;
+
+    int before = offset - 1;
+    while (before >= 0) {
+      final ch = text[before];
+      if (ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r') {
+        before--;
+      } else {
+        break;
+      }
+    }
+    if (before < 0) return false;
+
+    return silentOpeners.contains(text[before]);
   }
 
   /// Whether completions should be offered based on [word] and [previousChar].

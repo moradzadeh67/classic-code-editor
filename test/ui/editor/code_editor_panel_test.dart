@@ -40,10 +40,7 @@ class _FakeLspService extends LspService {
 /// LSP service that records the arguments passed to requestCompletion,
 /// used by triggerCompletion tests.
 class _TrackingLspService extends LspService {
-  _TrackingLspService({
-    required this.completions,
-    required this.onRequest,
-  });
+  _TrackingLspService({required this.completions, required this.onRequest});
 
   final List<CompletionItem> completions;
   final void Function(int? triggerKind, int line, int column) onRequest;
@@ -68,7 +65,6 @@ class _TrackingLspService extends LspService {
     return null;
   }
 }
-
 
 /// LSP service that can resolve items, used by the documentation-panel tests.
 class _DocsLspService extends LspService {
@@ -107,7 +103,6 @@ class _DocsLspService extends LspService {
     return null;
   }
 }
-
 
 /// LSP service that has an Untitled buffer open under a virtual path, like the
 /// shell does for unsaved tabs.
@@ -164,7 +159,11 @@ Widget _wrap(Widget child) {
   );
 }
 
-Widget _wrapSized({required double width, required double height, required Widget child}) {
+Widget _wrapSized({
+  required double width,
+  required double height,
+  required Widget child,
+}) {
   return MaterialApp(
     home: Scaffold(
       body: SizedBox(width: width, height: height, child: child),
@@ -387,56 +386,63 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('triggerCompletion() opens popup with empty prefix (manual trigger)',
-      (tester) async {
-    // Track whether requestCompletion was called and with what args
-    int callCount = 0;
-    int? lastTriggerKind;
-    int? lastLine;
-    int? lastColumn;
+  testWidgets(
+    'triggerCompletion() opens popup with empty prefix (manual trigger)',
+    (tester) async {
+      // Track whether requestCompletion was called and with what args
+      int callCount = 0;
+      int? lastTriggerKind;
+      int? lastLine;
+      int? lastColumn;
 
-    final lsp = _TrackingLspService(
-      completions: const [
-        CompletionItem(label: 'forEach', kind: 'method', detail: 'void'),
-        CompletionItem(label: 'print', kind: 'function', detail: '(Object?) -> void'),
-      ],
-      onRequest: (kind, line, column) {
-        callCount++;
-        lastTriggerKind = kind;
-        lastLine = line;
-        lastColumn = column;
-      },
-    );
-    addTearDown(lsp.dispose);
+      final lsp = _TrackingLspService(
+        completions: const [
+          CompletionItem(label: 'forEach', kind: 'method', detail: 'void'),
+          CompletionItem(
+            label: 'print',
+            kind: 'function',
+            detail: '(Object?) -> void',
+          ),
+        ],
+        onRequest: (kind, line, column) {
+          callCount++;
+          lastTriggerKind = kind;
+          lastLine = line;
+          lastColumn = column;
+        },
+      );
+      addTearDown(lsp.dispose);
 
-    await tester.pumpWidget(
-      _wrap(CodeEditorPanel(fileService: fileService, lspService: lsp)),
-    );
-    await tester.pumpAndSettle();
+      await tester.pumpWidget(
+        _wrap(CodeEditorPanel(fileService: fileService, lspService: lsp)),
+      );
+      await tester.pumpAndSettle();
 
-    // Call triggerCompletion() directly on the state
-    final editorState = tester.state<CodeEditorPanelState>(find.byType(CodeEditorPanel));
-    editorState.triggerCompletion();
+      // Call triggerCompletion() directly on the state
+      final editorState = tester.state<CodeEditorPanelState>(
+        find.byType(CodeEditorPanel),
+      );
+      editorState.triggerCompletion();
 
-    // Allow the async request to complete
-    await tester.pump();
-    await tester.pumpAndSettle();
+      // Allow the async request to complete
+      await tester.pump();
+      await tester.pumpAndSettle();
 
-    // Should have called requestCompletion with triggerKind=1 (Invoked)
-    expect(callCount, equals(1));
-    expect(lastTriggerKind, equals(1));
-    // Caret should be at line 1, column 1 (empty file)
-    expect(lastLine, equals(1));
-    expect(lastColumn, equals(1));
+      // Should have called requestCompletion with triggerKind=1 (Invoked)
+      expect(callCount, equals(1));
+      expect(lastTriggerKind, equals(1));
+      // Caret should be at line 1, column 1 (empty file)
+      expect(lastLine, equals(1));
+      expect(lastColumn, equals(1));
 
-    // Popup should be open showing all completions (empty prefix matches everything)
-    expect(find.byType(AutocompletePopup), findsOneWidget);
-    expect(find.text('forEach'), findsOneWidget);
-    expect(find.text('print'), findsOneWidget);
-  });
+      // Popup should be open showing all completions (empty prefix matches everything)
+      expect(find.byType(AutocompletePopup), findsOneWidget);
+      expect(find.text('forEach'), findsOneWidget);
+      expect(find.text('print'), findsOneWidget);
+    },
+  );
 
-  testWidgets('Tab accepts selected completion when popup is visible', (
-      tester) async {
+  testWidgets('the popup opens with no row highlighted', (tester) async {
     final lsp = _FakeLspService(completions: completions);
     addTearDown(lsp.dispose);
 
@@ -448,13 +454,99 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(AutocompletePopup), findsOneWidget);
 
+    final state = tester.state<CodeEditorPanelState>(
+      find.byType(CodeEditorPanel),
+    );
+    expect(
+      state.debugSelectedCompletionIndex,
+      -1,
+      reason: 'nothing is pre-selected, so Enter/Tab cannot accept by accident',
+    );
+  });
+
+  testWidgets('Enter dismisses the popup instead of accepting when nothing is '
+      'highlighted', (tester) async {
+    final lsp = _FakeLspService(completions: completions);
+    addTearDown(lsp.dispose);
+
+    await tester.pumpWidget(
+      _wrap(CodeEditorPanel(fileService: fileService, lspService: lsp)),
+    );
+    await tester.enterText(find.byType(TextField), 'for');
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pumpAndSettle();
+    expect(find.byType(AutocompletePopup), findsOneWidget);
+
+    final controller = tester
+        .widget<TextField>(find.byType(TextField))
+        .controller!;
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AutocompletePopup), findsNothing);
+    expect(
+      controller.text,
+      'for\n',
+      reason: 'the prefix stays as typed and Enter inserts a newline',
+    );
+  });
+
+  testWidgets('ArrowDown selects the first row, then Tab accepts it', (
+    tester,
+  ) async {
+    final lsp = _FakeLspService(completions: completions);
+    addTearDown(lsp.dispose);
+
+    await tester.pumpWidget(
+      _wrap(CodeEditorPanel(fileService: fileService, lspService: lsp)),
+    );
+    await tester.enterText(find.byType(TextField), 'for');
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pumpAndSettle();
+    expect(find.byType(AutocompletePopup), findsOneWidget);
+
+    final state = tester.state<CodeEditorPanelState>(
+      find.byType(CodeEditorPanel),
+    );
+
+    // Down: -1 → 0 (the first suggestion).
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pump();
+    expect(state.debugSelectedCompletionIndex, 0);
+
     await tester.sendKeyEvent(LogicalKeyboardKey.tab);
     await tester.pumpAndSettle();
     expect(find.byType(AutocompletePopup), findsNothing);
   });
 
+  testWidgets('Tab highlights the first row when nothing is selected yet', (
+    tester,
+  ) async {
+    final lsp = _FakeLspService(completions: completions);
+    addTearDown(lsp.dispose);
+
+    await tester.pumpWidget(
+      _wrap(CodeEditorPanel(fileService: fileService, lspService: lsp)),
+    );
+    await tester.enterText(find.byType(TextField), 'for');
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pumpAndSettle();
+    expect(find.byType(AutocompletePopup), findsOneWidget);
+
+    final state = tester.state<CodeEditorPanelState>(
+      find.byType(CodeEditorPanel),
+    );
+
+    // First Tab only moves the highlight: nothing is inserted yet.
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.pumpAndSettle();
+    expect(state.debugSelectedCompletionIndex, 0);
+    expect(find.byType(AutocompletePopup), findsOneWidget);
+  });
+
   testWidgets('Tab keeps current behavior (indent) when popup is hidden', (
-      tester) async {
+    tester,
+  ) async {
     final lsp = _FakeLspService(completions: completions);
     addTearDown(lsp.dispose);
 
@@ -476,60 +568,73 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('accepting a callable method inserts paren pair with caret inside',
-      (tester) async {
-    final lsp = _FakeLspService(
-      completions: const [
-        CompletionItem(label: 'forEach', kind: 'method', detail: 'void'),
-      ],
-    );
-    addTearDown(lsp.dispose);
+  testWidgets(
+    'accepting a callable method inserts paren pair with caret inside',
+    (tester) async {
+      final lsp = _FakeLspService(
+        completions: const [
+          CompletionItem(label: 'forEach', kind: 'method', detail: 'void'),
+        ],
+      );
+      addTearDown(lsp.dispose);
 
-    await tester.pumpWidget(
-      _wrap(CodeEditorPanel(fileService: fileService, lspService: lsp)),
-    );
-    await tester.enterText(find.byType(TextField), 'forE');
-    await tester.pump(const Duration(milliseconds: 350));
-    await tester.pumpAndSettle();
-    expect(find.byType(AutocompletePopup), findsOneWidget);
+      await tester.pumpWidget(
+        _wrap(CodeEditorPanel(fileService: fileService, lspService: lsp)),
+      );
+      await tester.enterText(find.byType(TextField), 'forE');
+      await tester.pump(const Duration(milliseconds: 350));
+      await tester.pumpAndSettle();
+      expect(find.byType(AutocompletePopup), findsOneWidget);
 
-    // Accept it (simulated by pressing Enter)
-    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
-    await tester.pumpAndSettle();
+      // Nothing is selected yet: pick the row explicitly, as a user would.
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pump();
 
-    // After accepting callable method, text should contain '()' with caret inside.
-    final controller = tester.widget<TextField>(find.byType(TextField)).controller!;
-    final text = controller.text;
-    // The inserted callable text should have parentheses and caret between them.
-    expect(text.contains('('), isTrue);
-  });
+      // Accept it (simulated by pressing Enter)
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
 
-  testWidgets('typing stless and pressing Enter inserts a StatelessWidget snippet',
-      (tester) async {
-    final lsp = _FakeLspService(completions: completions);
-    addTearDown(lsp.dispose);
+      // After accepting callable method, text should contain '()' with caret inside.
+      final controller = tester
+          .widget<TextField>(find.byType(TextField))
+          .controller!;
+      final text = controller.text;
+      // The inserted callable text should have parentheses and caret between them.
+      expect(text.contains('('), isTrue);
+    },
+  );
 
-    await tester.pumpWidget(
-      _wrap(CodeEditorPanel(fileService: fileService, lspService: lsp)),
-    );
-    await tester.enterText(find.byType(TextField), 'stless');
-    await tester.pump(const Duration(milliseconds: 350));
-    await tester.pumpAndSettle();
-    expect(find.byType(AutocompletePopup), findsOneWidget);
-    expect(_suggestion('stless'), findsOneWidget);
+  testWidgets(
+    'typing stless and pressing Enter inserts a StatelessWidget snippet',
+    (tester) async {
+      final lsp = _FakeLspService(completions: completions);
+      addTearDown(lsp.dispose);
 
-    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
-    await tester.pumpAndSettle();
+      await tester.pumpWidget(
+        _wrap(CodeEditorPanel(fileService: fileService, lspService: lsp)),
+      );
+      await tester.enterText(find.byType(TextField), 'stless');
+      await tester.pump(const Duration(milliseconds: 350));
+      await tester.pumpAndSettle();
+      expect(find.byType(AutocompletePopup), findsOneWidget);
+      expect(_suggestion('stless'), findsOneWidget);
 
-    final controller =
-        tester.widget<TextField>(find.byType(TextField)).controller!;
-    final text = controller.text;
-    expect(text, contains('class MyWidget extends StatelessWidget {'));
-    expect(text, contains('const MyWidget({super.key});'));
-    expect(text, contains('Widget build(BuildContext context) {'));
-    // The caret landed on the class name (right after `class `).
-    expect(controller.selection.baseOffset, equals('class '.length));
-  });
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+
+      final controller = tester
+          .widget<TextField>(find.byType(TextField))
+          .controller!;
+      final text = controller.text;
+      expect(text, contains('class MyWidget extends StatelessWidget {'));
+      expect(text, contains('const MyWidget({super.key});'));
+      expect(text, contains('Widget build(BuildContext context) {'));
+      // The caret landed on the class name (right after `class `).
+      expect(controller.selection.baseOffset, equals('class '.length));
+    },
+  );
 
   testWidgets('documentation panel waits for the 2 s idle delay', (
     tester,
@@ -550,12 +655,20 @@ void main() {
     await tester.pumpWidget(
       _wrap(CodeEditorPanel(fileService: fileService, lspService: lsp)),
     );
-    // 150 ms completion debounce, then one frame for the popup: the doc clock
-    // starts with that frame.
+    // 150 ms completion debounce, then one frame for the popup.
     await tester.enterText(find.byType(TextField), 'alp');
     await tester.pump(const Duration(milliseconds: 150));
     await tester.pump();
     expect(find.byType(AutocompletePopup), findsOneWidget);
+
+    // The popup opens with no row highlighted, so no docs are fetched yet.
+    await tester.pump(kCompletionDocPanelDelay);
+    await tester.pump();
+    expect(find.byType(CompletionDocPanel), findsNothing);
+
+    // Highlighting the first row starts the 2 s doc clock.
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pump();
 
     // 1.9 s idle: still hidden (resolve has already happened in the cache).
     await tester.pump(const Duration(milliseconds: 1900));
@@ -594,6 +707,9 @@ void main() {
     await tester.enterText(find.byType(TextField), 'alp');
     await tester.pump(const Duration(milliseconds: 150));
     await tester.pump();
+    // Highlight the single row, then let the 2 s doc clock elapse.
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pump();
     await tester.pump(kCompletionDocPanelDelay);
     await tester.pump();
     expect(find.byType(CompletionDocPanel), findsOneWidget);
@@ -630,6 +746,8 @@ void main() {
     await tester.enterText(find.byType(TextField), 'alp');
     await tester.pump(const Duration(milliseconds: 150));
     await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pump();
     await tester.pump(kCompletionDocPanelDelay);
     await tester.pump();
 
@@ -660,7 +778,9 @@ void main() {
     await tester.pump(const Duration(milliseconds: 150));
     await tester.pump();
 
-    // The fast resolve fires for `alpha` (its answer is still pending)...
+    // Highlight `alpha`, then let its fast resolve start (still pending)...
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pump();
     await tester.pump(const Duration(milliseconds: 200));
 
     // ...then the selection moves to `alphabet` before alpha answers.
@@ -723,17 +843,21 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(AutocompletePopup), findsOneWidget);
 
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pump();
     await tester.sendKeyEvent(LogicalKeyboardKey.enter);
     await tester.pumpAndSettle();
 
-    final controller =
-        tester.widget<TextField>(find.byType(TextField)).controller!;
+    final controller = tester
+        .widget<TextField>(find.byType(TextField))
+        .controller!;
     const importLine = "import 'dart:async';\n\n";
-    expect(controller.text, '$importLine''Timer');
     expect(
-      controller.selection.baseOffset,
-      importLine.length + 'Timer'.length,
+      controller.text,
+      '$importLine'
+      'Timer',
     );
+    expect(controller.selection.baseOffset, importLine.length + 'Timer'.length);
   });
 
   testWidgets('shows no documentation panel when resolve yields nothing', (
@@ -776,6 +900,8 @@ void main() {
     await tester.enterText(find.byType(TextField), 'alp');
     await tester.pump(const Duration(milliseconds: 150));
     await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pump();
     await tester.pump(kCompletionDocPanelDelay);
     await tester.pumpAndSettle();
 
@@ -783,40 +909,44 @@ void main() {
     expect(find.text('Inline docs.'), findsOneWidget);
   });
 
-  testWidgets('Tab inserts two spaces and never moves focus out of the editor',
-      (tester) async {
-    final lsp = _FakeLspService(completions: const []);
-    addTearDown(lsp.dispose);
-    // A plain-text buffer: no offline keyword list, so Tab is the only thing
-    // that can change the text.
-    fileService.openFilePath('/tmp/notes.txt', '');
+  testWidgets(
+    'Tab inserts two spaces and never moves focus out of the editor',
+    (tester) async {
+      final lsp = _FakeLspService(completions: const []);
+      addTearDown(lsp.dispose);
+      // A plain-text buffer: no offline keyword list, so Tab is the only thing
+      // that can change the text.
+      fileService.openFilePath('/tmp/notes.txt', '');
 
-    await tester.pumpWidget(
-      _wrap(CodeEditorPanel(fileService: fileService, lspService: lsp)),
-    );
-    await tester.enterText(find.byType(TextField), 'ab');
-    await tester.pumpAndSettle();
-    // Dismiss the offline keyword list so Tab inserts indentation.
-    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
-    await tester.pumpAndSettle();
+      await tester.pumpWidget(
+        _wrap(CodeEditorPanel(fileService: fileService, lspService: lsp)),
+      );
+      await tester.enterText(find.byType(TextField), 'ab');
+      await tester.pumpAndSettle();
+      // Dismiss the offline keyword list so Tab inserts indentation.
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
 
-    final focusNode =
-        tester.widget<TextField>(find.byType(TextField)).focusNode!;
-    expect(focusNode.hasPrimaryFocus, isTrue);
+      final focusNode = tester
+          .widget<TextField>(find.byType(TextField))
+          .focusNode!;
+      expect(focusNode.hasPrimaryFocus, isTrue);
 
-    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
-    await tester.pumpAndSettle();
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pumpAndSettle();
 
-    final controller =
-        tester.widget<TextField>(find.byType(TextField)).controller!;
-    expect(controller.text, 'ab  ');
-    expect(controller.selection.baseOffset, 4);
-    expect(
-      focusNode.hasPrimaryFocus,
-      isTrue,
-      reason: 'Tab must be handled by the editor, not by focus traversal',
-    );
-  });
+      final controller = tester
+          .widget<TextField>(find.byType(TextField))
+          .controller!;
+      expect(controller.text, 'ab  ');
+      expect(controller.selection.baseOffset, 4);
+      expect(
+        focusNode.hasPrimaryFocus,
+        isTrue,
+        reason: 'Tab must be handled by the editor, not by focus traversal',
+      );
+    },
+  );
 
   testWidgets('Shift+Tab outdents the caret line by up to two spaces', (
     tester,
@@ -838,11 +968,13 @@ void main() {
     await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
     await tester.pumpAndSettle();
 
-    final controller =
-        tester.widget<TextField>(find.byType(TextField)).controller!;
+    final controller = tester
+        .widget<TextField>(find.byType(TextField))
+        .controller!;
     expect(controller.text, '  four');
-    final focusNode =
-        tester.widget<TextField>(find.byType(TextField)).focusNode!;
+    final focusNode = tester
+        .widget<TextField>(find.byType(TextField))
+        .focusNode!;
     expect(focusNode.hasPrimaryFocus, isTrue);
   });
 
@@ -861,12 +993,10 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pumpAndSettle();
 
-    final controller =
-        tester.widget<TextField>(find.byType(TextField)).controller!;
-    controller.selection = const TextSelection(
-      baseOffset: 0,
-      extentOffset: 7,
-    );
+    final controller = tester
+        .widget<TextField>(find.byType(TextField))
+        .controller!;
+    controller.selection = const TextSelection(baseOffset: 0, extentOffset: 7);
     await tester.pumpAndSettle();
 
     await tester.sendKeyEvent(LogicalKeyboardKey.tab);
@@ -905,8 +1035,9 @@ void main() {
     final popupRect = tester.getRect(popupFinder);
 
     final editable = tester.allRenderObjects.whereType<RenderEditable>().first;
-    final controller =
-        tester.widget<TextField>(find.byType(TextField)).controller!;
+    final controller = tester
+        .widget<TextField>(find.byType(TextField))
+        .controller!;
     final caret = editable.localToGlobal(
       editable
           .getLocalRectForCaret(
@@ -929,9 +1060,8 @@ void main() {
   ) async {
     final lsp = _DocsLspService(
       completions: const [CompletionItem(label: 'alpha', kind: 'function')],
-      resolve: (item) async => const ResolvedCompletionItem(
-        documentation: 'Alpha documentation.',
-      ),
+      resolve: (item) async =>
+          const ResolvedCompletionItem(documentation: 'Alpha documentation.'),
     );
     addTearDown(lsp.dispose);
 
@@ -942,11 +1072,10 @@ void main() {
         child: CodeEditorPanel(fileService: fileService, lspService: lsp),
       ),
     );
-    await tester.enterText(
-      find.byType(TextField),
-      '${'x ' * 40}alp',
-    );
+    await tester.enterText(find.byType(TextField), '${'x ' * 40}alp');
     await tester.pump(const Duration(milliseconds: 150));
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
     await tester.pump();
     await tester.pump(kCompletionDocPanelDelay);
     await tester.pumpAndSettle();
@@ -969,9 +1098,7 @@ void main() {
   ) async {
     final requests = <int?>[];
     final lsp = _TrackingLspService(
-      completions: const [
-        CompletionItem(label: 'print', kind: 'function'),
-      ],
+      completions: const [CompletionItem(label: 'print', kind: 'function')],
       onRequest: (triggerKind, line, column) => requests.add(triggerKind),
     );
     addTearDown(lsp.dispose);
@@ -986,8 +1113,9 @@ void main() {
     // runs.
     FocusManager.instance.primaryFocus?.unfocus();
     await tester.pumpAndSettle();
-    final focusNode =
-        tester.widget<TextField>(find.byType(TextField)).focusNode!;
+    final focusNode = tester
+        .widget<TextField>(find.byType(TextField))
+        .focusNode!;
     expect(focusNode.hasPrimaryFocus, isFalse);
 
     final state = tester.state<CodeEditorPanelState>(
@@ -1025,7 +1153,6 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-
   testWidgets("an Untitled buffer uses the server's virtual document path", (
     tester,
   ) async {
@@ -1047,6 +1174,8 @@ void main() {
     await tester.enterText(find.byType(TextField), 'pri');
     await tester.pump(const Duration(milliseconds: 150));
     await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pump();
     await tester.pump(kCompletionDocPanelDelay);
     await tester.pumpAndSettle();
 
@@ -1061,5 +1190,4 @@ void main() {
     expect(find.byType(CompletionDocPanel), findsOneWidget);
     expect(find.text('Virtual docs.'), findsOneWidget);
   });
-
 }

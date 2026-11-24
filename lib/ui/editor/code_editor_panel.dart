@@ -258,7 +258,20 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
 
   Offset _cursorScreenOffset = Offset.zero;
   List<CompletionItem> _completionItems = [];
-  int _selectedCompletionIndex = 0;
+
+  /// Index of the highlighted completion row, or `-1` when the popup is open
+  /// but nothing is highlighted.
+  ///
+  /// The popup deliberately opens with **no** row selected, so `Enter`/`Tab`
+  /// can never insert a suggestion the user did not ask for: `Down`/`Tab`
+  /// moves the highlight onto the first row (see [_moveSelection]), `Escape`
+  /// dismisses the popup, and a bare `Enter` just types a newline.
+  int _selectedCompletionIndex = -1;
+
+  /// Read-only view of [_selectedCompletionIndex] for widget tests.
+  @visibleForTesting
+  int get debugSelectedCompletionIndex => _selectedCompletionIndex;
+
   HoverInfo? _hoverInfo;
 
   Timer? _completionDebounce;
@@ -569,10 +582,16 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
     // Check whether the last change was a trigger character that requires an
     // immediate completion request (no debounce).  Use the same logic as
     // CompletionFilter.decide() so the behavior matches.
+    final selection = _controller.selection;
+    final offset =
+        (selection.isValid && selection.isCollapsed && selection.start >= 0)
+        ? selection.start
+        : _controller.text.length;
+
     final lspConnected = widget.lspService.isConnected;
     final decision = CompletionFilter.decide(
       text: _controller.text,
-      offset: _controller.text.length,
+      offset: offset,
       lspConnected: lspConnected,
       triggerCharacters: lspConnected
           ? widget.lspService.triggerCharacters
@@ -1231,7 +1250,7 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
     _resolveRequests.clear();
     setState(() {
       _completionItems = filtered;
-      _selectedCompletionIndex = 0;
+      _selectedCompletionIndex = -1;
       _cursorScreenOffset = _computeCursorScreenPosition();
     });
     _scheduleCompletionDoc();
@@ -1366,9 +1385,19 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
   }
 
   void _moveSelection(int delta) {
+    if (_completionItems.isEmpty) return;
     setState(() {
-      final newIndex = _selectedCompletionIndex + delta;
-      _selectedCompletionIndex = newIndex.clamp(0, _completionItems.length - 1);
+      if (_selectedCompletionIndex < 0) {
+        // Nothing is highlighted yet (the popup opens with no selection), so
+        // the first arrow press lands on an end of the list: Down → first,
+        // Up → last, the way desktop editors behave.
+        _selectedCompletionIndex = delta > 0 ? 0 : _completionItems.length - 1;
+      } else {
+        _selectedCompletionIndex = (_selectedCompletionIndex + delta).clamp(
+          0,
+          _completionItems.length - 1,
+        );
+      }
     });
     _scheduleCompletionDoc();
   }
@@ -1409,7 +1438,12 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
   /// again from zero.
   void _scheduleCompletionDoc() {
     _hideCompletionDoc();
-    if (!mounted || _completionItems.isEmpty) return;
+    if (!mounted ||
+        _completionItems.isEmpty ||
+        _selectedCompletionIndex < 0 ||
+        _selectedCompletionIndex >= _completionItems.length) {
+      return;
+    }
 
     final item = _completionItems[_selectedCompletionIndex];
     final requestId = ++_docRequestId;
@@ -1426,6 +1460,8 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
       final resolved = await _resolveFor(item);
       if (!mounted || requestId != _docRequestId) return;
       if (_completionItems.isEmpty ||
+          _selectedCompletionIndex < 0 ||
+          _selectedCompletionIndex >= _completionItems.length ||
           _completionItems[_selectedCompletionIndex] != item) {
         return;
       }
@@ -1487,6 +1523,10 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
   Future<void> _acceptSelected() async {
     if (_acceptingCompletion) return;
     if (_completionItems.isEmpty) return;
+    if (_selectedCompletionIndex < 0 ||
+        _selectedCompletionIndex >= _completionItems.length) {
+      return;
+    }
 
     final item = _completionItems[_selectedCompletionIndex];
     final insertText = item.effectiveInsert;
@@ -1704,10 +1744,10 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
     _hideCompletionDoc();
     _resolvedItems.clear();
     _resolveRequests.clear();
-    if (_completionItems.isEmpty && _selectedCompletionIndex == 0) return;
+    if (_completionItems.isEmpty && _selectedCompletionIndex == -1) return;
     setState(() {
       _completionItems = [];
-      _selectedCompletionIndex = 0;
+      _selectedCompletionIndex = -1;
     });
   }
 
@@ -1999,14 +2039,23 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
         return KeyEventResult.handled;
       } else if (event.logicalKey == LogicalKeyboardKey.enter) {
         if (_showAutocomplete) {
-          _acceptSelected();
+          if (_selectedCompletionIndex >= 0) {
+            _acceptSelected();
+          } else {
+            _dismissCompletion();
+            _handleEnterPressed();
+          }
         } else {
           _handleEnterPressed();
         }
         return KeyEventResult.handled;
       } else if (event.logicalKey == LogicalKeyboardKey.tab) {
         if (_showAutocomplete) {
-          _acceptSelected();
+          if (_selectedCompletionIndex >= 0) {
+            _acceptSelected();
+          } else {
+            _moveSelection(1);
+          }
         } else {
           _handleTabPressed(shift: HardwareKeyboard.instance.isShiftPressed);
         }

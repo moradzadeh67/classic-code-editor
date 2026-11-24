@@ -86,6 +86,75 @@ void main() {
         expectedCaret: 6,
       ),
       _Case(
+        // What the Dart server really sends for `print`: the parameter is a
+        // placeholder whose default is its declaration. Expanding it typed
+        // `Object? object` into the buffer.
+        name: 'a parameter placeholder default is dropped, not typed',
+        insertText: r'print(${1:Object? object})',
+        kind: 'function',
+        kindInt: 3,
+        insertTextFormat: 2,
+        expected: 'print()',
+        expectedCaret: 6,
+      ),
+      _Case(
+        name: 'every parameter placeholder collapses to one empty pair',
+        insertText: r'f(${1:int a}, ${2:String b})',
+        kind: 'function',
+        kindInt: 3,
+        insertTextFormat: 2,
+        expected: 'f()',
+        expectedCaret: 2,
+      ),
+      _Case(
+        name: r'a trailing $0 after the call still collapses',
+        insertText: r'f(${1:Object? object})$0',
+        kind: 'function',
+        kindInt: 3,
+        insertTextFormat: 2,
+        expected: 'f()',
+        expectedCaret: 2,
+      ),
+      _Case(
+        // pyright / Python: the rule is language-agnostic on purpose, so the
+        // same collapse applies outside Dart.
+        name: 'a Python call snippet collapses too',
+        insertText: r'print(${1:value})',
+        kind: 'function',
+        kindInt: 3,
+        insertTextFormat: 2,
+        expected: 'print()',
+        expectedCaret: 6,
+      ),
+      _Case(
+        // clangd / C: a pointer parameter is still a declaration, not code.
+        name: 'a C call snippet collapses too',
+        insertText: r'printf(${1:const char *format})',
+        kind: 'function',
+        kindInt: 3,
+        insertTextFormat: 2,
+        expected: 'printf()',
+        expectedCaret: 7,
+      ),
+      _Case(
+        name: 'a call snippet whose body holds real code keeps its body',
+        insertText: 'setState(() {\n\t\$0\n})',
+        kind: 'method',
+        kindInt: 2,
+        insertTextFormat: 2,
+        expected: 'setState(() {\n\t\n})',
+        expectedCaret: 15,
+      ),
+      _Case(
+        name: 'a declaration snippet keeps its placeholder defaults',
+        insertText: r'class ${1:MyWidget} extends StatelessWidget {',
+        kind: 'snippet',
+        kindInt: 15,
+        insertTextFormat: 2,
+        expected: 'class MyWidget extends StatelessWidget {',
+        expectedCaret: 6,
+      ),
+      _Case(
         name: 'a snippet without parentheses never gets a pair',
         insertText: r'''for (final $1 in $2) {
 $0

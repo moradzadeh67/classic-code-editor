@@ -74,6 +74,115 @@ void main() {
       }
     });
 
+    test('decide() — nothing is offered right after an opening brace', () {
+      // `{}` just typed, `{ }` with the caret in the middle, and a brace
+      // followed by a newline + indentation (the auto-indent shape).
+      for (final (text, offset) in <(String, int)>[
+        ('{}', 1),
+        ('{ }', 2),
+        ('{\n  ', 4),
+        ('void f() {\n    ', 14),
+      ]) {
+        final decision = CompletionFilter.decide(
+          text: text,
+          offset: offset,
+          lspConnected: true,
+          triggerCharacters: const ['.'],
+        );
+        expect(
+          decision.shouldRequest,
+          isFalse,
+          reason: 'text ${text.replaceAll('\n', r'\n')} @$offset',
+        );
+      }
+    });
+
+    test('decide() — a typed prefix inside a brace block still completes', () {
+      // `$` and `{` must not suppress completion once letters are typed.
+      for (final (text, offset) in <(String, int)>[
+        ('{\n  pri', 7),
+        (r'${pri', 5),
+        ('void f() { prin', 15),
+      ]) {
+        final decision = CompletionFilter.decide(
+          text: text,
+          offset: offset,
+          lspConnected: true,
+          triggerCharacters: const ['.'],
+        );
+        expect(
+          decision.shouldRequest,
+          isTrue,
+          reason: 'text ${text.replaceAll('\n', r'\n')} @$offset',
+        );
+      }
+    });
+
+    test('decide() — nothing is offered inside empty parentheses', () {
+      // `()` just auto-paired, `( )` with the caret in the middle, a bare
+      // `foo(`, and a call broken over two lines.
+      for (final (text, offset) in <(String, int)>[
+        ('()', 1),
+        ('( )', 2),
+        ('foo(', 4),
+        ('print(', 6),
+        ('foo(\n    ', 8),
+      ]) {
+        final decision = CompletionFilter.decide(
+          text: text,
+          offset: offset,
+          lspConnected: true,
+          triggerCharacters: const ['.'],
+        );
+        expect(
+          decision.shouldRequest,
+          isFalse,
+          reason: 'text ${text.replaceAll('\n', r'\n')} @$offset',
+        );
+      }
+    });
+
+    test(
+      'decide() — a typed prefix inside an argument list still completes',
+      () {
+        for (final (text, offset) in <(String, int)>[
+          ('foo(ba', 6),
+          ('print(pri', 9),
+          ('foo(\n  ba', 8),
+        ]) {
+          final decision = CompletionFilter.decide(
+            text: text,
+            offset: offset,
+            lspConnected: true,
+            triggerCharacters: const ['.'],
+          );
+          expect(
+            decision.shouldRequest,
+            isTrue,
+            reason: 'text ${text.replaceAll('\n', r'\n')} @$offset',
+          );
+        }
+      },
+    );
+
+    test('isInsideEmptyPair only matches a caret with no word yet', () {
+      expect(CompletionFilter.isInsideEmptyPair('{}', 1), isTrue);
+      expect(CompletionFilter.isInsideEmptyPair('{\n    ', 6), isTrue);
+      expect(CompletionFilter.isInsideEmptyPair('  {', 3), isTrue);
+      expect(CompletionFilter.isInsideEmptyPair('()', 1), isTrue);
+      expect(CompletionFilter.isInsideEmptyPair('(\n    ', 6), isTrue);
+      expect(CompletionFilter.isInsideEmptyPair('  (', 3), isTrue);
+      // A word is being typed: normal completion applies.
+      expect(CompletionFilter.isInsideEmptyPair('{pri', 4), isFalse);
+      expect(CompletionFilter.isInsideEmptyPair('foo(ba', 6), isFalse);
+      // Not an opener at all — `[` is intentionally not suppressed.
+      expect(CompletionFilter.isInsideEmptyPair('foo[', 4), isFalse);
+      expect(CompletionFilter.isInsideEmptyPair('', 0), isFalse);
+      // Out-of-range offsets are refused rather than throwing.
+      expect(CompletionFilter.isInsideEmptyPair('{}', 99), isFalse);
+      expect(CompletionFilter.isInsideEmptyPair('{}', -1), isFalse);
+    });
+
     test('decide() — LSP off: single letter does NOT open (offline min 3)', () {
       final decision = CompletionFilter.decide(
         text: 'a',
@@ -130,7 +239,9 @@ void main() {
 
     test('parseTriggerCharacters defaults to ["."]', () {
       expect(LspService.parseTriggerCharacters(null), const ['.']);
-      expect(LspService.parseTriggerCharacters(<String, dynamic>{}), const ['.']);
+      expect(LspService.parseTriggerCharacters(<String, dynamic>{}), const [
+        '.',
+      ]);
       expect(
         LspService.parseTriggerCharacters(<String, dynamic>{
           'capabilities': <String, dynamic>{},
@@ -283,10 +394,12 @@ void main() {
 
     test('generateFallbackCompletions speaks AArch64 for .s buffers', () {
       const doc = '.global _main\n_main:\n    mov x0, #0';
-      List<String> labelsFor(String query) => CompletionFilter
-          .generateFallbackCompletions(doc, query, 'armasm')
-          .map((c) => c.label)
-          .toList();
+      List<String> labelsFor(String query) =>
+          CompletionFilter.generateFallbackCompletions(
+            doc,
+            query,
+            'armasm',
+          ).map((c) => c.label).toList();
 
       expect(labelsFor('mo'), containsAll(<String>['mov', 'movz', 'movk']));
       expect(labelsFor('ld'), containsAll(<String>['ldr', 'ldp', 'ldrb']));
@@ -307,7 +420,10 @@ void main() {
       // "Alph" rather than "Alpha": the full word being typed is never offered
       // (see the exact-prefix test below), but the tier order is unchanged.
       final sorted = CompletionFilter.filter(items, 'Alph');
-      expect(sorted.map((i) => i.label), equals(['Alpha', 'alpha', 'alphabet']));
+      expect(
+        sorted.map((i) => i.label),
+        equals(['Alpha', 'alpha', 'alphabet']),
+      );
 
       // The exact word is dropped (case-insensitively), leaving the rest.
       expect(
