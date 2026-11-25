@@ -390,7 +390,7 @@ Classic Code Editor follows a clean layered architecture with strict separation 
 
 <img src="assets/diagrams/data-flow.svg" alt="Data Flow" width="800">
 
-> The diagrams are stamped with the current release (`v1.6.1+12`) and phase count.
+> The diagrams are stamped with the current release (`v1.6.2+13`) and phase count.
 
 ### Layer Breakdown
 
