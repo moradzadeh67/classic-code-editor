@@ -6,6 +6,8 @@ All notable changes to Classic Code Editor are documented here. The format follo
 
 ## [Unreleased]
 
+## [1.6.2] - 2026-11-25
+
 ### Changed
 - **The autocomplete popup no longer pre-selects its first suggestion.**  The list used to open with row 0
   already highlighted, so a stray `Enter`/`Tab` inserted a symbol the user never chose and the only way out
@@ -33,6 +35,9 @@ All notable changes to Classic Code Editor are documented here. The format follo
   snippets keep their defaults, so `stless` still inserts `class MyWidget extends StatelessWidget {`. See
   TASK-103.
 
+### Fixed
+- **String interpolation variable highlighting.**  In string literals containing interpolated variables (e.g., `print('I am $name, $age years old');`), the `subst` token class was previously mapped to `_SyntaxCategory.string`, causing `$name` and `$age` to be colored identically to the string text. `subst` is now mapped to `_SyntaxCategory.variable`, rendering interpolated variables and expressions in variable color so they stand out clearly from the string literal. See TASK-102.
+
 ### Tests
 - **693 pass / 8 skipped** (was 678/8). `completion_filter_test.dart` gained the empty-bracket suppression
   cases for `{}` (four shapes, incl. newline + indentation) and for `()` (`()`, `( )`, `foo(`, `print(`,
@@ -52,7 +57,6 @@ All notable changes to Classic Code Editor are documented here. The format follo
 ## [1.6.1] - 2026-11-20
 
 ### Fixed
-- **String interpolation variable highlighting.**  In string literals containing interpolated variables (e.g., `print('I am $name, $age years old');`), the `subst` token class was previously mapped to `_SyntaxCategory.string`, causing `$name` and `$age` to be colored identically to the string text. `subst` is now mapped to `_SyntaxCategory.variable`, rendering interpolated variables and expressions in variable color so they stand out clearly from the string literal. See TASK-102.
 - **Completion inside the installed `.app`.**  A copy opened from Finder, Launchpad or `/Applications` inherits `Directory.current == "/"` and launchd's minimal `PATH`, so the language servers were rooted at the whole filesystem, spent minutes indexing it (94 % CPU) and never answered a `textDocument/completion` inside the 20 s JSON-RPC deadline — while `flutter run`, which inherits the project directory, looked perfectly fine. `LspServerManager` now rejects `"/"` and any missing directory (falling back to the per-user temp folder, never `$HOME`), gains `containsPath` and `rebase`, and `IDEShell` roots the servers at the project folder — or the active file's folder when no project is open — *before* the first `didOpen`. Re-rooting is a no-op while the file still belongs to the current root, so tab switches never restart a warm server, and a server that is still indexing can no longer look like a missing feature: the local keyword list appears after `kCompletionServerGrace` (700 ms) and is upgraded when the real answer arrives. `ToolPathResolver` now also resolves `dart`/`clangd`/`pyright-langserver` through the user's login shell and the common install locations (preferring the Dart next to their `flutter`), hands that resolved `PATH` to every child process, and lists every location it tried in the status-bar tooltip and the Console hint. See TASK-098.
 - ***Open File*, *Save As* and *Open Folder* did nothing at all.**  `file_picker` 13.3.3 delegates macOS to `file_picker_darwin`, which refuses to build any panel without `com.apple.security.files.user-selected.read-only`/`.read-write` — whether or not the App Sandbox is on — and the Dart side turns that refusal into a silent `null`, so a cancelled dialog and a refused one looked identical. Both entitlements files now declare `com.apple.security.files.user-selected.read-write`, and `FilePicker.skipEntitlementsChecks()` is called immediately before each panel (the API the plugin documents for non-sandboxed apps), so the dialogs open even if a configuration drops the key. The sandbox itself stays off: the IDE must still spawn `dart`, `clang` and `lldb`. See TASK-100.
 - **An ARM64 Assembly buffer was offered Dart keywords.**  With no language server for `.s` files the offline list fell through to the Dart branch, so typing `cl` suggested `class`. `CompletionFilter` now has an AArch64 list (`mov`/`movz`/`movk`, `ldr`/`ldp`/`ldrb`, `stp`, `adrp`, `cbz`/`tbz`, `csel`, SIMD `ld1`/`zip1`/`tbl`, `paciasp`/`autiasp`, …) plus `sp`/`wsp`/`xzr`/`wzr`/`lr`/`fp`/`pc`, and nothing else; conditional branches and GAS directives stay out because the extracted query word can never contain a `.`. See TASK-099.
