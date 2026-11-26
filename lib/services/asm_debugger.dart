@@ -146,11 +146,9 @@ class AsmDebugger extends CDebugger {
         return;
       }
 
-      final process = await Process.start(
-        lldbPath,
-        <String>[executable],
-        environment: await ToolPathResolver.instance.processEnvironment(),
-      );
+      final process = await Process.start(lldbPath, <String>[
+        executable,
+      ], environment: await ToolPathResolver.instance.processEnvironment());
       lldbProcess = process;
       resetLldbQueue();
       exitHandled = false;

@@ -4,8 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   group('formatCompletionDocumentation', () {
     test('strips inline code, bold markers and link targets', () {
-      final raw =
-          'Returns a **bold** value from [`Timer`](dart:async/Timer).';
+      final raw = 'Returns a **bold** value from [`Timer`](dart:async/Timer).';
       expect(
         formatCompletionDocumentation(raw),
         'Returns a bold value from Timer.',
@@ -14,18 +13,12 @@ void main() {
 
     test('keeps line breaks and drops heading markers', () {
       final raw = '## Summary\nLine one\nLine two';
-      expect(
-        formatCompletionDocumentation(raw),
-        'Summary\nLine one\nLine two',
-      );
+      expect(formatCompletionDocumentation(raw), 'Summary\nLine one\nLine two');
     });
 
     test('keeps fenced code but removes the fence markers', () {
       final raw = 'Example:\n```dart\nvoid main() {}\n```';
-      expect(
-        formatCompletionDocumentation(raw),
-        'Example:\n\nvoid main() {}',
-      );
+      expect(formatCompletionDocumentation(raw), 'Example:\n\nvoid main() {}');
     });
 
     test('truncates to 12 lines and appends an ellipsis line', () {

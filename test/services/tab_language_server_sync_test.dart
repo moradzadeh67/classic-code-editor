@@ -30,7 +30,10 @@ class _FakeManager extends LspServerManager {
   final List<String> activated = <String>[];
 
   @override
-  Future<LspService> activateFor(String? filePath, {String content = ''}) async {
+  Future<LspService> activateFor(
+    String? filePath, {
+    String content = '',
+  }) async {
     activated.add(filePath ?? '<null>');
     final language = LanguageConfig.fromPathOrContent(
       filePath,
@@ -55,10 +58,7 @@ void main() {
   late TabLanguageServerSync sync;
 
   setUp(() {
-    dartService = LspService(
-      spec: LspServerSpec.dart,
-      workspaceRoot: '/tmp',
-    );
+    dartService = LspService(spec: LspServerSpec.dart, workspaceRoot: '/tmp');
     clangdService = LspService(
       spec: LspServerSpec.clangd,
       workspaceRoot: '/tmp',
@@ -79,54 +79,60 @@ void main() {
 
   const realPath = '/Users/me/project/Untitled 23.c';
 
-  test('a .c tab switched to Dart is documented as .dart on the Dart server', () async {
-    await sync.sync(
-      effective: LanguageConfig.supportedLanguages[0],
-      realPath: realPath,
-      content: 'void main() {}',
-      bufferName: 'Untitled 23.c',
-    );
+  test(
+    'a .c tab switched to Dart is documented as .dart on the Dart server',
+    () async {
+      await sync.sync(
+        effective: LanguageConfig.supportedLanguages[0],
+        realPath: realPath,
+        content: 'void main() {}',
+        bufferName: 'Untitled 23.c',
+      );
 
-    expect(sync.openPath, endsWith('/untitled-23-c.dart'));
-    expect(sync.openService, same(dartService));
-    expect(manager.activated.single, endsWith('.dart'));
-    expect(sync.openService!.spec.id, 'dart');
-  });
+      expect(sync.openPath, endsWith('/untitled-23-c.dart'));
+      expect(sync.openService, same(dartService));
+      expect(manager.activated.single, endsWith('.dart'));
+      expect(sync.openService!.spec.id, 'dart');
+    },
+  );
 
-  test('switching back to Auto closes the old document and its diagnostics', () async {
-    await sync.sync(
-      effective: LanguageConfig.supportedLanguages[0],
-      realPath: realPath,
-      content: 'void main() {}',
-      bufferName: 'Untitled 23.c',
-    );
-    final virtualPath = sync.openPath!;
-    dartService.debugSetDiagnosticsFor(virtualPath, [
-      Diagnostic(
-        file: virtualPath,
-        line: 1,
-        column: 1,
-        severity: 'error',
-        message: 'Eight clangd-style errors',
-        code: 'x',
-      ),
-    ]);
-    expect(dartService.activeDiagnostics, hasLength(1));
+  test(
+    'switching back to Auto closes the old document and its diagnostics',
+    () async {
+      await sync.sync(
+        effective: LanguageConfig.supportedLanguages[0],
+        realPath: realPath,
+        content: 'void main() {}',
+        bufferName: 'Untitled 23.c',
+      );
+      final virtualPath = sync.openPath!;
+      dartService.debugSetDiagnosticsFor(virtualPath, [
+        Diagnostic(
+          file: virtualPath,
+          line: 1,
+          column: 1,
+          severity: 'error',
+          message: 'Eight clangd-style errors',
+          code: 'x',
+        ),
+      ]);
+      expect(dartService.activeDiagnostics, hasLength(1));
 
-    // Auto on a `.c` file means C again: the real path, on clangd.
-    await sync.sync(
-      effective: LanguageConfig.supportedLanguages[1],
-      realPath: realPath,
-      content: 'void main() {}',
-      bufferName: 'Untitled 23.c',
-    );
+      // Auto on a `.c` file means C again: the real path, on clangd.
+      await sync.sync(
+        effective: LanguageConfig.supportedLanguages[1],
+        realPath: realPath,
+        content: 'void main() {}',
+        bufferName: 'Untitled 23.c',
+      );
 
-    expect(sync.openPath, realPath);
-    expect(sync.openService!.spec.id, 'clangd');
-    // The old URI was closed, so its stale count is gone.
-    expect(dartService.activeDiagnostics, isEmpty);
-    expect(dartService.activeDocumentPath, isNull);
-  });
+      expect(sync.openPath, realPath);
+      expect(sync.openService!.spec.id, 'clangd');
+      // The old URI was closed, so its stale count is gone.
+      expect(dartService.activeDiagnostics, isEmpty);
+      expect(dartService.activeDocumentPath, isNull);
+    },
+  );
 
   test('an untitled buffer still gets a virtual document', () async {
     await sync.sync(
@@ -140,17 +146,20 @@ void main() {
     expect(sync.openService!.spec.id, 'clangd');
   });
 
-  test('an explicit language that matches the extension keeps the real path', () async {
-    await sync.sync(
-      effective: LanguageConfig.supportedLanguages[1],
-      realPath: realPath,
-      content: 'int main(void) { return 0; }',
-      bufferName: 'Untitled 23.c',
-    );
+  test(
+    'an explicit language that matches the extension keeps the real path',
+    () async {
+      await sync.sync(
+        effective: LanguageConfig.supportedLanguages[1],
+        realPath: realPath,
+        content: 'int main(void) { return 0; }',
+        bufferName: 'Untitled 23.c',
+      );
 
-    expect(sync.openPath, realPath);
-    expect(manager.activated.single, realPath);
-  });
+      expect(sync.openPath, realPath);
+      expect(manager.activated.single, realPath);
+    },
+  );
 
   group('needsVirtualDocument', () {
     test('matches the extension or not', () {

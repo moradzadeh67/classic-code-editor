@@ -350,7 +350,8 @@ class _CompletionPlacement {
 
     // No horizontal room: stack the panel under (or above) the list, still
     // inside the editor.
-    final docWidth = (bounds.width - 2 * _gap).clamp(0.0, _maxDocWidth)
+    final docWidth = (bounds.width - 2 * _gap)
+        .clamp(0.0, _maxDocWidth)
         .toDouble();
     final docLeft = (bounds.width - docWidth) / 2;
     final belowDoc = bounds.height - (top + height) - _gap;

@@ -77,8 +77,10 @@ class CompletionItem {
   /// label is purely a human-readable description and only [filterText]
   /// matches what the user actually typed.
   final String? filterText;
+
   /// LSP `insertTextFormat`: 1 = plain text, 2 = snippet.
   final int? insertTextFormat;
+
   /// LSP `sortText`: server-provided ranking string.
   final String? sortText;
 

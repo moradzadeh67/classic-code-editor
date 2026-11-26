@@ -29,8 +29,10 @@ class _FakeDiagnosticsLspService extends LspService {
   Future<List<CompletionItem>> requestCompletion(
     String filePath,
     int line,
-    int column,
-    {String? triggerCharacter, int? triggerKind}) async => const [];
+    int column, {
+    String? triggerCharacter,
+    int? triggerKind,
+  }) async => const [];
 
   @override
   Future<HoverInfo?> requestHover(

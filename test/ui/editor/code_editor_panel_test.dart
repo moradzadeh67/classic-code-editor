@@ -491,7 +491,7 @@ void main() {
     );
   });
 
-  testWidgets('ArrowDown selects the first row, then Tab accepts it', (
+  testWidgets('ArrowDown selects the first row, then Tab moves on', (
     tester,
   ) async {
     final lsp = _FakeLspService(completions: completions);
@@ -514,9 +514,47 @@ void main() {
     await tester.pump();
     expect(state.debugSelectedCompletionIndex, 0);
 
+    // Tab never accepts: it only moves the highlight.
     await tester.sendKeyEvent(LogicalKeyboardKey.tab);
     await tester.pumpAndSettle();
-    expect(find.byType(AutocompletePopup), findsNothing);
+    expect(find.byType(AutocompletePopup), findsOneWidget);
+    expect(state.debugSelectedCompletionIndex, isNot(0));
+  });
+
+  testWidgets('repeated Tab cycles through the suggestions in order', (
+    tester,
+  ) async {
+    final lsp = _FakeLspService(
+      completions: const [
+        CompletionItem(label: 'alpha', kind: 'function'),
+        CompletionItem(label: 'alphabet', kind: 'function'),
+        CompletionItem(label: 'alpine', kind: 'function'),
+      ],
+    );
+    addTearDown(lsp.dispose);
+
+    await tester.pumpWidget(
+      _wrap(CodeEditorPanel(fileService: fileService, lspService: lsp)),
+    );
+    await tester.enterText(find.byType(TextField), 'alp');
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pumpAndSettle();
+    expect(find.byType(AutocompletePopup), findsOneWidget);
+
+    final state = tester.state<CodeEditorPanelState>(
+      find.byType(CodeEditorPanel),
+    );
+    final controller = tester
+        .widget<TextField>(find.byType(TextField))
+        .controller!;
+
+    for (final expected in [0, 1, 2, 0]) {
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pumpAndSettle();
+      expect(state.debugSelectedCompletionIndex, expected);
+      expect(find.byType(AutocompletePopup), findsOneWidget);
+      expect(controller.text, 'alp', reason: 'Tab must not insert anything');
+    }
   });
 
   testWidgets('Tab highlights the first row when nothing is selected yet', (

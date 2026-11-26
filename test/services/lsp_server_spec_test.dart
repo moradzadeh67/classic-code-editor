@@ -5,24 +5,15 @@ import 'package:classic_code_editor/services/lsp_server_spec.dart';
 void main() {
   group('LspServerSpec.candidatesForLanguage', () {
     test('maps every supported language to its server', () {
-      expect(
-        LspServerSpec.candidatesForLanguage('dart').single.id,
-        'dart',
-      );
-      expect(
-        LspServerSpec.candidatesForLanguage('c').single.id,
-        'clangd',
-      );
-      expect(
-        LspServerSpec.candidatesForLanguage('cpp').single.id,
-        'clangd',
-      );
+      expect(LspServerSpec.candidatesForLanguage('dart').single.id, 'dart');
+      expect(LspServerSpec.candidatesForLanguage('c').single.id, 'clangd');
+      expect(LspServerSpec.candidatesForLanguage('cpp').single.id, 'clangd');
     });
 
     test('prefers pyright and keeps pylsp as the fallback', () {
-      final ids = LspServerSpec.candidatesForLanguage(
-        'python',
-      ).map((spec) => spec.id).toList();
+      final ids = LspServerSpec.candidatesForLanguage('python')
+          .map((spec) => spec.id)
+          .toList();
 
       expect(ids, <String>['pyright', 'pylsp']);
     });
@@ -35,8 +26,14 @@ void main() {
 
   group('LspServerSpec.candidatesForFile', () {
     test('uses the file extension', () {
-      expect(LspServerSpec.candidatesForFile('/tmp/main.py').first.id, 'pyright');
-      expect(LspServerSpec.candidatesForFile('/tmp/main.cpp').single.id, 'clangd');
+      expect(
+        LspServerSpec.candidatesForFile('/tmp/main.py').first.id,
+        'pyright',
+      );
+      expect(
+        LspServerSpec.candidatesForFile('/tmp/main.cpp').single.id,
+        'clangd',
+      );
       expect(LspServerSpec.candidatesForFile('/tmp/main.s'), isEmpty);
       expect(LspServerSpec.candidatesForFile(null).single.id, 'dart');
     });
@@ -50,14 +47,17 @@ void main() {
       expect(LspServerSpec.clangd.executableNames, contains('/usr/bin/clangd'));
     });
 
-    test('pyright needs --stdio, the Dart server needs its client identity', () {
-      expect(LspServerSpec.pyright.arguments, contains('--stdio'));
-      expect(LspServerSpec.dart.arguments, contains('language-server'));
-      expect(
-        LspServerSpec.dart.arguments,
-        contains('--client-id=${LspServerSpec.clientId}'),
-      );
-    });
+    test(
+      'pyright needs --stdio, the Dart server needs its client identity',
+      () {
+        expect(LspServerSpec.pyright.arguments, contains('--stdio'));
+        expect(LspServerSpec.dart.arguments, contains('language-server'));
+        expect(
+          LspServerSpec.dart.arguments,
+          contains('--client-id=${LspServerSpec.clientId}'),
+        );
+      },
+    );
 
     test('clangd alone asks for compile_flags.txt', () {
       expect(LspServerSpec.clangd.usesCompileFlags, isTrue);
@@ -68,7 +68,8 @@ void main() {
 
     test('only Dart asks for suggestions from unimported libraries', () {
       expect(
-        LspServerSpec.dart
+        LspServerSpec
+            .dart
             .initializationOptions['suggestFromUnimportedLibraries'],
         isTrue,
       );

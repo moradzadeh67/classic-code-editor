@@ -33,7 +33,11 @@ void main() {
         caretOffsetInPrimary: 5,
       );
 
-      expect(newText, "$importText""Timer");
+      expect(
+        newText,
+        "$importText"
+        "Timer",
+      );
       // The import is 22 characters, so the caret moved from 5 to 27.
       expect(importText.length, 22);
       expect(caret, 27);

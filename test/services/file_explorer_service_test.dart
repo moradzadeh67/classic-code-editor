@@ -60,10 +60,7 @@ void main() {
     final service = FileExplorerService();
     await service.openFolder(root.path);
 
-    expect(
-      service.root!.children.map((n) => n.name),
-      ['main.dart'],
-    );
+    expect(service.root!.children.map((n) => n.name), ['main.dart']);
     service.dispose();
   });
 

@@ -220,6 +220,19 @@ class RetroMenuBar extends StatelessWidget {
                   shortcut: 'Cmd 0',
                 ),
                 const RetroMenuSeparator<String>(),
+                const RetroMenuItem<String>(
+                  value: 'console_font_increase',
+                  label: 'Increase Console Font Size',
+                ),
+                const RetroMenuItem<String>(
+                  value: 'console_font_decrease',
+                  label: 'Decrease Console Font Size',
+                ),
+                const RetroMenuItem<String>(
+                  value: 'console_font_reset',
+                  label: 'Reset Console Font Size',
+                ),
+                const RetroMenuSeparator<String>(),
                 // Rule 8: the check mark depends on the live font choice, so
                 // these rows are intentionally not const.
                 RetroMenuItem<String>(
@@ -292,6 +305,12 @@ class RetroMenuBar extends StatelessWidget {
                   EditorSettingsService.instance.decrease();
                 } else if (value == 'font_reset') {
                   EditorSettingsService.instance.reset();
+                } else if (value == 'console_font_increase') {
+                  EditorSettingsService.instance.increaseConsole();
+                } else if (value == 'console_font_decrease') {
+                  EditorSettingsService.instance.decreaseConsole();
+                } else if (value == 'console_font_reset') {
+                  EditorSettingsService.instance.resetConsole();
                 } else if (value == 'font_menlo') {
                   EditorSettingsService.instance.setFontFamily(
                     EditorFontFamily.menlo,
@@ -425,10 +444,7 @@ class RetroMenuBar extends StatelessWidget {
         label: 'Open Folder...',
         shortcut: 'Cmd + Shift + O',
       ),
-      const RetroMenuItem<String>(
-        value: 'close_folder',
-        label: 'Close Folder',
-      ),
+      const RetroMenuItem<String>(value: 'close_folder', label: 'Close Folder'),
       const RetroMenuItem<String>(
         value: 'save',
         label: 'Save',

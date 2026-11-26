@@ -21,9 +21,19 @@ class FileExplorerPanel extends StatefulWidget {
     required this.service,
     required this.activeFilePath,
     required this.onOpenFile,
+    this.onOpenFolder,
+    this.onOpenPath,
   });
 
   final FileExplorerService service;
+
+  /// "Open Folder..." buttons. When null the panel just asks the service.
+  final VoidCallback? onOpenFolder;
+
+  /// A folder typed into the path bar (already checked to exist). The shell
+  /// uses it to keep the session and language servers in step; when null the
+  /// panel opens it on the service directly.
+  final ValueChanged<String>? onOpenPath;
 
   /// Path of the active tab, highlighted in the tree.
   final String? activeFilePath;
@@ -86,8 +96,29 @@ class _FileExplorerPanelState extends State<FileExplorerPanel> {
       }
     }
 
+    // The open folder is the first row of the tree, like in any file browser;
+    // its entries hang below it, indented one level.
     final root = widget.service.root;
-    if (root != null) walk(root.children, 0);
+    if (root != null) {
+      rows.add(_Row(root, 0));
+      if (root.expanded) {
+        if (root.children.isEmpty) {
+          rows.add(
+            _Row(
+              FileNode(
+                path: '',
+                name: '(empty)',
+                isDirectory: false,
+                isTruncationNotice: true,
+              ),
+              1,
+            ),
+          );
+        } else {
+          walk(root.children, 1);
+        }
+      }
+    }
     return rows;
   }
 
@@ -110,27 +141,49 @@ class _FileExplorerPanelState extends State<FileExplorerPanel> {
                   rootPath == null ? 'File Explorer' : widget.service.rootName,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    fontSize: 12,
+                    fontSize: 14,
                     fontWeight: FontWeight.bold,
                     color: uiColors['text'],
                   ),
                 ),
               ),
+              RetroButton(
+                height: 22,
+                padding: const EdgeInsets.symmetric(horizontal: 5),
+                onPressed: _openFolderDialog,
+                child: Tooltip(
+                  message: 'Open Folder...',
+                  child: Icon(
+                    Icons.folder_open_sharp,
+                    size: 15,
+                    color: uiColors['folderIcon'],
+                  ),
+                ),
+              ),
+              if (rootPath != null) const SizedBox(width: 4),
               if (rootPath != null)
                 RetroButton(
-                  height: 18,
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  height: 22,
+                  padding: const EdgeInsets.symmetric(horizontal: 5),
                   onPressed: () => widget.service.refresh(),
                   child: Tooltip(
                     message: 'Refresh',
                     child: Text(
                       '⟳',
-                      style: TextStyle(fontSize: 12, color: uiColors['text']),
+                      style: TextStyle(fontSize: 15, color: uiColors['text']),
                     ),
                   ),
                 ),
             ],
           ),
+          if (rootPath != null) ...[
+            const SizedBox(height: 4),
+            _PathBar(
+              path: rootPath,
+              service: widget.service,
+              onSubmit: _openTyped,
+            ),
+          ],
           const SizedBox(height: 6),
           if (rootPath == null)
             // The empty state's primary action: full panel width, a little
@@ -139,7 +192,7 @@ class _FileExplorerPanelState extends State<FileExplorerPanel> {
               width: double.infinity,
               child: RetroButton(
                 height: kOpenFolderButtonHeight,
-                onPressed: () => widget.service.pickFolder(),
+                onPressed: _openFolderDialog,
                 child: const Text(
                   'Open Folder...',
                   textAlign: TextAlign.center,
@@ -154,14 +207,16 @@ class _FileExplorerPanelState extends State<FileExplorerPanel> {
                 itemBuilder: (context, index) {
                   final row = rows[index];
                   return _FileTreeRow(
-                    key: ValueKey<String>('explorer-row-${row.node.path}-${row.depth}'),
+                    key: ValueKey<String>(
+                      'explorer-row-${row.node.path}-${row.depth}',
+                    ),
                     node: row.node,
                     depth: row.depth,
                     isActive:
                         widget.activeFilePath != null &&
                         row.node.path == widget.activeFilePath,
-                    isSelected: _selectedPath != null &&
-                        row.node.path == _selectedPath,
+                    isSelected:
+                        _selectedPath != null && row.node.path == _selectedPath,
                     onTap: () => _onTap(row.node),
                     onDoubleTap: row.node.isDirectory
                         ? null
@@ -175,6 +230,24 @@ class _FileExplorerPanelState extends State<FileExplorerPanel> {
     );
   }
 
+  void _openFolderDialog() {
+    final callback = widget.onOpenFolder;
+    if (callback != null) {
+      callback();
+    } else {
+      widget.service.pickFolder();
+    }
+  }
+
+  void _openTyped(String path) {
+    final callback = widget.onOpenPath;
+    if (callback != null) {
+      callback(path);
+    } else {
+      widget.service.openFolder(path);
+    }
+  }
+
   void _onTap(FileNode node) {
     if (node.isTruncationNotice) return;
     setState(() {
@@ -183,6 +256,95 @@ class _FileExplorerPanelState extends State<FileExplorerPanel> {
     if (node.isDirectory) {
       widget.service.toggleFolder(node);
     }
+  }
+}
+
+/// Editable path of the open folder, in a sunken box.
+///
+/// Shows the full path from the filesystem root. Typing a path and pressing
+/// Enter opens that folder; a path that is not an existing folder is refused
+/// with a message and the box goes back to the open folder.
+class _PathBar extends StatefulWidget {
+  const _PathBar({
+    required this.path,
+    required this.service,
+    required this.onSubmit,
+  });
+
+  final String path;
+  final FileExplorerService service;
+  final ValueChanged<String> onSubmit;
+
+  @override
+  State<_PathBar> createState() => _PathBarState();
+}
+
+class _PathBarState extends State<_PathBar> {
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.path,
+  );
+  final FocusNode _focusNode = FocusNode();
+
+  @override
+  void didUpdateWidget(covariant _PathBar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // A new folder was opened (tree, dialog, menu): show it, unless the user
+    // is in the middle of typing something else.
+    if (oldWidget.path != widget.path &&
+        (!_focusNode.hasFocus || _controller.text == oldWidget.path)) {
+      _controller.text = widget.path;
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  void _submit(String typed) {
+    final resolved = widget.service.resolveDirectory(typed);
+    if (resolved == null) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(
+          content: Text('Not a folder', style: TextStyle(fontSize: 13)),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      _controller.text = widget.path;
+      return;
+    }
+    _controller.text = resolved;
+    _focusNode.unfocus();
+    if (resolved != widget.path) widget.onSubmit(resolved);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final uiColors = ThemeService.instance.uiColors;
+    return Container(
+      height: 26,
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      alignment: Alignment.centerLeft,
+      decoration: RetroBorder.sunken(
+        backgroundColor: uiColors['editorBackground'],
+      ),
+      child: TextField(
+        key: const ValueKey<String>('explorer-path-bar'),
+        controller: _controller,
+        focusNode: _focusNode,
+        maxLines: 1,
+        onSubmitted: _submit,
+        style: TextStyle(fontSize: 13, color: uiColors['editorText']),
+        cursorColor: uiColors['editorCursor'],
+        decoration: const InputDecoration(
+          border: InputBorder.none,
+          isDense: true,
+          contentPadding: EdgeInsets.zero,
+        ),
+      ),
+    );
   }
 }
 
@@ -225,17 +387,17 @@ class _FileTreeRow extends StatelessWidget {
       onTap: onTap,
       onDoubleTap: onDoubleTap,
       child: Container(
-        height: 20,
+        height: 24,
         color: background,
-        padding: EdgeInsets.only(left: 4 + depth * 12.0),
+        padding: EdgeInsets.only(left: 4 + depth * 16.0),
         child: Row(
           children: [
             SizedBox(
-              width: 12,
+              width: 16,
               child: node.isDirectory && !node.isTruncationNotice
                   ? Text(
                       node.expanded ? '▾' : '▸',
-                      style: TextStyle(fontSize: 10, color: uiColors['text']),
+                      style: TextStyle(fontSize: 13, color: uiColors['text']),
                     )
                   : null,
             ),
@@ -248,7 +410,7 @@ class _FileTreeRow extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                  fontSize: 11,
+                  fontSize: 14,
                   fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
                   color: uiColors['text'],
                   fontStyle: node.isTruncationNotice
@@ -268,17 +430,17 @@ class _FileTreeRow extends StatelessWidget {
     if (node.isDirectory) {
       return Icon(
         node.expanded ? Icons.folder_open_sharp : Icons.folder_sharp,
-        size: 12,
-        color: uiColors['text'],
+        size: 18,
+        color: uiColors['folderIcon'],
       );
     }
-    if (node.isTruncationNotice) return const SizedBox(width: 12, height: 12);
+    if (node.isTruncationNotice) return const SizedBox(width: 16, height: 16);
     final language = _languageFor(node.name);
-    if (language != null) return LanguageLogo(language: language, size: 12);
+    if (language != null) return LanguageLogo(language: language, size: 16);
     return Icon(
       Icons.insert_drive_file_sharp,
-      size: 12,
-      color: uiColors['text'],
+      size: 18,
+      color: uiColors['fileIcon'],
     );
   }
 

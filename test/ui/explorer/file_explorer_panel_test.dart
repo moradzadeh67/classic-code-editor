@@ -48,30 +48,57 @@ void main() {
     await tester.pump();
   }
 
-  testWidgets('folder click expands, double-click opens, active file is marked', (
+  testWidgets('path bar is an editable box that opens a typed folder', (
     tester,
   ) async {
-    await pumpPanel(tester, active: '${root.path}/src/main.dart');
+    await pumpPanel(tester);
+    final bar = find.byKey(const ValueKey('explorer-path-bar'));
+    expect(tester.widget<TextField>(bar).controller!.text, root.path);
+
+    // A typed existing folder is opened.
+    await tester.enterText(bar, '${root.path}/src/');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
     await tester.pump();
+    expect(service.rootPath, '${root.path}/src');
+    expect(tester.widget<TextField>(bar).controller!.text, '${root.path}/src');
 
-    // The active file's parent folder was expanded for us, and the row is bold.
-    expect(find.text('main.dart'), findsOneWidget);
-    final activeText = tester.widget<Text>(find.text('main.dart'));
-    expect(activeText.style!.fontWeight, FontWeight.bold);
-
-    // A collapsed folder expands on a single click.
-    expect(find.text('guide.txt'), findsNothing);
-    await tester.tap(find.text('docs'));
+    // A path that does not exist (or is a file) is refused; the box resets.
+    await tester.enterText(bar, '${root.path}/nope');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
     await tester.pump();
-    expect(find.text('guide.txt'), findsOneWidget);
-
-    // Double-click on the file asks the shell to open it.
-    await tester.tap(find.text('guide.txt'));
-    await tester.pump(const Duration(milliseconds: 50));
-    await tester.tap(find.text('guide.txt'));
-    await tester.pump(const Duration(milliseconds: 300));
-    expect(opened, ['${root.path}/docs/guide.txt']);
-
-    expect(tester.takeException(), isNull);
+    expect(service.rootPath, '${root.path}/src');
+    expect(tester.widget<TextField>(bar).controller!.text, '${root.path}/src');
+    await tester.enterText(bar, '${root.path}/src/main.dart');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pump();
+    expect(service.rootPath, '${root.path}/src');
   });
+
+  testWidgets(
+    'folder click expands, double-click opens, active file is marked',
+    (tester) async {
+      await pumpPanel(tester, active: '${root.path}/src/main.dart');
+      await tester.pump();
+
+      // The active file's parent folder was expanded for us, and the row is bold.
+      expect(find.text('main.dart'), findsOneWidget);
+      final activeText = tester.widget<Text>(find.text('main.dart'));
+      expect(activeText.style!.fontWeight, FontWeight.bold);
+
+      // A collapsed folder expands on a single click.
+      expect(find.text('guide.txt'), findsNothing);
+      await tester.tap(find.text('docs'));
+      await tester.pump();
+      expect(find.text('guide.txt'), findsOneWidget);
+
+      // Double-click on the file asks the shell to open it.
+      await tester.tap(find.text('guide.txt'));
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(find.text('guide.txt'));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(opened, ['${root.path}/docs/guide.txt']);
+
+      expect(tester.takeException(), isNull);
+    },
+  );
 }

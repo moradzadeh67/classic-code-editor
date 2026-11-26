@@ -89,8 +89,7 @@ void main() {
 
       final operatorColors = <Color?>{
         for (final entry in painted)
-          if (entry.text == '=' || entry.text == '+')
-            entry.color,
+          if (entry.text == '=' || entry.text == '+') entry.color,
       };
       expect(operatorColors, contains(colorfulOperatorColor));
 
@@ -105,9 +104,11 @@ void main() {
 
       // Braces and square brackets are actually painted apart (this line has
       // no parentheses).
-      final paintedColors = _chars(source, 'demo.dart', SyntaxScheme.colorful)
-          .map((e) => e.color)
-          .toSet();
+      final paintedColors = _chars(
+        source,
+        'demo.dart',
+        SyntaxScheme.colorful,
+      ).map((e) => e.color).toSet();
       expect(paintedColors, contains(colorfulCurlyBraceColor));
       expect(paintedColors, contains(colorfulSquareBracketColor));
       expect(paintedColors, isNot(contains(const Color(0xFF031CFC))));
@@ -115,18 +116,22 @@ void main() {
 
       // Parentheses keep the old Colorful bracket color.
       const call = 'f(g[0]);';
-      final callColors = _chars(call, 'demo.dart', SyntaxScheme.colorful)
-          .map((e) => e.color)
-          .toSet();
+      final callColors = _chars(
+        call,
+        'demo.dart',
+        SyntaxScheme.colorful,
+      ).map((e) => e.color).toSet();
       expect(callColors, contains(const Color(0xFF031CFC)));
       expect(callColors, contains(colorfulSquareBracketColor));
     });
 
     test('Python: dict braces and list brackets are their own colors', () {
       const source = 'd = {"k": [1, 2]}';
-      final colors = _chars(source, 'demo.py', SyntaxScheme.colorful)
-          .map((e) => e.color)
-          .toSet();
+      final colors = _chars(
+        source,
+        'demo.py',
+        SyntaxScheme.colorful,
+      ).map((e) => e.color).toSet();
       expect(colors, contains(colorfulCurlyBraceColor));
       expect(colors, contains(colorfulSquareBracketColor));
       expect(
@@ -143,32 +148,37 @@ void main() {
         isNull,
         reason: 'no braces in this line',
       );
-      final colors = _chars(source, 'demo.c', SyntaxScheme.colorful)
-          .map((e) => e.color)
-          .toSet();
+      final colors = _chars(
+        source,
+        'demo.c',
+        SyntaxScheme.colorful,
+      ).map((e) => e.color).toSet();
       expect(colors, contains(colorfulSquareBracketColor));
       expect(colors, contains(const Color(0xFF031CFC)));
       expect(colors, contains(colorfulOperatorColor));
     });
 
-    test('Standard is unchanged: braces and brackets keep the bracket color', () {
-      final standard = MultiLanguageHighlighter.getThemeStyles(
-        SyntaxScheme.standard,
-      );
-      expect(standard['curlyBrace']!.color, const Color(0xFF031CFC));
-      expect(standard['squareBracket']!.color, const Color(0xFF031CFC));
-      expect(standard['punctuation']!.color, const Color(0xFF031CFC));
-      expect(standard['operator']!.color, const Color(0xFF00BF69));
+    test(
+      'Standard is unchanged: braces and brackets keep the bracket color',
+      () {
+        final standard = MultiLanguageHighlighter.getThemeStyles(
+          SyntaxScheme.standard,
+        );
+        expect(standard['curlyBrace']!.color, const Color(0xFF031CFC));
+        expect(standard['squareBracket']!.color, const Color(0xFF031CFC));
+        expect(standard['punctuation']!.color, const Color(0xFF031CFC));
+        expect(standard['operator']!.color, const Color(0xFF00BF69));
 
-      final colors = _chars(
-        'final x = list[0] + map["a"] ?? {1: 2}[1];',
-        'demo.dart',
-        SyntaxScheme.standard,
-      ).map((e) => e.color).toSet();
-      expect(colors, isNot(contains(colorfulCurlyBraceColor)));
-      expect(colors, isNot(contains(colorfulSquareBracketColor)));
-      expect(colors, isNot(contains(colorfulOperatorColor)));
-    });
+        final colors = _chars(
+          'final x = list[0] + map["a"] ?? {1: 2}[1];',
+          'demo.dart',
+          SyntaxScheme.standard,
+        ).map((e) => e.color).toSet();
+        expect(colors, isNot(contains(colorfulCurlyBraceColor)));
+        expect(colors, isNot(contains(colorfulSquareBracketColor)));
+        expect(colors, isNot(contains(colorfulOperatorColor)));
+      },
+    );
 
     test('text inside plain strings and comments is never recolored', () {
       final colors = _chars(

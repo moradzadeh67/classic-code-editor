@@ -80,12 +80,9 @@ class PythonDebugger extends BaseDebugger {
       );
       await breakpointFile.writeAsString(_encodeBreakpoints());
 
-      final process = await Process.start(executablePath, <String>[
-        '-u',
-        driverFile.path,
-        target,
-        breakpointFile.path,
-      ],
+      final process = await Process.start(
+        executablePath,
+        <String>['-u', driverFile.path, target, breakpointFile.path],
         workingDirectory: File(target).parent.path,
         environment: await ToolPathResolver.instance.processEnvironment(),
         includeParentEnvironment: true,

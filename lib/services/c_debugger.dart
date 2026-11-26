@@ -226,11 +226,9 @@ class CDebugger extends BaseDebugger {
         return;
       }
 
-      final process = await Process.start(
-        lldbPath,
-        <String>[executable],
-        environment: await ToolPathResolver.instance.processEnvironment(),
-      );
+      final process = await Process.start(lldbPath, <String>[
+        executable,
+      ], environment: await ToolPathResolver.instance.processEnvironment());
       _lldb = process;
       resetLldbQueue();
       _exitHandled = false;

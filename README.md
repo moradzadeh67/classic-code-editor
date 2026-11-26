@@ -162,6 +162,12 @@ file with its status letter and its own `Stage` button, and a commit box whose f
 - **Retro tree rows:** disclosure triangles, per-language icons for Dart, C/C++,
   Python and ARM64, single click to open a folder, double-click to open a file
   in a tab; the active tab is highlighted and its parents expanded
+- **Open-folder button and path bar:** the header always has an *Open Folder*
+  button. The open folder's full path (from `/`) sits in an editable box: type a
+  path and press `Enter` to open that folder, `~` works, and a path that is not a
+  folder is refused with a message
+- **Automatic folder:** opening a file with no folder open shows its parent folder
+  in the tree; a folder you closed with *File > Close Folder* is not re-opened
 - **Refresh button** plus an automatic re-read after a save; the folder is
   remembered across restarts
 - **Safe opening:** files over 2 MB or containing a NUL byte in their first 4 KB
@@ -192,7 +198,8 @@ file with its status letter and its own `Stage` button, and a commit box whose f
 - **Completion:** Server completions ranked by `sortText`, match tier and MRU,
   with built-in Dart/Flutter snippets, `()` inserted with the caret inside for
   functions and auto-import via the item's `additionalTextEdits`. Accept with
-  `Enter` or `Tab`; `Ctrl+Shift+Space` triggers it manually
+  `Enter` or a click; `Tab` / `Shift+Tab` only move the highlight through the list
+  (repeated presses cycle through the suggestions); `Ctrl+Shift+Space` triggers it manually
 - **Documentation Panel:** the selected item's docs appear next to the list after
   the selection has stayed put for 2 s (`kCompletionDocPanelDelay`); any key press
   or move hides it, while the item itself is resolved in 150 ms so accepting is
@@ -251,6 +258,9 @@ file with its status letter and its own `Stage` button, and a commit box whose f
 
 ### 🖥️ Integrated Terminal & Console
 - **Terminal:** Full shell access with colored output
+- **Console font size:** *View > Increase / Decrease / Reset Console Font Size*, or
+  `Cmd` / `Ctrl` + mouse wheel over the Console. It is independent of the editor's size
+  and is saved across restarts
 - **Console:** Live program output with color-coded lines; the blue run/compile
   guide lines match the output's weight, and every new run starts on a clean
   Console (the previous program's output and banner are dropped first)

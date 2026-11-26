@@ -36,11 +36,7 @@ void main() {
 
     test('maps every LSP kind to its letter', () {
       expected.forEach((kind, letter) {
-        expect(
-          completionKindBadge(kind).letter,
-          letter,
-          reason: 'kind $kind',
-        );
+        expect(completionKindBadge(kind).letter, letter, reason: 'kind $kind');
       });
     });
 
@@ -48,10 +44,7 @@ void main() {
       expect(completionKindBadge(null).letter, '·');
       expect(completionKindBadge(0).letter, '·');
       expect(completionKindBadge(99).letter, '·');
-      expect(
-        completionKindBadge(null).category,
-        CompletionKindCategory.plain,
-      );
+      expect(completionKindBadge(null).category, CompletionKindCategory.plain);
     });
 
     test('groups kinds by the colour category they share', () {
@@ -91,7 +84,10 @@ void main() {
         colorful['number']!.color,
       );
       expect(
-        completionBadgeColor(CompletionKindCategory.keyword, SyntaxScheme.standard),
+        completionBadgeColor(
+          CompletionKindCategory.keyword,
+          SyntaxScheme.standard,
+        ),
         standard['keyword']!.color,
       );
       // The two schemes really do differ, so the colours are not hardcoded.

@@ -59,7 +59,13 @@ class FileExplorerService extends ChangeNotifier {
   }
 
   /// Opens a folder (and reads its first level).
+  ///
+  /// A path that names a file (not a directory) opens the file's own folder,
+  /// so a file can never end up as the root of the tree.
   Future<void> openFolder(String path) async {
+    if (FileSystemEntity.isFileSync(path)) {
+      path = File(path).parent.path;
+    }
     _rootPath = path;
     _root = FileNode(
       path: path,
@@ -70,6 +76,24 @@ class FileExplorerService extends ChangeNotifier {
       expanded: true,
     );
     notifyListeners();
+  }
+
+  /// Turns text typed into the path bar into an existing directory path.
+  ///
+  /// Trims, expands a leading `~` to the home folder, drops a trailing
+  /// separator (except for `/` itself) and returns `null` when the result is
+  /// not an existing directory (missing, or a file).
+  String? resolveDirectory(String input) {
+    var path = input.trim();
+    if (path.isEmpty) return null;
+    final home = Platform.environment['HOME'];
+    if (home != null && (path == '~' || path.startsWith('~/'))) {
+      path = '$home${path.substring(1)}';
+    }
+    while (path.length > 1 && path.endsWith(Platform.pathSeparator)) {
+      path = path.substring(0, path.length - 1);
+    }
+    return FileSystemEntity.isDirectorySync(path) ? path : null;
   }
 
   /// Lets the user pick a folder through the platform dialog.
@@ -261,10 +285,9 @@ class FileExplorerService extends ChangeNotifier {
       final size = await file.length();
       if (size > maxOpenFileBytes) return null;
 
-      final bytes = await file.openRead(0, binaryProbeBytes).fold<List<int>>(
-        <int>[],
-        (all, chunk) => all..addAll(chunk),
-      );
+      final bytes = await file
+          .openRead(0, binaryProbeBytes)
+          .fold<List<int>>(<int>[], (all, chunk) => all..addAll(chunk));
       if (bytes.contains(0)) return null;
       final text = size > bytes.length
           // Read the rest now that the head proved to be text.

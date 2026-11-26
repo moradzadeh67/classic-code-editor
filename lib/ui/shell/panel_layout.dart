@@ -63,6 +63,9 @@ class PanelLayout extends StatefulWidget {
 
   /// "Open Folder..." in the explorer's empty state.
   final VoidCallback onOpenFolder;
+
+  /// A folder typed into the explorer's path bar.
+  final ValueChanged<String>? onOpenFolderPath;
   final BaseDebugger? debugger;
   final CodeController? codeEditorController;
 
@@ -90,6 +93,7 @@ class PanelLayout extends StatefulWidget {
     required this.activeFilePath,
     required this.onOpenFile,
     required this.onOpenFolder,
+    this.onOpenFolderPath,
     this.debugger,
     this.codeEditorController,
     this.gitController,
@@ -225,6 +229,8 @@ class PanelLayoutState extends State<PanelLayout> {
                       service: widget.explorerService,
                       activeFilePath: widget.activeFilePath,
                       onOpenFile: widget.onOpenFile,
+                      onOpenFolder: widget.onOpenFolder,
+                      onOpenPath: widget.onOpenFolderPath,
                     ),
                   ),
                   const SizedBox(width: 2),

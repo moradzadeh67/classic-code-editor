@@ -17,10 +17,7 @@ void main() {
       fileExists: existing.contains,
       environment:
           environment ??
-          const <String, String>{
-            'HOME': '/Users/me',
-            'PATH': '/usr/bin:/bin',
-          },
+          const <String, String>{'HOME': '/Users/me', 'PATH': '/usr/bin:/bin'},
     );
   }
 
@@ -42,28 +39,24 @@ void main() {
       ).lookup('pyright-langserver');
 
       expect(lookup.path, '/opt/homebrew/bin/pyright-langserver');
-      expect(
-        lookup.tried,
-        contains('/opt/homebrew/bin/pyright-langserver'),
-      );
+      expect(lookup.tried, contains('/opt/homebrew/bin/pyright-langserver'));
     });
 
-    test('prefers the Dart SDK next to the Flutter on the login PATH',
-        () async {
-      final lookup = await resolver(
-        shellWhich: {
-          'flutter': '/Users/me/flutter/bin/flutter',
-          'dart': '/usr/local/bin/dart',
-        },
-        existing: {
-          '/Users/me/flutter/bin/dart',
-          '/usr/local/bin/dart',
-        },
-      ).lookup('dart');
+    test(
+      'prefers the Dart SDK next to the Flutter on the login PATH',
+      () async {
+        final lookup = await resolver(
+          shellWhich: {
+            'flutter': '/Users/me/flutter/bin/flutter',
+            'dart': '/usr/local/bin/dart',
+          },
+          existing: {'/Users/me/flutter/bin/dart', '/usr/local/bin/dart'},
+        ).lookup('dart');
 
-      expect(lookup.path, '/Users/me/flutter/bin/dart');
-      expect(lookup.tried.first, contains('next to'));
-    });
+        expect(lookup.path, '/Users/me/flutter/bin/dart');
+        expect(lookup.tried.first, contains('next to'));
+      },
+    );
 
     test('reports nothing found with every location it tried', () async {
       final lookup = await resolver(

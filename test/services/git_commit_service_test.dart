@@ -51,7 +51,10 @@ Future<void> _git(Directory directory, List<String> arguments) async {
 /// `withCommit: false` keeps the branch unborn — which is required together
 /// with `withIdentity: false`, since git refuses a first commit without an
 /// identity.
-Future<Directory> _newRepo({bool withIdentity = true, bool withCommit = true}) async {
+Future<Directory> _newRepo({
+  bool withIdentity = true,
+  bool withCommit = true,
+}) async {
   assert(withIdentity || !withCommit);
   final directory = await _tempDir('cce_git_commit_');
   await _git(directory, <String>['init', '-b', 'main']);
@@ -131,10 +134,13 @@ void main() {
 
       expect(result.succeeded, isTrue);
       expect(runner.executable, '/fake/git');
-      expect(
-        runner.arguments,
-        const <String>['-c', 'core.quotepath=false', 'commit', '-F', '-'],
-      );
+      expect(runner.arguments, const <String>[
+        '-c',
+        'core.quotepath=false',
+        'commit',
+        '-F',
+        '-',
+      ]);
       // The message must not appear in any argument (arguments were recorded
       // unmodifiable, so this loop cannot be optimised away).
       for (final argument in runner.arguments!) {
@@ -145,22 +151,24 @@ void main() {
       expect(runner.workingDirectory, '/repo');
     });
 
-    test('the commit runs with the 60 s hook timeout and a cancel token',
-        () async {
-      final runner = _RecordingRunner();
-      final service = _fakeService(runner);
-      final token = GitCancelToken();
+    test(
+      'the commit runs with the 60 s hook timeout and a cancel token',
+      () async {
+        final runner = _RecordingRunner();
+        final service = _fakeService(runner);
+        final token = GitCancelToken();
 
-      await service.commit(
-        '/repo',
-        'm\n',
-        cancel: token,
-        timeout: const Duration(milliseconds: 5),
-      );
+        await service.commit(
+          '/repo',
+          'm\n',
+          cancel: token,
+          timeout: const Duration(milliseconds: 5),
+        );
 
-      expect(runner.timeout, const Duration(milliseconds: 5));
-      expect(runner.cancel, same(token));
-    });
+        expect(runner.timeout, const Duration(milliseconds: 5));
+        expect(runner.cancel, same(token));
+      },
+    );
 
     test('the default timeout leaves room for slow hooks', () async {
       final runner = _RecordingRunner();
@@ -178,10 +186,7 @@ void main() {
     const timedOut = GitResult(0, '', '', true, false);
 
     test('cancel and timeout', () {
-      expect(
-        GitService.commitFailureMessage(cancelled),
-        'Commit cancelled.',
-      );
+      expect(GitService.commitFailureMessage(cancelled), 'Commit cancelled.');
       expect(
         GitService.commitFailureMessage(timedOut),
         contains('timed out after 60 s'),
@@ -273,10 +278,13 @@ void main() {
       final root = repository.path;
 
       await File('$root/second.txt').writeAsString('دو\n');
-      expect((await service.stage(root, <String>['second.txt'])).succeeded,
-          isTrue);
+      expect(
+        (await service.stage(root, <String>['second.txt'])).succeeded,
+        isTrue,
+      );
 
-      const message = 'subject: سلام دنیا\n\nاین بدنه‌ی پیام است\n'
+      const message =
+          'subject: سلام دنیا\n\nاین بدنه‌ی پیام است\n'
           'خط دوم پیام\n';
       final result = await service.commit(root, message);
       expect(result.succeeded, isTrue, reason: result.stderr);
@@ -310,7 +318,9 @@ void main() {
         if (await hooksDir.exists()) await hooksDir.delete(recursive: true);
       });
       final hook = File('${hooksDir.path}/pre-commit');
-      await hook.writeAsString('#!/bin/sh\necho "hook says: nope" >&2\nexit 1\n');
+      await hook.writeAsString(
+        '#!/bin/sh\necho "hook says: nope" >&2\nexit 1\n',
+      );
       await Process.run('chmod', <String>['+x', hook.path]);
       await _git(repository, <String>[
         'config',
@@ -319,28 +329,27 @@ void main() {
       ]);
 
       await File('$root/hooked.txt').writeAsString('x\n');
-      expect((await service.stage(root, <String>['hooked.txt'])).succeeded,
-          isTrue);
+      expect(
+        (await service.stage(root, <String>['hooked.txt'])).succeeded,
+        isTrue,
+      );
 
       final result = await service.commit(root, 'should not land\n');
       expect(result.succeeded, isFalse);
       expect(result.exitCode, 1);
       expect('${result.stdout}${result.stderr}', contains('hook says: nope'));
-      expect(
-        GitService.commitFailureMessage(result),
-        'hook says: nope',
-      );
+      expect(GitService.commitFailureMessage(result), 'hook says: nope');
 
       // The staged files are untouched by the failed commit.
       final changes = await service.status(root);
       final entry = changes.firstWhere((c) => c.path == 'hooked.txt');
       expect(entry.isStaged, isTrue);
       // And nothing was committed:
-      final log = await Process.run(
-        'git',
-        const <String>['log', '-1', '--format=%s'],
-        workingDirectory: root,
-      );
+      final log = await Process.run('git', const <String>[
+        'log',
+        '-1',
+        '--format=%s',
+      ], workingDirectory: root);
       expect(log.stdout, 'first\n');
     },
     skip: skip,
@@ -393,13 +402,16 @@ void main() {
 
       // The values read back — and they live in the repository-local config.
       expect(await service.configValue(root, 'user.name'), 'Local User');
-      expect(await service.configValue(root, 'user.email'),
-          'local@example.com');
-      final local = await Process.run(
-        'git',
-        const <String>['config', '--local', '--get', 'user.name'],
-        workingDirectory: root,
+      expect(
+        await service.configValue(root, 'user.email'),
+        'local@example.com',
       );
+      final local = await Process.run('git', const <String>[
+        'config',
+        '--local',
+        '--get',
+        'user.name',
+      ], workingDirectory: root);
       expect(local.stdout, 'Local User\n');
 
       // Nothing was written to the (empty) HOME, i.e. no --global write.

@@ -1384,7 +1384,11 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
     return (line, column);
   }
 
-  void _moveSelection(int delta) {
+  /// Moves the highlighted completion by [delta] rows.
+  ///
+  /// Arrow keys clamp at the ends of the list; Tab passes [wrap] so repeated
+  /// presses keep cycling through the suggestions.
+  void _moveSelection(int delta, {bool wrap = false}) {
     if (_completionItems.isEmpty) return;
     setState(() {
       if (_selectedCompletionIndex < 0) {
@@ -1392,6 +1396,9 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
         // the first arrow press lands on an end of the list: Down → first,
         // Up → last, the way desktop editors behave.
         _selectedCompletionIndex = delta > 0 ? 0 : _completionItems.length - 1;
+      } else if (wrap) {
+        final count = _completionItems.length;
+        _selectedCompletionIndex = (_selectedCompletionIndex + delta) % count;
       } else {
         _selectedCompletionIndex = (_selectedCompletionIndex + delta).clamp(
           0,
@@ -2051,11 +2058,12 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
         return KeyEventResult.handled;
       } else if (event.logicalKey == LogicalKeyboardKey.tab) {
         if (_showAutocomplete) {
-          if (_selectedCompletionIndex >= 0) {
-            _acceptSelected();
-          } else {
-            _moveSelection(1);
-          }
+          // Tab only walks the list (Shift+Tab walks back); Enter or a click
+          // accepts the highlighted item.
+          _moveSelection(
+            HardwareKeyboard.instance.isShiftPressed ? -1 : 1,
+            wrap: true,
+          );
         } else {
           _handleTabPressed(shift: HardwareKeyboard.instance.isShiftPressed);
         }

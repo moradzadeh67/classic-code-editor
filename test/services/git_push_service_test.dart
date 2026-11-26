@@ -33,8 +33,11 @@ Future<Directory> _tempDir(String prefix) async {
 }
 
 Future<void> _git(Directory directory, List<String> arguments) async {
-  final result = await Process.run('git', arguments,
-      workingDirectory: directory.path);
+  final result = await Process.run(
+    'git',
+    arguments,
+    workingDirectory: directory.path,
+  );
   if (result.exitCode != 0) {
     fail('git ${arguments.join(' ')} failed: ${result.stderr}');
   }
@@ -128,55 +131,57 @@ void main() {
       );
 
       expect(result.succeeded, isTrue);
-      expect(
-        runner.arguments,
-        const <String>['-c', 'core.quotepath=false', 'push'],
-      );
+      expect(runner.arguments, const <String>[
+        '-c',
+        'core.quotepath=false',
+        'push',
+      ]);
       expect(runner.workingDirectory, '/repo');
     });
 
-    test('a branch without upstream runs `git push -u <remote> <branch>`',
-        () async {
-      final runner = _RecordingRunner();
-      final service = _fakeService(runner);
+    test(
+      'a branch without upstream runs `git push -u <remote> <branch>`',
+      () async {
+        final runner = _RecordingRunner();
+        final service = _fakeService(runner);
 
-      await service.push(
-        '/repo',
-        remote: 'origin',
-        branch: 'feature/آی',
-        setUpstream: true,
-      );
+        await service.push(
+          '/repo',
+          remote: 'origin',
+          branch: 'feature/آی',
+          setUpstream: true,
+        );
 
-      expect(
-        runner.arguments,
-        const <String>[
+        expect(runner.arguments, const <String>[
           '-c',
           'core.quotepath=false',
           'push',
           '-u',
           'origin',
           'feature/آی',
-        ],
-      );
-    });
+        ]);
+      },
+    );
 
-    test('the push runs with the 120 s network timeout and a cancel token',
-        () async {
-      final runner = _RecordingRunner();
-      final service = _fakeService(runner);
-      final token = GitCancelToken();
+    test(
+      'the push runs with the 120 s network timeout and a cancel token',
+      () async {
+        final runner = _RecordingRunner();
+        final service = _fakeService(runner);
+        final token = GitCancelToken();
 
-      await service.push(
-        '/repo',
-        remote: 'origin',
-        branch: 'main',
-        cancel: token,
-        timeout: const Duration(milliseconds: 5),
-      );
+        await service.push(
+          '/repo',
+          remote: 'origin',
+          branch: 'main',
+          cancel: token,
+          timeout: const Duration(milliseconds: 5),
+        );
 
-      expect(runner.timeout, const Duration(milliseconds: 5));
-      expect(runner.cancel, same(token));
-    });
+        expect(runner.timeout, const Duration(milliseconds: 5));
+        expect(runner.cancel, same(token));
+      },
+    );
 
     test('the default timeout leaves room for a slow network', () async {
       final runner = _RecordingRunner();
@@ -217,32 +222,41 @@ void main() {
         // An option-looking remote or branch is refused before any process
         // starts; every other input goes through with only the plain form.
         for (final argument in runner.arguments ?? const <String>[]) {
-          expect(argument, isNot(anyOf(forbidden)),
-              reason: 'arguments were $runner.arguments');
+          expect(
+            argument,
+            isNot(anyOf(forbidden)),
+            reason: 'arguments were $runner.arguments',
+          );
         }
       }
     });
 
-    test('an option-looking remote or branch starts no process at all',
-        () async {
-      final runner = _RecordingRunner();
-      final service = _fakeService(runner);
+    test(
+      'an option-looking remote or branch starts no process at all',
+      () async {
+        final runner = _RecordingRunner();
+        final service = _fakeService(runner);
 
-      final remoteResult = await service.push(
-        '/repo',
-        remote: '--force',
-        branch: 'main',
-      );
-      final branchResult = await service.push(
-        '/repo',
-        remote: 'origin',
-        branch: '--delete',
-      );
+        final remoteResult = await service.push(
+          '/repo',
+          remote: '--force',
+          branch: 'main',
+        );
+        final branchResult = await service.push(
+          '/repo',
+          remote: 'origin',
+          branch: '--delete',
+        );
 
-      expect(remoteResult.succeeded, isFalse);
-      expect(branchResult.succeeded, isFalse);
-      expect(runner.arguments, isNull, reason: 'no git process may be started');
-    });
+        expect(remoteResult.succeeded, isFalse);
+        expect(branchResult.succeeded, isFalse);
+        expect(
+          runner.arguments,
+          isNull,
+          reason: 'no git process may be started',
+        );
+      },
+    );
   });
 
   group('pushFailureMessage mapping', () {
@@ -376,65 +390,57 @@ void main() {
       expect(info.ahead, 0);
 
       // ...and the bare remote now holds the branch.
-      final rev = await Process.run(
-        'git',
-        const <String>['rev-parse', 'main'],
-        workingDirectory: bare.path,
-      );
-      final local = await Process.run(
-        'git',
-        const <String>['rev-parse', 'main'],
-        workingDirectory: work.path,
-      );
+      final rev = await Process.run('git', const <String>[
+        'rev-parse',
+        'main',
+      ], workingDirectory: bare.path);
+      final local = await Process.run('git', const <String>[
+        'rev-parse',
+        'main',
+      ], workingDirectory: work.path);
       expect(rev.exitCode, 0, reason: rev.stderr);
       expect(rev.stdout.trim(), local.stdout.trim());
     },
     skip: skip,
   );
 
-  test(
-    'push with an upstream sends new commits with the plain form',
-    () async {
-      final work = await _newRepo();
-      final bare = await _bareRemoteWithUpstream(work);
-      final service = GitService();
+  test('push with an upstream sends new commits with the plain form', () async {
+    final work = await _newRepo();
+    final bare = await _bareRemoteWithUpstream(work);
+    final service = GitService();
 
-      await File('${work.path}/second.txt').writeAsString('two\n');
-      await _git(work, <String>['add', '--', 'second.txt']);
-      await _git(work, <String>['commit', '-m', 'second']);
-      final first = await service.push(
-        work.path,
-        remote: 'origin',
-        branch: 'main',
-        setUpstream: true,
-      );
-      expect(first.succeeded, isTrue, reason: first.stderr);
+    await File('${work.path}/second.txt').writeAsString('two\n');
+    await _git(work, <String>['add', '--', 'second.txt']);
+    await _git(work, <String>['commit', '-m', 'second']);
+    final first = await service.push(
+      work.path,
+      remote: 'origin',
+      branch: 'main',
+      setUpstream: true,
+    );
+    expect(first.succeeded, isTrue, reason: first.stderr);
 
-      // A third commit pushed with the plain `git push` form.
-      await File('${work.path}/third.txt').writeAsString('three\n');
-      await _git(work, <String>['add', '--', 'third.txt']);
-      await _git(work, <String>['commit', '-m', 'third']);
-      final second = await service.push(
-        work.path,
-        remote: 'origin',
-        branch: 'main',
-      );
-      expect(second.succeeded, isTrue, reason: second.stderr);
+    // A third commit pushed with the plain `git push` form.
+    await File('${work.path}/third.txt').writeAsString('three\n');
+    await _git(work, <String>['add', '--', 'third.txt']);
+    await _git(work, <String>['commit', '-m', 'third']);
+    final second = await service.push(
+      work.path,
+      remote: 'origin',
+      branch: 'main',
+    );
+    expect(second.succeeded, isTrue, reason: second.stderr);
 
-      final bareRev = await Process.run(
-        'git',
-        const <String>['rev-parse', 'main'],
-        workingDirectory: bare.path,
-      );
-      final localRev = await Process.run(
-        'git',
-        const <String>['rev-parse', 'main'],
-        workingDirectory: work.path,
-      );
-      expect(bareRev.stdout.trim(), localRev.stdout.trim());
-    },
-    skip: skip,
-  );
+    final bareRev = await Process.run('git', const <String>[
+      'rev-parse',
+      'main',
+    ], workingDirectory: bare.path);
+    final localRev = await Process.run('git', const <String>[
+      'rev-parse',
+      'main',
+    ], workingDirectory: work.path);
+    expect(bareRev.stdout.trim(), localRev.stdout.trim());
+  }, skip: skip);
 
   test(
     'a rejected push shows the Pull hint and changes nothing locally',
@@ -452,39 +458,36 @@ void main() {
           remote: 'origin',
           branch: 'main',
           setUpstream: true,
-        ))
-            .succeeded,
+        )).succeeded,
         isTrue,
       );
 
       // A second clone of the bare remote moves it ahead.
       final clone = await _tempDir('cce_git_push_clone_');
-      final cloneResult = await Process.run(
-        'git',
-        <String>['clone', bare.path, clone.path],
-      );
+      final cloneResult = await Process.run('git', <String>[
+        'clone',
+        bare.path,
+        clone.path,
+      ]);
       expect(cloneResult.exitCode, 0, reason: cloneResult.stderr);
       await _git(clone, <String>['config', 'user.name', 'Clone User']);
       await _git(clone, <String>['config', 'user.email', 'clone@example.com']);
       await File('${clone.path}/other.txt').writeAsString('other\n');
       await _git(clone, <String>['add', '--', 'other.txt']);
       await _git(clone, <String>['commit', '-m', 'divergent']);
-      final clonePush = await Process.run(
-        'git',
-        const <String>['push'],
-        workingDirectory: clone.path,
-      );
+      final clonePush = await Process.run('git', const <String>[
+        'push',
+      ], workingDirectory: clone.path);
       expect(clonePush.exitCode, 0, reason: clonePush.stderr);
 
       // The first repository now has a divergent commit of its own.
       await File('${work.path}/mine.txt').writeAsString('mine\n');
       await _git(work, <String>['add', '--', 'mine.txt']);
       await _git(work, <String>['commit', '-m', 'mine']);
-      final headBefore = await Process.run(
-        'git',
-        const <String>['rev-parse', 'HEAD'],
-        workingDirectory: work.path,
-      );
+      final headBefore = await Process.run('git', const <String>[
+        'rev-parse',
+        'HEAD',
+      ], workingDirectory: work.path);
 
       final result = await service.push(
         work.path,
@@ -498,11 +501,10 @@ void main() {
       );
 
       // The failed push changed nothing locally.
-      final headAfter = await Process.run(
-        'git',
-        const <String>['rev-parse', 'HEAD'],
-        workingDirectory: work.path,
-      );
+      final headAfter = await Process.run('git', const <String>[
+        'rev-parse',
+        'HEAD',
+      ], workingDirectory: work.path);
       expect(headAfter.stdout.trim(), headBefore.stdout.trim());
     },
     skip: skip,

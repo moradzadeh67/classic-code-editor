@@ -148,7 +148,11 @@ void main() {
           'the command must not be re-sent: it was only split on the wire. '
           '${describe()}',
     );
-    expect(console, isEmpty, reason: 'the ack arrived, so no retry: ${describe()}');
+    expect(
+      console,
+      isEmpty,
+      reason: 'the ack arrived, so no retry: ${describe()}',
+    );
   });
 
   test('(c) a lost ack retries the unit once, idempotently', () async {
@@ -172,7 +176,11 @@ void main() {
       },
     );
 
-    expect(swallowed, isTrue, reason: 'the first set ack must be lost; ${describe()}');
+    expect(
+      swallowed,
+      isTrue,
+      reason: 'the first set ack must be lost; ${describe()}',
+    );
     expect(
       queue.writtenLines.where((l) => l.startsWith('breakpoint set')),
       hasLength(2),
@@ -217,7 +225,8 @@ void main() {
     expect(
       written.length,
       before,
-      reason: 'nothing may be written after Stop closed the queue: ${describe()}',
+      reason:
+          'nothing may be written after Stop closed the queue: ${describe()}',
     );
     expect(queue.isClosed, isTrue);
   });
@@ -228,7 +237,8 @@ void main() {
     expect(
       queue.writtenLines.where((l) => l.startsWith('script print')),
       isEmpty,
-      reason: 'lldb executes nothing after a resume until the next stop: ${describe()}',
+      reason:
+          'lldb executes nothing after a resume until the next stop: ${describe()}',
     );
   });
 

@@ -6,6 +6,20 @@ All notable changes to Classic Code Editor are documented here. The format follo
 
 ## [Unreleased]
 
+### Added
+- **Console font size.** *View > Increase / Decrease / Reset Console Font Size*, and `Cmd` / `Ctrl` + mouse wheel over the Console. The size is separate from the editor's and is saved in `editor_settings.json` (`consoleFontSize`).
+- **Explorer path bar.** The open folder's full path (from `/`) is shown in an editable box under the Explorer header. Typing a folder path and pressing `Enter` opens it (`~` expands to the home folder); a path that is not a folder is refused with a message. Folders typed here are saved in the session like the Open Folder dialog.
+- **Explorer opens the folder of the active file.** When no folder is open and a file is opened, its parent folder is shown in the tree. A folder closed with *File > Close Folder* is not re-opened automatically.
+- **Open Folder button in the Explorer header**, always visible when a folder is open.
+
+### Changed
+- **Tab moves the autocomplete highlight.** `Tab` / `Shift+Tab` now only walk the suggestion list, wrapping at both ends, and never insert a suggestion. `Enter` or a click accepts the highlighted item.
+- **Explorer tree is larger and coloured.** The open folder is the first row of the tree with its entries nested below it. Folder and file icons use the theme's own colours (`folderIcon`, `fileIcon`) instead of the text colour, and text, icons, and row height are larger.
+- **Editor tabs are taller.** The tab height is 34 px (the tab bar 36 px), with a larger file name, `×`, and `+` button. The unsaved-changes `*` is drawn larger than the file name.
+
+### Fixed
+- **Explorer showed a file as an empty folder.** A path that names a file is now opened through its parent folder, so a file can never become the root of the tree.
+
 ## [1.6.2] - 2026-11-25
 
 ### Changed

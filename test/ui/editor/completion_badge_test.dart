@@ -93,8 +93,7 @@ void main() {
         label: 'a_very_long_label_that_must_be_truncated_not_wrapped',
         kind: 'field',
         kindInt: 5,
-        detail:
-            'final Map<String, List<double>> a_very_long_detail_that_must_be_truncated',
+        detail: 'final Map<String, List<double>> a_very_long_detail_that_must_be_truncated',
       ),
       item(
         label: 'setState',
@@ -149,10 +148,10 @@ void main() {
       SyntaxScheme.standard,
     );
     expect(badge(0).color, standardCallable);
-    expect(badge(1).color, completionBadgeColor(
-      CompletionKindCategory.value,
-      SyntaxScheme.standard,
-    ));
+    expect(
+      badge(1).color,
+      completionBadgeColor(CompletionKindCategory.value, SyntaxScheme.standard),
+    );
 
     // Switching the scheme repaints the badges without rebuilding the popup.
     EditorSettingsService.instance.setSyntaxScheme(SyntaxScheme.colorful);

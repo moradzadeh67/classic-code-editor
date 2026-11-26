@@ -21,8 +21,10 @@ class _OfflineLspService extends LspService {
   Future<List<CompletionItem>> requestCompletion(
     String filePath,
     int line,
-    int column,
-    {String? triggerCharacter, int? triggerKind}) async => const <CompletionItem>[];
+    int column, {
+    String? triggerCharacter,
+    int? triggerKind,
+  }) async => const <CompletionItem>[];
 
   @override
   Future<HoverInfo?> requestHover(

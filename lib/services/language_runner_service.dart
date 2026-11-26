@@ -96,11 +96,8 @@ class LanguageRunnerService extends ChangeNotifier {
     String? filePath,
     String content, {
     String preferredLanguage = 'Auto',
-  }) => resolve(
-    filePath,
-    content,
-    preferredLanguage: preferredLanguage,
-  ).language;
+  }) =>
+      resolve(filePath, content, preferredLanguage: preferredLanguage).language;
 
   /// The one resolver: language **and** mismatch reason.
   ///
@@ -236,10 +233,12 @@ class LanguageRunnerService extends ChangeNotifier {
     final dartExec = await _findExecutable('dart');
     _outputController.add('[Running Dart...]\n');
 
-    _process = await Process.start(dartExec, [
-      'run',
-      tempFile.path,
-    ], workingDirectory: tempDir.path, environment: await _childEnvironment());
+    _process = await Process.start(
+      dartExec,
+      ['run', tempFile.path],
+      workingDirectory: tempDir.path,
+      environment: await _childEnvironment(),
+    );
 
     await _listenToProcess(_process!);
   }
@@ -253,11 +252,9 @@ class LanguageRunnerService extends ChangeNotifier {
 
     // Verify python3 exists
     try {
-      final check = await Process.run(
-        pythonExec,
-        ['--version'],
-        environment: await _childEnvironment(),
-      );
+      final check = await Process.run(pythonExec, [
+        '--version',
+      ], environment: await _childEnvironment());
       if (check.exitCode != 0) {
         _outputController.add(
           '\n[Error: python3 not found. Please ensure Python 3 is installed and in your PATH.]\n',
@@ -285,9 +282,12 @@ class LanguageRunnerService extends ChangeNotifier {
 
     _outputController.add('[Running Python 3...]\n');
 
-    _process = await Process.start(pythonExec, [
-      scriptPath,
-    ], workingDirectory: runWorkDir, environment: await _childEnvironment());
+    _process = await Process.start(
+      pythonExec,
+      [scriptPath],
+      workingDirectory: runWorkDir,
+      environment: await _childEnvironment(),
+    );
 
     await _listenToProcess(_process!);
   }
@@ -302,11 +302,12 @@ class LanguageRunnerService extends ChangeNotifier {
     _outputController.add('[Compiling C code with clang...]\n');
 
     try {
-      final compileProcess = await Process.run(clangExec, [
-        '-o',
-        execFile,
-        sourceFile.path,
-      ], workingDirectory: tempDir.path, environment: await _childEnvironment());
+      final compileProcess = await Process.run(
+        clangExec,
+        ['-o', execFile, sourceFile.path],
+        workingDirectory: tempDir.path,
+        environment: await _childEnvironment(),
+      );
 
       if (compileProcess.stdout.toString().isNotEmpty) {
         _outputController.add(compileProcess.stdout.toString());
@@ -351,12 +352,12 @@ class LanguageRunnerService extends ChangeNotifier {
     _outputController.add('[Compiling C++ code with clang++...]\n');
 
     try {
-      final compileProcess = await Process.run(clangCppExec, [
-        '-std=c++17',
-        '-o',
-        execFile,
-        sourceFile.path,
-      ], workingDirectory: tempDir.path, environment: await _childEnvironment());
+      final compileProcess = await Process.run(
+        clangCppExec,
+        ['-std=c++17', '-o', execFile, sourceFile.path],
+        workingDirectory: tempDir.path,
+        environment: await _childEnvironment(),
+      );
 
       if (compileProcess.stdout.toString().isNotEmpty) {
         _outputController.add(compileProcess.stdout.toString());
@@ -424,14 +425,12 @@ class LanguageRunnerService extends ChangeNotifier {
     _outputController.add('[Compiling ARM64 assembly with clang...]\n');
 
     try {
-      final compileProcess = await Process.run(clangExec, [
-        '-arch',
-        'arm64',
-        '-g',
-        '-o',
-        execFile,
-        sourceFile.path,
-      ], workingDirectory: tempDir.path, environment: await _childEnvironment());
+      final compileProcess = await Process.run(
+        clangExec,
+        ['-arch', 'arm64', '-g', '-o', execFile, sourceFile.path],
+        workingDirectory: tempDir.path,
+        environment: await _childEnvironment(),
+      );
 
       if (compileProcess.stdout.toString().isNotEmpty) {
         _outputController.add(compileProcess.stdout.toString());

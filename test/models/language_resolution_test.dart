@@ -77,7 +77,10 @@ void main() {
 
     test('a real assembly sample reports no mismatch', () {
       final sample = File('samples/array_sum_arm64.s').readAsStringSync();
-      final result = LanguageConfig.resolve('samples/array_sum_arm64.s', sample);
+      final result = LanguageConfig.resolve(
+        'samples/array_sum_arm64.s',
+        sample,
+      );
       expect(result.language.displayName, 'ARM64 Assembly');
       expect(result.hasMismatch, isFalse);
     });

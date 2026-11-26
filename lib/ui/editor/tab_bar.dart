@@ -6,7 +6,7 @@ import '../retro/retro_button.dart';
 import '../../services/theme_service.dart';
 
 /// Height of one editor tab, shared with the "+" button beside the tabs.
-const double kEditorTabHeight = 28;
+const double kEditorTabHeight = 34;
 
 /// Key of the "+" button that opens a new Untitled tab.
 const Key kNewTabButtonKey = ValueKey<String>('new-tab-button');
@@ -25,7 +25,7 @@ class TabBarWidget extends StatelessWidget {
           return const SizedBox.shrink();
         }
         return Container(
-          height: 30,
+          height: kEditorTabHeight + 2,
           color: ThemeService.instance.uiColors['panel'],
           child: Row(
             children: [
@@ -55,7 +55,7 @@ class TabBarWidget extends StatelessWidget {
                     child: const Text(
                       '+',
                       style: TextStyle(
-                        fontSize: 18,
+                        fontSize: 22,
                         fontWeight: FontWeight.bold,
                         height: 1.0,
                       ),
@@ -113,10 +113,25 @@ class TabBarWidget extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              tab.displayName,
+            Text.rich(
+              TextSpan(
+                text: tab.fileName,
+                children: [
+                  // The unsaved-changes mark is drawn larger than the name so it
+                  // stays readable at a glance.
+                  if (tab.isModified)
+                    const TextSpan(
+                      text: ' *',
+                      style: TextStyle(
+                        fontSize: 18,
+                        height: 1.0,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                ],
+              ),
               style: TextStyle(
-                fontSize: 12,
+                fontSize: 13,
                 fontFamily: 'Arial',
                 fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
                 color: ThemeService.instance.uiColors['text'],
@@ -132,13 +147,13 @@ class TabBarWidget extends StatelessWidget {
                 index: index,
               ),
               child: const SizedBox(
-                height: 12,
-                width: 12,
+                height: 14,
+                width: 14,
                 child: Center(
                   child: Text(
                     '×',
                     style: TextStyle(
-                      fontSize: 11,
+                      fontSize: 14,
                       height: 1.0,
                       fontWeight: FontWeight.bold,
                     ),

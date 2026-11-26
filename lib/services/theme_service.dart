@@ -39,6 +39,12 @@ class ThemeColorsData {
   /// Background tint painted on the line execution is currently paused on.
   final Color pausedLine;
 
+  /// Folder glyph in the file explorer.
+  final Color folderIcon;
+
+  /// Generic (no language logo) file glyph in the file explorer.
+  final Color fileIcon;
+
   const ThemeColorsData({
     required this.background,
     required this.panel,
@@ -59,6 +65,8 @@ class ThemeColorsData {
     required this.editorLineNumberText,
     required this.editorCursor,
     required this.pausedLine,
+    required this.folderIcon,
+    required this.fileIcon,
   });
 
   Map<String, Color> toMap() => {
@@ -81,6 +89,8 @@ class ThemeColorsData {
     'editorLineNumberText': editorLineNumberText,
     'editorCursor': editorCursor,
     'pausedLine': pausedLine,
+    'folderIcon': folderIcon,
+    'fileIcon': fileIcon,
   };
 }
 
@@ -162,6 +172,8 @@ class ThemeService extends ChangeNotifier {
           editorLineNumberText: Color(0xFF000000),
           editorCursor: Color(0xFF000000),
           pausedLine: Color(0xFFFFF0A0),
+          folderIcon: Color(0xFFE8A90C),
+          fileIcon: Color(0xFF4A6FA5),
         );
 
       case ThemeType.delphi:
@@ -186,6 +198,8 @@ class ThemeService extends ChangeNotifier {
           editorLineNumberText: Color(0xFF000000),
           editorCursor: Color(0xFF000000),
           pausedLine: Color(0xFFE9D9A5),
+          folderIcon: Color(0xFFB06A00),
+          fileIcon: Color(0xFF5A4A28),
         );
 
       case ThemeType.vb6:
@@ -210,6 +224,8 @@ class ThemeService extends ChangeNotifier {
           editorLineNumberText: Color(0xFF000000),
           editorCursor: Color(0xFF000000),
           pausedLine: Color(0xFFDCDCA8),
+          folderIcon: Color(0xFFF0C040),
+          fileIcon: Color(0xFF3A5A9A),
         );
 
       case ThemeType.turboPascal:
@@ -241,6 +257,8 @@ class ThemeService extends ChangeNotifier {
           editorLineNumberText: Color(0xFF000000),
           editorCursor: Color(0xFF000000),
           pausedLine: Color(0xFFDCDCA8),
+          folderIcon: Color(0xFFFFD84A),
+          fileIcon: Color(0xFF1A3A7A),
         );
     }
   }

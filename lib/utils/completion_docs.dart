@@ -34,7 +34,10 @@ String formatCompletionDocumentation(String raw, {int maxLines = 12}) {
   text = text.replaceAll('`', '');
 
   // ATX headings.
-  text = text.replaceAll(RegExp(r'^[ \t]{0,3}#{1,6}[ \t]*', multiLine: true), '');
+  text = text.replaceAll(
+    RegExp(r'^[ \t]{0,3}#{1,6}[ \t]*', multiLine: true),
+    '',
+  );
 
   // Collapse the blank lines that removing fences/headings can leave behind.
   text = text.replaceAll(RegExp(r'\n{3,}'), '\n\n').trim();

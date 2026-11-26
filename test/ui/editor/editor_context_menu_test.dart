@@ -170,10 +170,7 @@ void main() {
 
     // Bottom-right corner of the editor's text area.
     final field = tester.getRect(find.byType(TextField));
-    await rightClick(
-      tester,
-      Offset(field.right - 6, field.bottom - 6),
-    );
+    await rightClick(tester, Offset(field.right - 6, field.bottom - 6));
 
     final menu = tester.getRect(find.byKey(EditorContextMenu.menuKey));
     expect(menu.width, lessThan(300));
@@ -211,7 +208,11 @@ void main() {
       await tester.pump();
 
       await rightClick(tester, const Offset(100, 100));
-      expect(find.byKey(EditorContextMenu.menuKey), findsOneWidget, reason: theme.name);
+      expect(
+        find.byKey(EditorContextMenu.menuKey),
+        findsOneWidget,
+        reason: theme.name,
+      );
 
       final texts = tester.widgetList<Text>(
         find.descendant(

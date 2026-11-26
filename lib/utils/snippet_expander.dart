@@ -38,8 +38,12 @@ class SnippetExpander {
           } else {
             final inner = snippet.substring(i + 2, braceEnd);
             final colonIdx = inner.indexOf(':');
-            String numberStr = colonIdx >= 0 ? inner.substring(0, colonIdx) : inner;
-            String defaultText = colonIdx >= 0 ? inner.substring(colonIdx + 1) : '';
+            String numberStr = colonIdx >= 0
+                ? inner.substring(0, colonIdx)
+                : inner;
+            String defaultText = colonIdx >= 0
+                ? inner.substring(colonIdx + 1)
+                : '';
             final number = int.tryParse(numberStr.trim()) ?? 0;
             placeholderDefaults[number] ??= defaultText;
             buffer.write(defaultText);
@@ -84,7 +88,9 @@ class SnippetExpander {
         ? _applyIndent(buffer.toString(), indent)
         : buffer.toString();
 
-    final finalCaretOffset = caretOffset >= 0 ? caretOffset : expandedText.length;
+    final finalCaretOffset = caretOffset >= 0
+        ? caretOffset
+        : expandedText.length;
     return (expandedText, finalCaretOffset);
   }
 

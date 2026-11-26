@@ -1,9 +1,11 @@
 import 'dart:async';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../services/dart_runner_service.dart';
+import '../../services/editor_settings_service.dart';
 import '../../services/theme_service.dart';
 import '../retro/retro_border.dart';
 import '../retro/retro_button.dart';
@@ -130,8 +132,37 @@ class _ConsolePanelState extends State<ConsolePanel> {
     );
   }
 
+  /// Cmd/Ctrl + mouse wheel resizes the console text.
+  void _onPointerSignal(PointerSignalEvent event) {
+    if (event is! PointerScrollEvent) return;
+    final keyboard = HardwareKeyboard.instance;
+    if (!keyboard.isMetaPressed && !keyboard.isControlPressed) return;
+    GestureBinding.instance.pointerSignalResolver.register(event, (_) {
+      final settings = EditorSettingsService.instance;
+      if (event.scrollDelta.dy < 0) {
+        settings.increaseConsole();
+      } else if (event.scrollDelta.dy > 0) {
+        settings.decreaseConsole();
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
+    // Rule 8: the font size is live state, so nothing below may be const.
+    return ListenableBuilder(
+      listenable: EditorSettingsService.instance,
+      builder: (context, _) => _buildPanel(context),
+    );
+  }
+
+  Widget _buildPanel(BuildContext context) {
+    final settings = EditorSettingsService.instance;
+    final outputSize = settings.consoleFontSize;
+    final inputSize = (outputSize - 1).clamp(
+      EditorSettingsService.minFontSize,
+      EditorSettingsService.maxFontSize,
+    );
     return Container(
       decoration: RetroBorder.sunken(
         backgroundColor: ThemeService.instance.uiColors['panel'],
@@ -176,43 +207,46 @@ class _ConsolePanelState extends State<ConsolePanel> {
           ),
           const SizedBox(height: 6),
           Expanded(
-            child: Container(
-              decoration: RetroBorder.sunken(
-                backgroundColor: kEditorBackgroundColor,
-              ),
-              padding: const EdgeInsets.all(8),
-              child: ListView.builder(
-                controller: _scrollController,
-                itemCount: _outputLines.length,
-                itemBuilder: (context, index) {
-                  final line = _outputLines[index];
-                  final textColor = _getLineColor(line);
+            child: Listener(
+              onPointerSignal: _onPointerSignal,
+              child: Container(
+                decoration: RetroBorder.sunken(
+                  backgroundColor: kEditorBackgroundColor,
+                ),
+                padding: const EdgeInsets.all(8),
+                child: ListView.builder(
+                  controller: _scrollController,
+                  itemCount: _outputLines.length,
+                  itemBuilder: (context, index) {
+                    final line = _outputLines[index];
+                    final textColor = _getLineColor(line);
 
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 2,
-                    ),
-                    child: SelectableText(
-                      line,
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontFamily: 'Courier New',
-                        color: textColor,
-                        // Program output is w600; the blue `[Running ...]` /
-                        // `[Compiling ...]` guide lines were the only normal
-                        // weight text and read as washed out, so they sit one
-                        // step up (w500) - enough to be legible, still lighter
-                        // than the output they introduce.
-                        fontWeight: line.trim().startsWith('> ')
-                            ? FontWeight.bold
-                            : (!line.trim().startsWith('[')
-                                  ? FontWeight.w600
-                                  : FontWeight.w500),
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 2,
                       ),
-                    ),
-                  );
-                },
+                      child: SelectableText(
+                        line,
+                        style: TextStyle(
+                          fontSize: outputSize,
+                          fontFamily: 'Courier New',
+                          color: textColor,
+                          // Program output is w600; the blue `[Running ...]` /
+                          // `[Compiling ...]` guide lines were the only normal
+                          // weight text and read as washed out, so they sit one
+                          // step up (w500) - enough to be legible, still lighter
+                          // than the output they introduce.
+                          fontWeight: line.trim().startsWith('> ')
+                              ? FontWeight.bold
+                              : (!line.trim().startsWith('[')
+                                    ? FontWeight.w600
+                                    : FontWeight.w500),
+                        ),
+                      ),
+                    );
+                  },
+                ),
               ),
             ),
           ),
@@ -234,7 +268,7 @@ class _ConsolePanelState extends State<ConsolePanel> {
                     Text(
                       'Input > ',
                       style: TextStyle(
-                        fontSize: 12,
+                        fontSize: inputSize,
                         fontFamily: 'Courier New',
                         fontWeight: FontWeight.bold,
                         color: isRunning
@@ -247,10 +281,10 @@ class _ConsolePanelState extends State<ConsolePanel> {
                         controller: _inputController,
                         focusNode: _inputFocusNode,
                         enabled: isRunning,
-                        style: const TextStyle(
-                          fontSize: 12,
+                        style: TextStyle(
+                          fontSize: inputSize,
                           fontFamily: 'Courier New',
-                          color: Color(0xFF000000),
+                          color: const Color(0xFF000000),
                         ),
                         decoration: InputDecoration(
                           border: InputBorder.none,

@@ -46,6 +46,9 @@ class _IDEShellState extends State<IDEShell> {
   final DartRunnerService _dartRunnerService = DartRunnerService();
   final FileService _fileService = FileService();
   final FileExplorerService _explorerService = FileExplorerService();
+
+  /// Set by File > Close Folder: stops opening a file's folder automatically.
+  bool _explorerAutoOpenSuppressed = false;
   final AnalyzerService _analyzerService = AnalyzerService();
 
   /// Read-only Git snapshot for the status bar. It runs no command until a
@@ -293,6 +296,12 @@ class _IDEShellState extends State<IDEShell> {
     if (path == null || path.isEmpty) return;
     if (_explorerService.rootPath != null) return;
     final directory = File(path).parent.path;
+    // A file opened with no folder open shows its folder in the explorer, so
+    // the tree is never empty next to the file being edited. A folder the user
+    // closed on purpose stays closed until they open one again.
+    if (!_explorerAutoOpenSuppressed && File(path).existsSync()) {
+      unawaited(_explorerService.openFolder(directory));
+    }
     if (LspServerManager.containsPath(_lspManager.workspaceRoot, directory)) {
       return;
     }
@@ -345,14 +354,25 @@ class _IDEShellState extends State<IDEShell> {
   Future<void> _handleOpenFolder() async {
     final path = await _explorerService.pickFolder();
     if (path == null) return;
+    _explorerAutoOpenSuppressed = false;
     SessionService.instance.setOpenFolderPath(path);
     // The new project is the folder the servers must root themselves at before
     // the active buffer is opened on them again.
     await _rebaseServersAndResync();
   }
 
+  /// A folder typed into the explorer's path bar (the panel already checked
+  /// that it exists): same follow-up as the Open Folder dialog.
+  Future<void> _handleOpenFolderPath(String path) async {
+    await _explorerService.openFolder(path);
+    _explorerAutoOpenSuppressed = false;
+    SessionService.instance.setOpenFolderPath(path);
+    await _rebaseServersAndResync();
+  }
+
   /// File > "Close Folder": forgets the folder in this and the next session.
   void _handleCloseFolder() {
+    _explorerAutoOpenSuppressed = true;
     _explorerService.closeFolder();
     SessionService.instance.setOpenFolderPath(null);
     // Back to the file's own folder (or the temp workspace).
@@ -658,6 +678,8 @@ class _IDEShellState extends State<IDEShell> {
                       onOpenFile: (path) =>
                           unawaited(_openFileFromExplorer(path)),
                       onOpenFolder: () => unawaited(_handleOpenFolder()),
+                      onOpenFolderPath: (path) =>
+                          unawaited(_handleOpenFolderPath(path)),
                       debugger: _debuggerManager.activeDebugger,
                       codeEditorController: _codeController,
                       editorKey: _editorKey,

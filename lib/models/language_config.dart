@@ -266,9 +266,7 @@ class LanguageConfig {
       config.extension == '.c' || config.extension == '.cpp';
 
   static bool _looksLikeDart(String content) {
-    if (RegExp(
-      r"""import\s*['"]dart:""",
-    ).hasMatch(content)) {
+    if (RegExp(r"""import\s*['"]dart:""").hasMatch(content)) {
       return true;
     }
     if (RegExp(r"""import\s*['"]package:""").hasMatch(content)) return true;

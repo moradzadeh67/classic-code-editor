@@ -80,10 +80,33 @@ class EditorSettingsService extends ChangeNotifier {
 
   final Future<Directory> Function()? _directoryProvider;
   double _fontSize = defaultFontSize;
+  double _consoleFontSize = defaultFontSize;
   EditorFontFamily _fontFamily = EditorFontFamily.menlo;
   SyntaxScheme _syntaxScheme = SyntaxScheme.standard;
 
   double get fontSize => _fontSize;
+
+  /// Size of the Console output text, independent of the editor's [fontSize].
+  double get consoleFontSize => _consoleFontSize;
+
+  bool get canIncreaseConsole => _consoleFontSize < maxFontSize;
+
+  bool get canDecreaseConsole => _consoleFontSize > minFontSize;
+
+  void increaseConsole() => setConsoleFontSize(_consoleFontSize + fontSizeStep);
+
+  void decreaseConsole() => setConsoleFontSize(_consoleFontSize - fontSizeStep);
+
+  void resetConsole() => setConsoleFontSize(defaultFontSize);
+
+  /// Sets the Console font size (clamped to the editor's min/max range).
+  void setConsoleFontSize(double v) {
+    final clamped = v.clamp(minFontSize, maxFontSize);
+    if (_consoleFontSize == clamped) return; // notify ONLY on change
+    _consoleFontSize = clamped;
+    notifyListeners();
+    _save();
+  }
 
   /// The editor font selected in View > Font.
   EditorFontFamily get fontFamily => _fontFamily;
@@ -174,6 +197,15 @@ class EditorSettingsService extends ChangeNotifier {
         }
       }
 
+      final consoleValue = data['consoleFontSize'];
+      if (consoleValue is num) {
+        final clamped = consoleValue.toDouble().clamp(minFontSize, maxFontSize);
+        if (_consoleFontSize != clamped) {
+          _consoleFontSize = clamped;
+          notifyListeners();
+        }
+      }
+
       // An old file has no `fontFamily` key at all, and a corrupt or unknown
       // value must never leave the editor without a font: both land on Menlo.
       final family = EditorFontFamily.fromId(data['fontFamily']);
@@ -203,6 +235,7 @@ class EditorSettingsService extends ChangeNotifier {
     try {
       final content = jsonEncode({
         'fontSize': _fontSize,
+        'consoleFontSize': _consoleFontSize,
         'fontFamily': _fontFamily.id,
         'syntaxScheme': _syntaxScheme.id,
       });
