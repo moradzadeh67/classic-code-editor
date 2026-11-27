@@ -22,6 +22,7 @@ import '../../utils/completion_edit_applier.dart';
 import '../../utils/completion_insert.dart';
 import '../../utils/completion_retry.dart';
 import '../../utils/dart_snippets.dart';
+import '../../utils/line_edit.dart';
 import '../../utils/multi_language_highlighter.dart';
 import '../retro/retro_border.dart';
 import 'autocomplete_popup.dart';
@@ -2031,11 +2032,107 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
     return false;
   }
 
+  /// The two keys of the "end the statement" chord (physical, so it works on
+  /// any keyboard layout).
+  static final Set<PhysicalKeyboardKey> _statementChordKeys =
+      <PhysicalKeyboardKey>{PhysicalKeyboardKey.keyJ, PhysicalKeyboardKey.keyK};
+
+  /// Character each chord key typed when it went down, so the chord can take
+  /// the first key's letter back out of the text.
+  final Map<PhysicalKeyboardKey, String?> _chordKeyCharacters =
+      <PhysicalKeyboardKey, String?>{};
+
+  /// J and K held down together: go to the end of the line and add `;`.
+  ///
+  /// Only a real chord counts (the other key is still held when this one goes
+  /// down), so typing `k` and then `j` normally is left alone. Returns true
+  /// when the key was consumed.
+  bool _tryStatementChord(KeyDownEvent event) {
+    final key = event.physicalKey;
+    if (!_statementChordKeys.contains(key)) return false;
+    _chordKeyCharacters[key] = event.character;
+
+    final keyboard = HardwareKeyboard.instance;
+    if (keyboard.isControlPressed ||
+        keyboard.isMetaPressed ||
+        keyboard.isAltPressed) {
+      return false;
+    }
+    final other = _statementChordKeys.firstWhere((k) => k != key);
+    if (!keyboard.physicalKeysPressed.contains(other)) return false;
+
+    final language = LanguageConfig.resolve(
+      _filePath,
+      _controller.text,
+      preferredLanguage: widget.languageOverride,
+    ).language.highlightLanguage;
+    if (!semicolonLanguages.contains(language)) return false;
+
+    final selection = _controller.selection;
+    if (!selection.isValid || !selection.isCollapsed) return false;
+
+    // Take back the letter the first key already typed.
+    var text = _controller.text;
+    var caret = selection.start;
+    final typed = _chordKeyCharacters[other];
+    if (typed != null &&
+        typed.isNotEmpty &&
+        caret >= typed.length &&
+        text.substring(caret - typed.length, caret) == typed) {
+      text = text.replaceRange(caret - typed.length, caret, '');
+      caret -= typed.length;
+    }
+
+    final result = endStatement(text: text, caret: caret);
+    // A real edit (not `_programmaticText`): the tab must see it.
+    _controller.value = TextEditingValue(
+      text: result.text,
+      selection: TextSelection.collapsed(offset: result.caret),
+    );
+    _dismissCompletion();
+    _dismissHover();
+    return true;
+  }
+
+  /// Ctrl+D: duplicates the current line (or the selected lines) below it.
+  bool _tryDuplicateLine(KeyDownEvent event) {
+    final keyboard = HardwareKeyboard.instance;
+    if (event.logicalKey != LogicalKeyboardKey.keyD ||
+        !keyboard.isControlPressed ||
+        keyboard.isMetaPressed ||
+        keyboard.isShiftPressed ||
+        keyboard.isAltPressed) {
+      return false;
+    }
+    final selection = _controller.selection;
+    if (!selection.isValid) return true;
+    final result = duplicateLines(
+      text: _controller.text,
+      selectionStart: selection.start,
+      selectionEnd: selection.end,
+    );
+    // A real edit (not `_programmaticText`): the tab must see it.
+    _controller.value = TextEditingValue(
+      text: result.text,
+      selection: TextSelection(
+        baseOffset: result.selectionStart,
+        extentOffset: result.selectionEnd,
+      ),
+    );
+    _dismissCompletion();
+    _dismissHover();
+    return true;
+  }
+
   KeyEventResult _handleKeyEvent(KeyEvent event) {
     if (event is KeyDownEvent) {
       // Any key press resets the documentation idle clock (and hides the panel
       // at once); navigation keys re-arm it through _scheduleCompletionDoc.
       _hideCompletionDoc();
+      // Ctrl+D replaces macOS' "delete forward" inside the editor.
+      if (_tryDuplicateLine(event) || _tryStatementChord(event)) {
+        return KeyEventResult.handled;
+      }
       if (event.logicalKey == LogicalKeyboardKey.arrowDown &&
           _showAutocomplete) {
         _moveSelection(1);

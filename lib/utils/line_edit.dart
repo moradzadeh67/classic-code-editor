@@ -1,4 +1,43 @@
-/// Pure text-manipulation helper for line operations (Duplicate Line).
+/// Pure text-manipulation helpers for line operations (Duplicate Line, the
+/// J+K "end the statement" chord).
+library;
+
+/// Highlight languages whose statements end with `;` (the J+K chord only
+/// works in these).
+const Set<String> semicolonLanguages = <String>{'dart', 'c', 'cpp'};
+
+/// Text and caret after [endStatement].
+class EndStatementResult {
+  final String text;
+  final int caret;
+
+  const EndStatementResult({required this.text, required this.caret});
+}
+
+/// Ends the statement on the line that holds [caret]: the caret goes to the
+/// end of that line and a `;` is added there.
+///
+/// No `;` is added when the line already ends with `;`, ends with `{` (a block
+/// opener, where `;` is always wrong) or is blank; the caret still moves to
+/// the end. Trailing spaces are replaced by the `;`.
+EndStatementResult endStatement({required String text, required int caret}) {
+  final offset = caret.clamp(0, text.length);
+  final newline = text.indexOf('\n', offset);
+  final lineEnd = newline == -1 ? text.length : newline;
+  final lineStart = offset == 0 ? 0 : text.lastIndexOf('\n', offset - 1) + 1;
+  final content = text.substring(lineStart, lineEnd).trimRight();
+
+  if (content.trim().isEmpty ||
+      content.endsWith(';') ||
+      content.endsWith('{')) {
+    return EndStatementResult(text: text, caret: lineEnd);
+  }
+  final contentEnd = lineStart + content.length;
+  final newText = text.replaceRange(contentEnd, lineEnd, ';');
+  return EndStatementResult(text: newText, caret: contentEnd + 1);
+}
+
+/// Text and selection after [duplicateLines].
 class DuplicateLineResult {
   final String text;
   final int selectionStart;

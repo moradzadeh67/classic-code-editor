@@ -1228,4 +1228,80 @@ void main() {
     expect(find.byType(CompletionDocPanel), findsOneWidget);
     expect(find.text('Virtual docs.'), findsOneWidget);
   });
+
+  group('line shortcuts', () {
+    Future<TextEditingController> pumpEditor(
+      WidgetTester tester,
+      String text, {
+      required int caret,
+    }) async {
+      final lsp = _FakeLspService(completions: const []);
+      addTearDown(lsp.dispose);
+      await tester.pumpWidget(
+        _wrap(CodeEditorPanel(fileService: fileService, lspService: lsp)),
+      );
+      await tester.enterText(find.byType(TextField), text);
+      await tester.pumpAndSettle();
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      final controller = tester
+          .widget<TextField>(find.byType(TextField))
+          .controller!;
+      controller.selection = TextSelection.collapsed(offset: caret);
+      await tester.pump();
+      return controller;
+    }
+
+    /// Presses J and K together (K still held when J goes down).
+    Future<void> pressChord(WidgetTester tester) async {
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.keyK);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.keyJ);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.keyJ);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.keyK);
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('Ctrl+D duplicates the caret line', (tester) async {
+      final controller = await pumpEditor(tester, 'a\nbc\nd', caret: 4);
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyD);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pumpAndSettle();
+
+      expect(controller.text, 'a\nbc\nbc\nd');
+      expect(fileService.fileContent, 'a\nbc\nbc\nd');
+    });
+
+    testWidgets('J+K together ends the statement in Dart', (tester) async {
+      final controller = await pumpEditor(tester, "print('hi')\nx", caret: 3);
+
+      await pressChord(tester);
+
+      expect(controller.text, "print('hi');\nx");
+      expect(controller.selection, const TextSelection.collapsed(offset: 12));
+      expect(fileService.fileContent, "print('hi');\nx");
+    });
+
+    testWidgets('K then J typed one after the other is not a chord', (
+      tester,
+    ) async {
+      final controller = await pumpEditor(tester, 'foo()', caret: 2);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyK);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyJ);
+      await tester.pumpAndSettle();
+
+      expect(controller.text, isNot(contains(';')));
+    });
+
+    testWidgets('J+K does nothing in Python', (tester) async {
+      fileService.openFilePath('/tmp/script.py', '');
+      final controller = await pumpEditor(tester, 'print(1)', caret: 2);
+
+      await pressChord(tester);
+
+      expect(controller.text, isNot(contains(';')));
+    });
+  });
 }
