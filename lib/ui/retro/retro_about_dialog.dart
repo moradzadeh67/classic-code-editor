@@ -295,30 +295,67 @@ class _RetroAboutDialogWidgetState extends State<_RetroAboutDialogWidget> {
     );
   }
 
-  Widget _buildShortcutsTab(ThemeColorsData colors) {
-    final shortcuts = [
-      ('F5', 'Run Active Code File'),
-      ('Cmd + S', 'Save Current File'),
-      ('Cmd + N', 'New File'),
-      ('Cmd + O', 'Open File'),
-      ('Cmd + Shift + S', 'Save As'),
-      ('Cmd + W', 'Close Tab'),
-      ('↑ / ↓', 'Navigate Autocomplete Suggestions'),
-      ('Enter / Tab', 'Accept Selected Completion'),
-      ('Escape', 'Dismiss Autocomplete / Tooltip'),
-      ('Cmd + Z', 'Undo'),
-      ('Cmd + Y', 'Redo'),
-      ('Cmd + A', 'Select All'),
-      ('Cmd + L', 'Go to Line'),
-      ('Cmd + /', 'Toggle Comment'),
-      ('Cmd + Shift + D', 'Duplicate Line'),
-      ('Ctrl + Shift + Space', 'Trigger Completion'),
-      (
-        'Cmd + / Cmd - / Cmd 0',
-        'Editor Font Size (Increase / Decrease / Reset)',
-      ),
-    ];
+  /// Every shortcut the app really handles, grouped like the menus. Keep it in
+  /// step with `IDEShell`'s key handler and `CodeEditorPanel._handleKeyEvent`.
+  static const List<(String, List<(String, String)>)> _shortcutGroups = [
+    (
+      'File',
+      [
+        ('Cmd + N', 'New File'),
+        ('Cmd + O', 'Open File'),
+        ('Cmd + Shift + O', 'Open Folder'),
+        ('Cmd + S', 'Save Current File'),
+        ('Cmd + Shift + S', 'Save As'),
+        ('Cmd + W', 'Close Tab'),
+      ],
+    ),
+    (
+      'Edit',
+      [
+        ('Cmd + Z', 'Undo'),
+        ('Cmd + Y', 'Redo (also Cmd + Shift + Z)'),
+        ('Cmd + X', 'Cut'),
+        ('Cmd + C', 'Copy'),
+        ('Cmd + V', 'Paste'),
+        ('Cmd + A', 'Select All'),
+      ],
+    ),
+    (
+      'Editor',
+      [
+        ('Cmd + L', 'Go to Line'),
+        ('Cmd + /', 'Toggle Comment'),
+        ('Ctrl + D', 'Duplicate Line (also Cmd + Shift + D)'),
+        ('J + K together', 'Go to End of Line and Add ; (Dart, C, C++)'),
+        ('Tab', 'Indent Line / Selection'),
+        ('Shift + Tab', 'Outdent Line / Selection'),
+        (
+          'Cmd + / Cmd - / Cmd 0',
+          'Editor Font Size (Increase / Decrease / Reset)',
+        ),
+      ],
+    ),
+    (
+      'Completion',
+      [
+        ('Ctrl + Space', 'Trigger Completion (also Ctrl + Shift + Space)'),
+        ('↑ / ↓', 'Navigate Autocomplete Suggestions'),
+        ('Tab / Shift + Tab', 'Next / Previous Suggestion'),
+        ('Enter', 'Accept Selected Completion'),
+        ('Escape', 'Dismiss Autocomplete / Tooltip'),
+      ],
+    ),
+    ('Run', [('F5', 'Run Active Code File')]),
+    (
+      'File Explorer & Source Control',
+      [
+        ('Right Click', 'File / Folder Menu (New, Rename, Delete, ...)'),
+        ('Cmd + Enter', 'Commit (in the Source Control message box)'),
+      ],
+    ),
+  ];
 
+  Widget _buildShortcutsTab(ThemeColorsData colors) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -331,45 +368,57 @@ class _RetroAboutDialogWidgetState extends State<_RetroAboutDialogWidget> {
             color: colors.editorText,
           ),
         ),
-        const SizedBox(height: 8),
-        ...shortcuts.map(
-          (s) => Padding(
-            padding: const EdgeInsets.symmetric(vertical: 3),
-            child: Row(
-              children: [
-                Container(
-                  width: 120,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 6,
-                    vertical: 2,
-                  ),
-                  decoration: RetroBorder.raised(backgroundColor: colors.panel),
-                  child: Text(
-                    s.$1,
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold,
-                      fontFamily: 'Menlo',
-                      color: colors.text,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    s.$2,
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontFamily: 'Arial',
-                      color: colors.editorText,
-                    ),
-                  ),
-                ),
-              ],
+        for (final (title, shortcuts) in _shortcutGroups) ...[
+          const SizedBox(height: 10),
+          Text(
+            title,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              fontFamily: 'Arial',
+              color: colors.editorText,
             ),
           ),
-        ),
+          const SizedBox(height: 2),
+          ...shortcuts.map((s) => _shortcutRow(colors, s.$1, s.$2)),
+        ],
       ],
+    );
+  }
+
+  /// One row of the shortcuts tab: the keys in a raised box, then the action.
+  Widget _shortcutRow(ThemeColorsData colors, String keys, String action) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        children: [
+          Container(
+            width: 150,
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: RetroBorder.raised(backgroundColor: colors.panel),
+            child: Text(
+              keys,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                fontFamily: 'Menlo',
+                color: colors.text,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              action,
+              style: TextStyle(
+                fontSize: 11,
+                fontFamily: 'Arial',
+                color: colors.editorText,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
