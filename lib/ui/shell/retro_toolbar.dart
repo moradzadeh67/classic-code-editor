@@ -9,6 +9,7 @@ import '../../services/debug_service.dart';
 import '../../models/debugger_models.dart';
 import '../../models/language_config.dart';
 import '../retro/retro_border.dart';
+import '../retro/retro_toolbar_icons.dart';
 
 class RetroToolbar extends StatelessWidget {
   final VoidCallback? onNew;
@@ -17,6 +18,13 @@ class RetroToolbar extends StatelessWidget {
   final VoidCallback? onAnalyze;
   final VoidCallback? onRun;
   final VoidCallback? onStop;
+
+  /// Edit buttons; each runs the same action as its keyboard shortcut.
+  final VoidCallback? onUndo;
+  final VoidCallback? onRedo;
+  final VoidCallback? onCut;
+  final VoidCallback? onCopy;
+  final VoidCallback? onPaste;
   final BaseDebugger? debugger;
   final FileService? fileService;
   final AnalyzerService? analyzerService;
@@ -30,6 +38,11 @@ class RetroToolbar extends StatelessWidget {
     this.onAnalyze,
     this.onRun,
     this.onStop,
+    this.onUndo,
+    this.onRedo,
+    this.onCut,
+    this.onCopy,
+    this.onPaste,
     this.debugger,
     this.fileService,
     this.analyzerService,
@@ -92,33 +105,36 @@ class RetroToolbar extends StatelessWidget {
         final isDebugging = debugger?.state != DebugState.inactive;
 
         return Container(
-          height: 34,
+          height: 35,
           color: ThemeService.instance.uiColors['panel'],
-          // Exactly 2px of breathing room above and below every element.
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+          // Uneven on purpose: the panel layout below adds its own 2px top
+          // padding, while the menu bar's dark bottom edge above eats one.
+          // 4 above + 1 below leaves the buttons a visible 3px from both
+          // lines (measured in the running app).
+          padding: const EdgeInsets.fromLTRB(4, 4, 4, 1),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               _toolbarButton(
-                iconType: 'new',
+                iconType: RetroToolbarIconType.newFile,
                 tooltip: 'New File',
                 onPressed: newCallback,
               ),
               const SizedBox(width: 3),
               _toolbarButton(
-                iconType: 'open',
+                iconType: RetroToolbarIconType.open,
                 tooltip: 'Open File',
                 onPressed: openCallback,
               ),
               const SizedBox(width: 3),
               _toolbarButton(
-                iconType: 'save',
+                iconType: RetroToolbarIconType.save,
                 tooltip: 'Save File',
                 onPressed: saveCallback,
               ),
               const SizedBox(width: 3),
               _toolbarButton(
-                iconType: 'compile',
+                iconType: RetroToolbarIconType.analyze,
                 tooltip: 'Analyze Code',
                 onPressed: analyzeCallback,
               ),
@@ -126,13 +142,47 @@ class RetroToolbar extends StatelessWidget {
               _buildSeparator(),
               const SizedBox(width: 5),
               _toolbarButton(
-                iconType: 'run',
+                iconType: RetroToolbarIconType.cut,
+                tooltip: 'Cut',
+                onPressed: onCut,
+              ),
+              const SizedBox(width: 3),
+              _toolbarButton(
+                iconType: RetroToolbarIconType.copy,
+                tooltip: 'Copy',
+                onPressed: onCopy,
+              ),
+              const SizedBox(width: 3),
+              _toolbarButton(
+                iconType: RetroToolbarIconType.paste,
+                tooltip: 'Paste',
+                onPressed: onPaste,
+              ),
+              const SizedBox(width: 5),
+              _buildSeparator(),
+              const SizedBox(width: 5),
+              _toolbarButton(
+                iconType: RetroToolbarIconType.undo,
+                tooltip: 'Undo',
+                onPressed: onUndo,
+              ),
+              const SizedBox(width: 3),
+              _toolbarButton(
+                iconType: RetroToolbarIconType.redo,
+                tooltip: 'Redo',
+                onPressed: onRedo,
+              ),
+              const SizedBox(width: 5),
+              _buildSeparator(),
+              const SizedBox(width: 5),
+              _toolbarButton(
+                iconType: RetroToolbarIconType.run,
                 tooltip: 'Run Code',
                 onPressed: runCallback,
               ),
               const SizedBox(width: 3),
               _toolbarButton(
-                iconType: 'stop',
+                iconType: RetroToolbarIconType.stop,
                 tooltip: 'Stop Execution',
                 onPressed: stopCallback,
               ),
@@ -143,7 +193,7 @@ class RetroToolbar extends StatelessWidget {
               if (debugger != null) ...[
                 if (!isDebugging)
                   _toolbarButton(
-                    iconType: 'debug',
+                    iconType: RetroToolbarIconType.debug,
                     tooltip: 'Start Debugging',
                     onPressed: () {
                       // Untitled/unsaved buffers have no path; fall back to the
@@ -186,31 +236,31 @@ class RetroToolbar extends StatelessWidget {
                   )
                 else ...[
                   _toolbarButton(
-                    iconType: 'stop',
+                    iconType: RetroToolbarIconType.stop,
                     tooltip: 'Stop Debugging',
                     onPressed: () => debugger?.stopDebugging(),
                   ),
                   const SizedBox(width: 3),
                   _toolbarButton(
-                    iconType: 'step_over',
+                    iconType: RetroToolbarIconType.stepOver,
                     tooltip: 'Step Over',
                     onPressed: () => debugger?.stepOver(),
                   ),
                   const SizedBox(width: 3),
                   _toolbarButton(
-                    iconType: 'step_into',
+                    iconType: RetroToolbarIconType.stepInto,
                     tooltip: 'Step Into',
                     onPressed: () => debugger?.stepInto(),
                   ),
                   const SizedBox(width: 3),
                   _toolbarButton(
-                    iconType: 'step_out',
+                    iconType: RetroToolbarIconType.stepOut,
                     tooltip: 'Step Out',
                     onPressed: () => debugger?.stepOut(),
                   ),
                   const SizedBox(width: 3),
                   _toolbarButton(
-                    iconType: 'continue',
+                    iconType: RetroToolbarIconType.resume,
                     tooltip: 'Continue',
                     onPressed: () => debugger?.continueExecution(),
                   ),
@@ -236,93 +286,18 @@ class RetroToolbar extends StatelessWidget {
     );
   }
 
-  Widget _buildRetroIcon(String iconType) {
-    switch (iconType) {
-      case 'new':
-        return Stack(
-          alignment: Alignment.center,
-          children: const [
-            Icon(Icons.insert_drive_file, size: 16, color: Colors.white),
-            Positioned(
-              right: 0,
-              bottom: 0,
-              child: Icon(Icons.add_circle, size: 9, color: Color(0xFF00AA00)),
-            ),
-          ],
-        );
-      case 'open':
-        // Darker amber so the folder stays legible on all three (light) themes.
-        return const Icon(
-          Icons.folder_open_sharp,
-          size: 16,
-          color: Color(0xFFCC7A00),
-        );
-      case 'save':
-        return const Icon(Icons.save_sharp, size: 16, color: Color(0xFF0000AA));
-      case 'compile':
-        return const Icon(
-          Icons.build_sharp,
-          size: 15,
-          color: Color(0xFF555555),
-        );
-      case 'run':
-        return const Icon(
-          Icons.play_arrow_sharp,
-          size: 18,
-          color: Color(0xFF00AA00),
-        );
-      case 'stop':
-        return const Icon(Icons.stop_sharp, size: 16, color: Color(0xFFCC0000));
-      case 'debug':
-        return const Icon(
-          Icons.bug_report_sharp,
-          size: 16,
-          color: Color(0xFF880000),
-        );
-      case 'step_over':
-        return const Icon(Icons.redo_sharp, size: 16, color: Color(0xFF000080));
-      case 'step_into':
-        return const Icon(
-          Icons.south_east_sharp,
-          size: 16,
-          color: Color(0xFF000080),
-        );
-      case 'step_out':
-        return const Icon(
-          Icons.north_east_sharp,
-          size: 16,
-          color: Color(0xFF000080),
-        );
-      case 'continue':
-        return const Icon(
-          Icons.fast_forward_sharp,
-          size: 16,
-          color: Color(0xFF008000),
-        );
-      default:
-        return const Icon(Icons.code_sharp, size: 16, color: Colors.black);
-    }
-  }
-
-  /// Toolbar icon button formatted with 3D raised border and Tooltip.
+  /// One flat toolbar button with its pixel icon and tooltip.
   Widget _toolbarButton({
-    required String iconType,
+    required RetroToolbarIconType iconType,
     required String tooltip,
     VoidCallback? onPressed,
   }) {
     return Tooltip(
       message: tooltip,
-      child: InkWell(
-        onTap: onPressed,
-        child: Container(
-          constraints: const BoxConstraints(minWidth: 28),
-          alignment: Alignment.center,
-          padding: const EdgeInsets.all(4),
-          decoration: RetroBorder.raised(
-            backgroundColor: ThemeService.instance.uiColors['panel'],
-          ),
-          child: _buildRetroIcon(iconType),
-        ),
+      child: RetroToolbarButton(
+        key: ValueKey<String>('toolbar-${iconType.name}'),
+        onPressed: onPressed,
+        child: RetroToolbarIcon(iconType),
       ),
     );
   }
@@ -340,6 +315,52 @@ class RetroToolbar extends StatelessWidget {
             color: ThemeService.instance.colors.borderLight,
             width: 1,
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A classic 3D toolbar button: always raised, its own separate frame, sunken
+/// while it is pressed.
+class RetroToolbarButton extends StatefulWidget {
+  const RetroToolbarButton({super.key, required this.child, this.onPressed});
+
+  final Widget child;
+  final VoidCallback? onPressed;
+
+  @override
+  State<RetroToolbarButton> createState() => _RetroToolbarButtonState();
+}
+
+class _RetroToolbarButtonState extends State<RetroToolbarButton> {
+  bool _pressed = false;
+
+  void _setPressed(bool value) {
+    if (_pressed != value) setState(() => _pressed = value);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Rule 8: theme colors are read here, never captured in a const widget.
+    final panel = ThemeService.instance.uiColors['panel'];
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTapDown: (_) => _setPressed(true),
+      onTapCancel: () => _setPressed(false),
+      onTapUp: (_) => _setPressed(false),
+      onTap: widget.onPressed,
+      child: Container(
+        constraints: const BoxConstraints(minWidth: 28),
+        alignment: Alignment.center,
+        padding: const EdgeInsets.all(4),
+        decoration: _pressed
+            ? RetroBorder.sunken(backgroundColor: panel)
+            : RetroBorder.raised(backgroundColor: panel),
+        // The pressed icon moves 1px down-right, like a real 9x button.
+        child: Transform.translate(
+          offset: _pressed ? const Offset(1, 1) : Offset.zero,
+          child: widget.child,
         ),
       ),
     );

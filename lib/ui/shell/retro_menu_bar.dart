@@ -41,6 +41,10 @@ class RetroMenuBar extends StatelessWidget {
   /// File > "Close Folder".
   final VoidCallback? onCloseFolder;
   final VoidCallback? onTriggerCompletion;
+
+  /// Edit > Undo / Redo: the same undo history as `Cmd+Z` in the editor.
+  final VoidCallback? onUndo;
+  final VoidCallback? onRedo;
   final FileService? fileService;
   final AnalyzerService? analyzerService;
   final DartRunnerService? dartRunnerService;
@@ -63,6 +67,8 @@ class RetroMenuBar extends StatelessWidget {
     this.dartRunnerService,
     this.codeEditorController,
     this.onTriggerCompletion,
+    this.onUndo,
+    this.onRedo,
   });
 
   @override
@@ -165,9 +171,9 @@ class RetroMenuBar extends StatelessWidget {
               ],
               onSelected: (value) {
                 if (value == 'undo') {
-                  _undoText();
+                  onUndo?.call();
                 } else if (value == 'redo') {
-                  _redoText();
+                  onRedo?.call();
                 } else if (value == 'cut') {
                   _cutSelectedText();
                 } else if (value == 'copy') {
@@ -483,12 +489,6 @@ class RetroMenuBar extends StatelessWidget {
     ];
   }
 
-  void _undoText() {
-    // CodeController in this version of flutter_code_editor does not expose
-    // undo/redo programmatically. The editor still supports Cmd/Ctrl+Z via
-    // the native text input on platform views.
-  }
-
   /// Selects the whole buffer (same action as the editor's own Cmd+A).
   void _selectAllText() {
     final controller = codeEditorController;
@@ -542,10 +542,6 @@ class RetroMenuBar extends StatelessWidget {
         extentOffset: result.selectionEnd,
       ),
     );
-  }
-
-  void _redoText() {
-    // See comment in _undoText.
   }
 
   void _copySelectedText() async {

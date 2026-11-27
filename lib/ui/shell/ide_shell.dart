@@ -545,6 +545,10 @@ class _IDEShellState extends State<IDEShell> {
     if (line != null) editor.goToLine(line);
   }
 
+  /// Sends an Edit command (toolbar, Edit menu) to the editor.
+  void _runEditorCommand(EditorCommand command) =>
+      _editorKey.currentState?.runEditCommand(command);
+
   void _handleRedo() {
     // Redo handled natively by platform/focused editor
   }
@@ -676,10 +680,17 @@ class _IDEShellState extends State<IDEShell> {
                     onCloseFolder: _handleCloseFolder,
                     onTriggerCompletion: () =>
                         _editorKey.currentState?.triggerCompletionFromCommand(),
+                    onUndo: () => _runEditorCommand(EditorCommand.undo),
+                    onRedo: () => _runEditorCommand(EditorCommand.redo),
                   ),
                   // NOTE: deliberately NOT `const` so their build() re-runs when
                   // the theme changes.
                   RetroToolbar(
+                    onUndo: () => _runEditorCommand(EditorCommand.undo),
+                    onRedo: () => _runEditorCommand(EditorCommand.redo),
+                    onCut: () => _runEditorCommand(EditorCommand.cut),
+                    onCopy: () => _runEditorCommand(EditorCommand.copy),
+                    onPaste: () => _runEditorCommand(EditorCommand.paste),
                     fileService: _fileService,
                     analyzerService: _analyzerService,
                     dartRunnerService: _dartRunnerService,

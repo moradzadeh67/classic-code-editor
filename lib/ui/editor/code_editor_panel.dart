@@ -215,6 +215,9 @@ class _GutterRowsCache {
   });
 }
 
+/// Edit commands sent to the editor from the toolbar and the Edit menu.
+enum EditorCommand { undo, redo, cut, copy, paste }
+
 /// The main code-editor area.
 class CodeEditorPanel extends StatefulWidget {
   final FileService fileService;
@@ -1686,6 +1689,45 @@ class CodeEditorPanelState extends State<CodeEditorPanel> {
     });
     // A post-frame callback only runs when a frame is produced; an idle
     // editor has nothing else to schedule one.
+    WidgetsBinding.instance.scheduleFrame();
+  }
+
+  /// Whether the text field has the keyboard focus.
+  bool get hasEditorFocus => _focusNode.hasFocus;
+
+  /// Runs [command] exactly as its keyboard shortcut would (`Cmd+Z`,
+  /// `Cmd+C`, ...): the text field's own intent is invoked, so the toolbar,
+  /// the Edit menu and the keyboard share one undo history and one clipboard
+  /// path.
+  ///
+  /// The focus is restored first (a menu or a click elsewhere may have taken
+  /// it), then the intent runs after the frame.
+  void runEditCommand(EditorCommand command) {
+    _focusNode.requestFocus();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      // The text field's Focus sits below its Actions and UndoHistory, so the
+      // intent resolves to the field's own handlers.
+      final target = _focusNode.context;
+      if (target == null) return;
+      final Intent intent = switch (command) {
+        EditorCommand.undo => const UndoTextIntent(
+          SelectionChangedCause.toolbar,
+        ),
+        EditorCommand.redo => const RedoTextIntent(
+          SelectionChangedCause.toolbar,
+        ),
+        EditorCommand.cut => const CopySelectionTextIntent.cut(
+          SelectionChangedCause.toolbar,
+        ),
+        EditorCommand.copy => CopySelectionTextIntent.copy,
+        EditorCommand.paste => const PasteTextIntent(
+          SelectionChangedCause.toolbar,
+        ),
+      };
+      Actions.maybeInvoke(target, intent);
+      _dismissCompletion();
+    });
     WidgetsBinding.instance.scheduleFrame();
   }
 

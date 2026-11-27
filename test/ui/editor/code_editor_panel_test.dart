@@ -1295,6 +1295,68 @@ void main() {
       expect(controller.text, isNot(contains(';')));
     });
 
+    testWidgets('toolbar edit commands run the editor\'s own actions', (
+      tester,
+    ) async {
+      // A fake system clipboard.
+      String? clipboard;
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async {
+          if (call.method == 'Clipboard.setData') {
+            clipboard = (call.arguments as Map)['text'] as String?;
+          } else if (call.method == 'Clipboard.getData') {
+            return <String, dynamic>{'text': clipboard};
+          } else if (call.method == 'Clipboard.hasStrings') {
+            return <String, dynamic>{'value': clipboard != null};
+          }
+          return null;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        ),
+      );
+
+      final controller = await pumpEditor(tester, 'hello world', caret: 0);
+      final editor = tester.state<CodeEditorPanelState>(
+        find.byType(CodeEditorPanel),
+      );
+      Future<void> run(EditorCommand command) async {
+        editor.runEditCommand(command);
+        await tester.pumpAndSettle();
+      }
+
+      controller.selection = const TextSelection(
+        baseOffset: 0,
+        extentOffset: 5,
+      );
+      await tester.pump();
+      await run(EditorCommand.copy);
+      expect(clipboard, 'hello');
+
+      await run(EditorCommand.cut);
+      expect(controller.text, ' world');
+      expect(clipboard, 'hello');
+
+      // Flutter's undo history merges changes made within ~500 ms into one
+      // step; a person is slower than that between a cut and a paste.
+      await tester.pump(const Duration(seconds: 1));
+      controller.selection = const TextSelection.collapsed(offset: 6);
+      await tester.pump();
+      await run(EditorCommand.paste);
+      expect(controller.text, ' worldhello');
+
+      // Undo walks back through the same history Cmd+Z uses.
+      await tester.pump(const Duration(seconds: 1));
+      await run(EditorCommand.undo);
+      expect(controller.text, ' world');
+      await run(EditorCommand.redo);
+      expect(controller.text, ' worldhello');
+    });
+
     testWidgets('J+K does nothing in Python', (tester) async {
       fileService.openFilePath('/tmp/script.py', '');
       final controller = await pumpEditor(tester, 'print(1)', caret: 2);
