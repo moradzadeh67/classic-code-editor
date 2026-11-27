@@ -350,6 +350,18 @@ class _IDEShellState extends State<IDEShell> {
     _gitController.refresh();
   }
 
+  /// Cmd+Shift+S: Save As for the active tab.
+  Future<void> _handleSaveAs() async {
+    _flushPendingDocumentChange();
+    final saved = await _fileService.saveFileAs(_fileService.fileContent);
+    if (!saved) return;
+    final savedPath = _fileService.currentFilePath;
+    if (savedPath != null && _explorerService.contains(savedPath)) {
+      unawaited(_explorerService.refresh());
+    }
+    _gitController.refresh();
+  }
+
   /// File > "Open Folder..." / the explorer's empty-state button.
   Future<void> _handleOpenFolder() async {
     final path = await _explorerService.pickFolder();
@@ -549,8 +561,14 @@ class _IDEShellState extends State<IDEShell> {
   void _runEditorCommand(EditorCommand command) =>
       _editorKey.currentState?.runEditCommand(command);
 
+  /// Cmd+Y: macOS text fields only bind Cmd+Shift+Z for redo, so the shortcut
+  /// the Edit menu shows is routed to the editor here (only while the editor
+  /// has the focus, so Cmd+Y elsewhere never jumps into the code).
   void _handleRedo() {
-    // Redo handled natively by platform/focused editor
+    if (!HardwareKeyboard.instance.isMetaPressed) return;
+    final editor = _editorKey.currentState;
+    if (editor == null || !editor.hasEditorFocus) return;
+    editor.runEditCommand(EditorCommand.redo);
   }
 
   @override
@@ -566,8 +584,16 @@ class _IDEShellState extends State<IDEShell> {
               HardwareKeyboard.instance.isControlPressed ||
               HardwareKeyboard.instance.isMetaPressed;
 
-          // 1. Save (Ctrl+S / Cmd+S)
-          if (event.logicalKey == LogicalKeyboardKey.keyS && isControlOrMeta) {
+          // 1. Save As (Cmd+Shift+S) — before the plain Cmd+S branch, which
+          // would otherwise swallow it as a normal Save.
+          if (event.logicalKey == LogicalKeyboardKey.keyS &&
+              isControlOrMeta &&
+              HardwareKeyboard.instance.isShiftPressed) {
+            unawaited(_handleSaveAs());
+          }
+          // 1b. Save (Ctrl+S / Cmd+S)
+          else if (event.logicalKey == LogicalKeyboardKey.keyS &&
+              isControlOrMeta) {
             _handleSave();
           }
           // 2. New File (Ctrl+N / Cmd+N)
@@ -624,6 +650,12 @@ class _IDEShellState extends State<IDEShell> {
               HardwareKeyboard.instance.isControlPressed) {
             _editorKey.currentState?.triggerCompletionFromCommand();
           }
+          // 5. Redo (Cmd+Y) — before the zoom branch below, which swallows
+          // every other Ctrl/Cmd key.
+          else if (event.logicalKey == LogicalKeyboardKey.keyY &&
+              isControlOrMeta) {
+            _handleRedo();
+          }
           // 7. Editor zoom (Cmd + / Cmd - / Cmd 0)
           else if (isControlOrMeta) {
             final zoom = zoomActionFor(
@@ -643,11 +675,6 @@ class _IDEShellState extends State<IDEShell> {
                   break;
               }
             }
-          }
-          // 5. Redo (Ctrl+Y / Cmd+Y)
-          else if (event.logicalKey == LogicalKeyboardKey.keyY &&
-              isControlOrMeta) {
-            _handleRedo();
           }
         }
       },
