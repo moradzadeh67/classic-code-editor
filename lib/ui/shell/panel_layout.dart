@@ -66,6 +66,14 @@ class PanelLayout extends StatefulWidget {
 
   /// A folder typed into the explorer's path bar.
   final ValueChanged<String>? onOpenFolderPath;
+
+  /// The explorer renamed or moved an entry (see
+  /// [FileExplorerPanel.onPathMoved]).
+  final void Function(String from, String to)? onExplorerPathMoved;
+
+  /// The explorer is about to trash an entry (see
+  /// [FileExplorerPanel.onBeforeDelete]).
+  final Future<bool> Function(String path)? onExplorerBeforeDelete;
   final BaseDebugger? debugger;
   final CodeController? codeEditorController;
 
@@ -94,6 +102,8 @@ class PanelLayout extends StatefulWidget {
     required this.onOpenFile,
     required this.onOpenFolder,
     this.onOpenFolderPath,
+    this.onExplorerPathMoved,
+    this.onExplorerBeforeDelete,
     this.debugger,
     this.codeEditorController,
     this.gitController,
@@ -231,6 +241,8 @@ class PanelLayoutState extends State<PanelLayout> {
                       onOpenFile: widget.onOpenFile,
                       onOpenFolder: widget.onOpenFolder,
                       onOpenPath: widget.onOpenFolderPath,
+                      onPathMoved: widget.onExplorerPathMoved,
+                      onBeforeDelete: widget.onExplorerBeforeDelete,
                     ),
                   ),
                   const SizedBox(width: 2),

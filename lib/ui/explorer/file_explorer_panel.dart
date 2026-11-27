@@ -1,4 +1,5 @@
 import 'package:material_ui/material_ui.dart';
+import 'package:flutter/services.dart';
 
 import '../../models/file_node.dart';
 import '../../services/file_explorer_service.dart';
@@ -6,6 +7,10 @@ import '../../services/theme_service.dart';
 import '../retro/language_logo.dart';
 import '../retro/retro_border.dart';
 import '../retro/retro_button.dart';
+import '../retro/retro_colors.dart';
+import '../retro/retro_confirm_dialog.dart';
+import '../retro/retro_input_dialog.dart';
+import '../shell/retro_menu_item.dart';
 
 /// Height of the empty state's "Open Folder..." button.
 ///
@@ -13,8 +18,26 @@ import '../retro/retro_button.dart';
 /// the panel's only action reads as the main action.
 const double kOpenFolderButtonHeight = 28;
 
+/// Commands of the explorer's right-click menu.
+enum ExplorerAction {
+  open,
+  newFile,
+  newFolder,
+  cut,
+  copy,
+  paste,
+  duplicate,
+  rename,
+  delete,
+  copyPath,
+  copyRelativePath,
+  revealInFinder,
+  refresh,
+}
+
 /// Sunken retro file explorer: lazy tree, single click selects, clicking a
-/// folder opens it, double-clicking a file asks the shell to open it.
+/// folder opens it, double-clicking a file asks the shell to open it, and a
+/// right click opens a menu of file operations (new, rename, delete, …).
 class FileExplorerPanel extends StatefulWidget {
   const FileExplorerPanel({
     super.key,
@@ -23,7 +46,18 @@ class FileExplorerPanel extends StatefulWidget {
     required this.onOpenFile,
     this.onOpenFolder,
     this.onOpenPath,
+    this.onPathMoved,
+    this.onBeforeDelete,
   });
+
+  /// An entry was renamed or moved on disk (Rename, Cut + Paste): the shell
+  /// points the open tabs at the new path.
+  final void Function(String from, String to)? onPathMoved;
+
+  /// Asked before an entry goes to the Trash: the shell closes the tabs of the
+  /// file (or of the files inside the folder), asking about unsaved edits.
+  /// Returning false cancels the delete.
+  final Future<bool> Function(String path)? onBeforeDelete;
 
   final FileExplorerService service;
 
@@ -221,6 +255,8 @@ class _FileExplorerPanelState extends State<FileExplorerPanel> {
                     onDoubleTap: row.node.isDirectory
                         ? null
                         : () => widget.onOpenFile(row.node.path),
+                    onContextMenu: (position) =>
+                        _showContextMenu(row.node, position),
                   );
                 },
               ),
@@ -256,6 +292,215 @@ class _FileExplorerPanelState extends State<FileExplorerPanel> {
     if (node.isDirectory) {
       widget.service.toggleFolder(node);
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Right-click menu
+  // ---------------------------------------------------------------------------
+
+  /// Rows of the menu for [node]; built when the menu opens, so Paste reflects
+  /// the clipboard right now.
+  List<PopupMenuEntry<ExplorerAction>> _menuEntries(FileNode node) {
+    final isRoot = node.path == widget.service.rootPath;
+    final isFolder = node.isDirectory;
+    RetroMenuItem<ExplorerAction> item(
+      ExplorerAction value,
+      String label, {
+      bool enabled = true,
+    }) => RetroMenuItem<ExplorerAction>(
+      key: ValueKey<String>('explorer-menu-${value.name}'),
+      value: value,
+      label: label,
+      enabled: enabled,
+    );
+    const separator = RetroMenuSeparator<ExplorerAction>();
+
+    return <PopupMenuEntry<ExplorerAction>>[
+      if (isFolder) ...[
+        item(ExplorerAction.newFile, 'New File...'),
+        item(ExplorerAction.newFolder, 'New Folder...'),
+      ] else
+        item(ExplorerAction.open, 'Open'),
+      separator,
+      if (!isRoot) item(ExplorerAction.cut, 'Cut'),
+      item(ExplorerAction.copy, 'Copy'),
+      item(ExplorerAction.paste, 'Paste', enabled: widget.service.hasClipboard),
+      if (!isRoot) item(ExplorerAction.duplicate, 'Duplicate'),
+      if (!isRoot) ...[
+        separator,
+        item(ExplorerAction.rename, 'Rename...'),
+        item(ExplorerAction.delete, 'Move to Trash'),
+      ],
+      separator,
+      item(ExplorerAction.copyPath, 'Copy Path'),
+      if (!isRoot) item(ExplorerAction.copyRelativePath, 'Copy Relative Path'),
+      item(ExplorerAction.revealInFinder, 'Reveal in Finder'),
+      if (isFolder) ...[separator, item(ExplorerAction.refresh, 'Refresh')],
+    ];
+  }
+
+  Future<void> _showContextMenu(FileNode node, Offset position) async {
+    if (node.isTruncationNotice) return;
+    setState(() => _selectedPath = node.path);
+
+    final built = _menuEntries(node);
+    final rows = built.whereType<RetroMenuItem<ExplorerAction>>().toList(
+      growable: false,
+    );
+    // One measured width for every row, as in the menu bar's dropdowns.
+    final rowWidth = RetroMenuMetrics.menuWidth(
+      rows.map((row) => row.label),
+      0,
+    );
+    final overlay =
+        Overlay.of(context).context.findRenderObject()! as RenderBox;
+    final action = await showMenu<ExplorerAction>(
+      context: context,
+      position: RelativeRect.fromRect(
+        position & const Size(1, 1),
+        Offset.zero & overlay.size,
+      ),
+      items: built
+          .map(
+            (entry) => entry is RetroMenuItem<ExplorerAction>
+                ? entry.withMetrics(rowWidth: rowWidth, shortcutColumnWidth: 0)
+                : entry,
+          )
+          .toList(growable: false),
+      color: RetroColors.panel,
+      elevation: 0,
+      shape: const RetroPopupShape(),
+      menuPadding: const EdgeInsets.symmetric(vertical: 2),
+      constraints: const BoxConstraints(
+        minWidth: RetroMenuMetrics.minMenuWidth,
+        maxWidth: RetroMenuMetrics.maxMenuWidth,
+      ),
+    );
+    if (action == null || !mounted) return;
+    await _run(action, node);
+  }
+
+  /// Runs one menu command; any failure is shown to the user.
+  Future<void> _run(ExplorerAction action, FileNode node) async {
+    final service = widget.service;
+    final path = node.path;
+    // New items and pasted items go into the folder itself, or next to a file.
+    final targetFolder = node.isDirectory
+        ? path
+        : FileExplorerService.parentOf(path);
+    try {
+      switch (action) {
+        case ExplorerAction.open:
+          widget.onOpenFile(path);
+        case ExplorerAction.newFile:
+          final name = await _askName(
+            title: 'New File',
+            label: 'File name:',
+            folder: targetFolder,
+          );
+          if (name == null) return;
+          final created = await service.createFile(targetFolder, name);
+          _select(created);
+          widget.onOpenFile(created);
+        case ExplorerAction.newFolder:
+          final name = await _askName(
+            title: 'New Folder',
+            label: 'Folder name:',
+            folder: targetFolder,
+          );
+          if (name == null) return;
+          _select(await service.createFolder(targetFolder, name));
+        case ExplorerAction.cut:
+          service.cutToClipboard(path);
+        case ExplorerAction.copy:
+          service.copyToClipboard(path);
+        case ExplorerAction.paste:
+          final result = await service.paste(targetFolder);
+          if (result == null) return;
+          if (result.moved) widget.onPathMoved?.call(result.from, result.to);
+          _select(result.to);
+        case ExplorerAction.duplicate:
+          _select(await service.duplicate(path));
+        case ExplorerAction.rename:
+          final folder = FileExplorerService.parentOf(path);
+          final name = await _askName(
+            title: node.isDirectory ? 'Rename Folder' : 'Rename File',
+            label: 'New name:',
+            folder: folder,
+            initialValue: node.name,
+            currentName: node.name,
+            okLabel: 'Rename',
+          );
+          if (name == null || name == node.name) return;
+          final renamed = await service.rename(path, name);
+          widget.onPathMoved?.call(path, renamed);
+          _select(renamed);
+        case ExplorerAction.delete:
+          await _moveToTrash(node);
+        case ExplorerAction.copyPath:
+          await Clipboard.setData(ClipboardData(text: path));
+        case ExplorerAction.copyRelativePath:
+          await Clipboard.setData(
+            ClipboardData(text: service.relativePath(path)),
+          );
+        case ExplorerAction.revealInFinder:
+          await service.revealInFinder(path);
+        case ExplorerAction.refresh:
+          await service.refresh();
+      }
+    } on FileOperationException catch (error) {
+      _showError(error.message);
+    }
+  }
+
+  Future<void> _moveToTrash(FileNode node) async {
+    final confirmed = await showRetroConfirmDialog(
+      context,
+      message: node.isDirectory
+          ? 'Move the folder "${node.name}" and its contents to the Trash?'
+          : 'Move "${node.name}" to the Trash?',
+      detail: 'You can restore it from the Trash in Finder.',
+      confirmLabel: 'Move to Trash',
+    );
+    if (!confirmed || !mounted) return;
+    final canDelete = await widget.onBeforeDelete?.call(node.path) ?? true;
+    if (!canDelete || !mounted) return;
+    await widget.service.moveToTrash(node.path);
+    if (_selectedPath == node.path) setState(() => _selectedPath = null);
+  }
+
+  Future<String?> _askName({
+    required String title,
+    required String label,
+    required String folder,
+    String initialValue = '',
+    String? currentName,
+    String okLabel = 'OK',
+  }) {
+    return showRetroInputDialog(
+      context,
+      title: title,
+      label: label,
+      initialValue: initialValue,
+      okLabel: okLabel,
+      selectBaseName: currentName != null,
+      validator: (value) =>
+          widget.service.nameError(folder, value, currentName: currentName),
+    );
+  }
+
+  void _select(String path) {
+    if (mounted) setState(() => _selectedPath = path);
+  }
+
+  void _showError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      SnackBar(
+        content: Text(message, style: const TextStyle(fontSize: 13)),
+        duration: const Duration(seconds: 4),
+      ),
+    );
   }
 }
 
@@ -363,6 +608,7 @@ class _FileTreeRow extends StatelessWidget {
     required this.isSelected,
     required this.onTap,
     required this.onDoubleTap,
+    required this.onContextMenu,
   });
 
   final FileNode node;
@@ -371,6 +617,9 @@ class _FileTreeRow extends StatelessWidget {
   final bool isSelected;
   final VoidCallback onTap;
   final VoidCallback? onDoubleTap;
+
+  /// Right click, with the pointer's global position.
+  final ValueChanged<Offset> onContextMenu;
 
   @override
   Widget build(BuildContext context) {
@@ -386,6 +635,7 @@ class _FileTreeRow extends StatelessWidget {
       behavior: HitTestBehavior.opaque,
       onTap: onTap,
       onDoubleTap: onDoubleTap,
+      onSecondaryTapUp: (details) => onContextMenu(details.globalPosition),
       child: Container(
         height: 24,
         color: background,

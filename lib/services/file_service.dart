@@ -171,6 +171,33 @@ class FileService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Indexes of the tabs showing [path] or a file inside the folder [path].
+  List<int> tabIndexesUnder(String path) => <int>[
+    for (var i = 0; i < _openTabs.length; i++)
+      if (_isUnder(_openTabs[i].filePath, path)) i,
+  ];
+
+  static bool _isUnder(String? filePath, String path) =>
+      filePath != null &&
+      (filePath == path ||
+          filePath.startsWith('$path${Platform.pathSeparator}'));
+
+  /// Points every tab of [from] (a file, or any file inside the folder
+  /// [from]) at its new place under [to], keeping unsaved edits.
+  ///
+  /// Called after the explorer renamed or moved an entry on disk.
+  void retargetTabs(String from, String to) {
+    var changed = false;
+    for (var i = 0; i < _openTabs.length; i++) {
+      final tab = _openTabs[i];
+      final path = tab.filePath;
+      if (!_isUnder(path, from)) continue;
+      _openTabs[i] = tab.movedTo('$to${path!.substring(from.length)}');
+      changed = true;
+    }
+    if (changed) notifyListeners();
+  }
+
   void switchTab(int index) {
     if (index >= 0 && index < _openTabs.length && index != _activeTabIndex) {
       _activeTabIndex = index;

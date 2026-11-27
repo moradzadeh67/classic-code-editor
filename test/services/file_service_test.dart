@@ -17,6 +17,30 @@ void main() {
       expect(fileService.fileContent, '');
     });
 
+    test('retargetTabs follows a rename and keeps unsaved edits', () {
+      fileService.openFilePath('/p/src/a.dart', 'a');
+      fileService.openFilePath('/p/src/sub/b.dart', 'b');
+      fileService.openFilePath('/p/srcx/c.dart', 'c');
+      fileService.switchTab(0);
+      fileService.updateContent('a edited');
+
+      expect(fileService.tabIndexesUnder('/p/src'), [0, 1]);
+      fileService.retargetTabs('/p/src', '/p/source');
+
+      final paths = fileService.openTabs.map((t) => t.filePath).toList();
+      expect(paths, [
+        '/p/source/a.dart',
+        '/p/source/sub/b.dart',
+        '/p/srcx/c.dart',
+      ]);
+      expect(fileService.openTabs[0].isModified, isTrue);
+      expect(fileService.openTabs[0].content, 'a edited');
+      expect(fileService.openTabs[1].isModified, isFalse);
+
+      fileService.retargetTabs('/p/source/a.dart', '/p/source/z.dart');
+      expect(fileService.openTabs[0].fileName, 'z.dart');
+    });
+
     test('createNewFile creates an untitled tab', () {
       fileService.createNewFile();
 

@@ -23,6 +23,90 @@ Future<RetroSaveChoice> showRetroUnsavedDialog(
   return choice ?? RetroSaveChoice.cancel;
 }
 
+/// Shows a retro yes/no prompt: [message], then [confirmLabel] and Cancel.
+///
+/// Returns true only for [confirmLabel]; Cancel and Escape return false.
+Future<bool> showRetroConfirmDialog(
+  BuildContext context, {
+  required String message,
+  String? detail,
+  String confirmLabel = 'OK',
+}) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => _RetroConfirmDialog(
+      message: message,
+      detail: detail,
+      confirmLabel: confirmLabel,
+    ),
+  );
+  return confirmed ?? false;
+}
+
+class _RetroConfirmDialog extends StatelessWidget {
+  const _RetroConfirmDialog({
+    required this.message,
+    required this.detail,
+    required this.confirmLabel,
+  });
+
+  final String message;
+  final String? detail;
+  final String confirmLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    // Rule 8: colors come from the live theme, so nothing here is const.
+    final colors = ThemeService.instance.colors;
+    final textStyle = TextStyle(
+      fontFamily: 'Arial',
+      fontSize: 12,
+      height: 1.2,
+      color: colors.text,
+    );
+
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      elevation: 0,
+      insetPadding: const EdgeInsets.all(24),
+      child: SizedBox(
+        width: 340,
+        child: Container(
+          decoration: RetroBorder.raised(backgroundColor: colors.panel),
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(message, style: textStyle),
+              if (detail != null) ...[
+                const SizedBox(height: 6),
+                Text(detail!, style: textStyle.copyWith(color: colors.shadow)),
+              ],
+              const SizedBox(height: 14),
+              Wrap(
+                alignment: WrapAlignment.end,
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  RetroButton(
+                    onPressed: () => Navigator.of(context).pop<bool>(true),
+                    child: Text(confirmLabel, style: textStyle),
+                  ),
+                  RetroButton(
+                    onPressed: () => Navigator.of(context).pop<bool>(false),
+                    child: Text('Cancel', style: textStyle),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _RetroUnsavedDialog extends StatelessWidget {
   const _RetroUnsavedDialog({required this.fileName});
 

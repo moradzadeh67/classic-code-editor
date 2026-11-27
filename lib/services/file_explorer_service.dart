@@ -6,13 +6,79 @@ import 'package:flutter/foundation.dart';
 
 import '../models/file_node.dart';
 
+/// Moves one file or folder to the macOS Trash. Throws
+/// [FileOperationException] when it could not.
+typedef TrashMover = Future<void> Function(String path);
+
+/// A file operation from the explorer's context menu failed.
+///
+/// [message] is written for the user (it is shown as-is in the panel).
+class FileOperationException implements Exception {
+  const FileOperationException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
+/// Whether the explorer clipboard holds a copied or a cut entry.
+enum ExplorerClipboardMode { copy, cut }
+
+/// Where a pasted entry came from and where it ended up.
+class ExplorerPasteResult {
+  const ExplorerPasteResult({
+    required this.from,
+    required this.to,
+    required this.moved,
+  });
+
+  final String from;
+  final String to;
+
+  /// True for a Cut + Paste (the source is gone), false for a copy.
+  final bool moved;
+}
+
 /// Reads the folder the explorer shows, one level at a time.
 ///
 /// The whole tree is never walked up front: a directory's [FileNode.children]
 /// are read the first time it is expanded, so a big repository costs only the
 /// levels the user actually opened.
 class FileExplorerService extends ChangeNotifier {
-  FileExplorerService({this.maxEntries = 2000});
+  FileExplorerService({this.maxEntries = 2000, TrashMover? moveToTrash})
+    : _moveToTrash = moveToTrash ?? _trashWithSystemCommand;
+
+  /// How Delete removes an entry. Injectable so tests never touch the real
+  /// Trash.
+  final TrashMover _moveToTrash;
+
+  /// macOS' own `trash` tool (moves to the Trash, keeps "Put Back" working).
+  static const String trashCommand = '/usr/bin/trash';
+
+  static Future<void> _trashWithSystemCommand(String path) async {
+    final name = _nameOf(path);
+    if (!File(trashCommand).existsSync()) {
+      throw const FileOperationException(
+        'Move to Trash is not available: $trashCommand was not found.',
+      );
+    }
+    final ProcessResult result;
+    try {
+      result = await Process.run(trashCommand, <String>[path]);
+    } on ProcessException catch (error) {
+      throw FileOperationException(
+        'Could not move "$name" to the Trash: ${error.message}',
+      );
+    }
+    if (result.exitCode != 0) {
+      final detail = '${result.stderr}'.trim();
+      throw FileOperationException(
+        'Could not move "$name" to the Trash'
+        '${detail.isEmpty ? '' : ': $detail'}',
+      );
+    }
+  }
 
   /// Maximum entries listed for one directory. Anything past it is summarised
   /// by a "… N more not shown" row.
@@ -218,6 +284,338 @@ class FileExplorerService extends ChangeNotifier {
     }
 
     await walk(_root!);
+  }
+
+  // ---------------------------------------------------------------------------
+  // File operations (the explorer's context menu)
+  //
+  // Synchronous I/O inside, for the same reason as [_readDirectory]. Every
+  // failure is a [FileOperationException] with a message for the user; every
+  // success re-reads the tree.
+  // ---------------------------------------------------------------------------
+
+  ExplorerClipboardMode? _clipboardMode;
+  String? _clipboardPath;
+
+  /// Whether Paste has something to paste.
+  bool get hasClipboard => _clipboardPath != null;
+
+  /// The entry waiting to be pasted (null when the clipboard is empty).
+  String? get clipboardPath => _clipboardPath;
+
+  /// Copy or Cut, for the entry in [clipboardPath].
+  ExplorerClipboardMode? get clipboardMode => _clipboardMode;
+
+  /// Last path segment of [path].
+  static String _nameOf(String path) => path.split(Platform.pathSeparator).last;
+
+  /// Folder that holds [path].
+  static String parentOf(String path) => File(path).parent.path;
+
+  static String _join(String directory, String name) =>
+      '$directory${Platform.pathSeparator}$name';
+
+  static bool _exists(String path) =>
+      FileSystemEntity.typeSync(path, followLinks: false) !=
+      FileSystemEntityType.notFound;
+
+  /// [path] relative to the open folder (the path itself when outside it).
+  String relativePath(String path) {
+    final root = _rootPath;
+    if (root == null || !contains(path)) return path;
+    if (path == root) return '.';
+    return path.substring(root.length + 1);
+  }
+
+  /// Why [name] cannot be used in [directory], or null when it can.
+  ///
+  /// [currentName] is the entry being renamed: keeping it, or changing only
+  /// its letter case, is not a clash.
+  String? nameError(String directory, String name, {String? currentName}) {
+    if (name.trim().isEmpty) return 'Please enter a name.';
+    if (name != name.trim()) {
+      return 'A name cannot start or end with a space.';
+    }
+    if (name.contains('/')) return 'A name cannot contain "/".';
+    if (name == '.' || name == '..') return '"$name" is not a valid name.';
+    final sameEntry =
+        currentName != null && currentName.toLowerCase() == name.toLowerCase();
+    if (!sameEntry && _exists(_join(directory, name))) {
+      return '"$name" already exists in this folder.';
+    }
+    return null;
+  }
+
+  void _checkName(String directory, String name, {String? currentName}) {
+    final error = nameError(directory, name, currentName: currentName);
+    if (error != null) throw FileOperationException(error);
+  }
+
+  void _checkNotRoot(String path, String action) {
+    if (path == _rootPath) {
+      throw FileOperationException('The open folder itself cannot be $action.');
+    }
+  }
+
+  /// Re-reads the tree and opens the folders leading to [path].
+  Future<void> _refreshAndReveal(String? path) async {
+    await refresh();
+    if (path != null) await revealFile(path);
+  }
+
+  /// Creates an empty file called [name] in [directory]; returns its path.
+  Future<String> createFile(String directory, String name) async {
+    _checkName(directory, name);
+    final path = _join(directory, name);
+    try {
+      File(path).createSync();
+    } on FileSystemException catch (error) {
+      throw FileOperationException(
+        'Could not create "$name": ${error.osError?.message ?? error.message}',
+      );
+    }
+    await _refreshAndReveal(path);
+    return path;
+  }
+
+  /// Creates a folder called [name] in [directory]; returns its path.
+  Future<String> createFolder(String directory, String name) async {
+    _checkName(directory, name);
+    final path = _join(directory, name);
+    try {
+      Directory(path).createSync();
+    } on FileSystemException catch (error) {
+      throw FileOperationException(
+        'Could not create "$name": ${error.osError?.message ?? error.message}',
+      );
+    }
+    await _refreshAndReveal(path);
+    return path;
+  }
+
+  /// Renames [path] to [newName] in the same folder; returns the new path.
+  Future<String> rename(String path, String newName) async {
+    _checkNotRoot(path, 'renamed');
+    final oldName = _nameOf(path);
+    if (newName == oldName) return path;
+    final directory = parentOf(path);
+    _checkName(directory, newName, currentName: oldName);
+    final target = _join(directory, newName);
+    try {
+      _renameEntity(path, target);
+    } on FileSystemException catch (error) {
+      throw FileOperationException(
+        'Could not rename "$oldName": '
+        '${error.osError?.message ?? error.message}',
+      );
+    }
+    _retargetClipboard(path, target);
+    await _refreshAndReveal(target);
+    return target;
+  }
+
+  /// Copies [path] next to itself as "name copy"; returns the copy's path.
+  Future<String> duplicate(String path) async {
+    _checkNotRoot(path, 'duplicated');
+    final directory = parentOf(path);
+    final target = _join(directory, uniqueCopyName(directory, _nameOf(path)));
+    try {
+      _copyEntity(path, target);
+    } on FileSystemException catch (error) {
+      throw FileOperationException(
+        'Could not duplicate "${_nameOf(path)}": '
+        '${error.osError?.message ?? error.message}',
+      );
+    }
+    await _refreshAndReveal(target);
+    return target;
+  }
+
+  /// Moves [path] to the Trash (recoverable with Finder's "Put Back").
+  Future<void> moveToTrash(String path) async {
+    _checkNotRoot(path, 'deleted');
+    await _moveToTrash(path);
+    if (_clipboardPath != null &&
+        (_clipboardPath == path ||
+            _clipboardPath!.startsWith('$path${Platform.pathSeparator}'))) {
+      clearClipboard();
+    }
+    await refresh();
+  }
+
+  /// Puts [path] on the explorer clipboard for a later copy.
+  void copyToClipboard(String path) =>
+      _setClipboard(path, ExplorerClipboardMode.copy);
+
+  /// Puts [path] on the explorer clipboard for a later move.
+  void cutToClipboard(String path) {
+    _checkNotRoot(path, 'moved');
+    _setClipboard(path, ExplorerClipboardMode.cut);
+  }
+
+  /// Empties the explorer clipboard.
+  void clearClipboard() {
+    if (_clipboardPath == null) return;
+    _clipboardPath = null;
+    _clipboardMode = null;
+    notifyListeners();
+  }
+
+  void _setClipboard(String path, ExplorerClipboardMode mode) {
+    _clipboardPath = path;
+    _clipboardMode = mode;
+    notifyListeners();
+  }
+
+  /// Keeps a clipboard entry valid after it (or a folder above it) was
+  /// renamed or moved.
+  void _retargetClipboard(String from, String to) {
+    final clip = _clipboardPath;
+    if (clip == null) return;
+    if (clip == from) {
+      _clipboardPath = to;
+    } else if (clip.startsWith('$from${Platform.pathSeparator}')) {
+      _clipboardPath = '$to${clip.substring(from.length)}';
+    }
+  }
+
+  /// Pastes the clipboard entry into [directory].
+  ///
+  /// A copy that would clash gets a free "name copy" name. A cut entry is
+  /// moved (and the clipboard emptied); moving it into the folder it is
+  /// already in does nothing and returns null.
+  Future<ExplorerPasteResult?> paste(String directory) async {
+    final source = _clipboardPath;
+    final mode = _clipboardMode;
+    if (source == null || mode == null) return null;
+    final name = _nameOf(source);
+    if (!_exists(source)) {
+      clearClipboard();
+      throw FileOperationException('"$name" no longer exists.');
+    }
+    if (directory == source ||
+        directory.startsWith('$source${Platform.pathSeparator}')) {
+      throw FileOperationException(
+        'Cannot paste the folder "$name" inside itself.',
+      );
+    }
+
+    final moved = mode == ExplorerClipboardMode.cut;
+    if (moved && parentOf(source) == directory) {
+      clearClipboard();
+      return null;
+    }
+    final String target;
+    if (moved) {
+      _checkName(directory, name);
+      target = _join(directory, name);
+    } else {
+      // Keep the name when it is free; only a clash gets "name copy".
+      final free = !_exists(_join(directory, name));
+      target = _join(directory, free ? name : uniqueCopyName(directory, name));
+    }
+
+    try {
+      if (moved) {
+        _renameEntity(source, target);
+      } else {
+        _copyEntity(source, target);
+      }
+    } on FileSystemException catch (error) {
+      throw FileOperationException(
+        'Could not paste "$name": ${error.osError?.message ?? error.message}',
+      );
+    }
+    if (moved) {
+      _clipboardPath = null;
+      _clipboardMode = null;
+    }
+    await _refreshAndReveal(target);
+    return ExplorerPasteResult(from: source, to: target, moved: moved);
+  }
+
+  /// First free name for a copy of [name] in [directory]: `name copy.ext`,
+  /// then `name copy 2.ext`, `name copy 3.ext`, …
+  String uniqueCopyName(String directory, String name) {
+    final dot = name.lastIndexOf('.');
+    // A leading dot (".env") is part of the name, not an extension.
+    final hasExtension = dot > 0;
+    final base = hasExtension ? name.substring(0, dot) : name;
+    final extension = hasExtension ? name.substring(dot) : '';
+    var candidate = '$base copy$extension';
+    var counter = 2;
+    while (_exists(_join(directory, candidate))) {
+      candidate = '$base copy $counter$extension';
+      counter++;
+    }
+    return candidate;
+  }
+
+  /// Shows [path] selected in a Finder window.
+  Future<void> revealInFinder(String path) async {
+    final ProcessResult result;
+    try {
+      result = await Process.run('open', <String>['-R', path]);
+    } on ProcessException catch (error) {
+      throw FileOperationException('Could not open Finder: ${error.message}');
+    }
+    if (result.exitCode != 0) {
+      final detail = '${result.stderr}'.trim();
+      throw FileOperationException(
+        'Could not open Finder${detail.isEmpty ? '' : ': $detail'}',
+      );
+    }
+  }
+
+  /// Renames [from] to [to]; across volumes (where rename fails) it copies
+  /// and then removes the source.
+  void _renameEntity(String from, String to) {
+    final type = FileSystemEntity.typeSync(from, followLinks: false);
+    try {
+      switch (type) {
+        case FileSystemEntityType.directory:
+          Directory(from).renameSync(to);
+        case FileSystemEntityType.link:
+          Link(from).renameSync(to);
+        default:
+          File(from).renameSync(to);
+      }
+    } on FileSystemException catch (error) {
+      // EXDEV (18): a different volume. Anything else is a real failure.
+      if (error.osError?.errorCode != 18) rethrow;
+      _copyEntity(from, to);
+      _deleteEntity(from);
+    }
+  }
+
+  /// Copies a file, a link (as a link) or a whole folder from [from] to [to].
+  void _copyEntity(String from, String to) {
+    switch (FileSystemEntity.typeSync(from, followLinks: false)) {
+      case FileSystemEntityType.directory:
+        Directory(to).createSync();
+        for (final child in Directory(from).listSync(followLinks: false)) {
+          _copyEntity(child.path, _join(to, _nameOf(child.path)));
+        }
+      case FileSystemEntityType.link:
+        Link(to).createSync(Link(from).targetSync());
+      case FileSystemEntityType.notFound:
+        throw FileSystemException('No such file or directory', from);
+      default:
+        File(from).copySync(to);
+    }
+  }
+
+  void _deleteEntity(String path) {
+    switch (FileSystemEntity.typeSync(path, followLinks: false)) {
+      case FileSystemEntityType.directory:
+        Directory(path).deleteSync(recursive: true);
+      case FileSystemEntityType.link:
+        Link(path).deleteSync();
+      case FileSystemEntityType.notFound:
+        return;
+      default:
+        File(path).deleteSync();
+    }
   }
 
   /// Reads one directory: sorted, filtered, capped, and never throwing.

@@ -390,6 +390,30 @@ class _IDEShellState extends State<IDEShell> {
     _fileService.restoreFile(path, content);
   }
 
+  /// The explorer renamed or moved [from] to [to]: open tabs follow the file.
+  void _handleExplorerPathMoved(String from, String to) {
+    _fileService.retargetTabs(from, to);
+    _gitController.refresh();
+  }
+
+  /// The explorer is about to trash [path]: close its tabs first (asking about
+  /// unsaved edits). Returns false when the user cancelled one of them.
+  Future<bool> _handleExplorerBeforeDelete(String path) async {
+    // Close from the last tab down, so the remaining indexes stay valid.
+    final indexes = _fileService.tabIndexesUnder(path).reversed;
+    for (final index in indexes) {
+      if (!mounted) return false;
+      final closed = await TabCloseGuard.confirmClose(
+        context,
+        fileService: _fileService,
+        index: index,
+      );
+      if (!closed) return false;
+    }
+    _gitController.refresh();
+    return true;
+  }
+
   Future<void> _handleNewFile() async {
     _fileService.createNewFile();
   }
@@ -680,6 +704,8 @@ class _IDEShellState extends State<IDEShell> {
                       onOpenFolder: () => unawaited(_handleOpenFolder()),
                       onOpenFolderPath: (path) =>
                           unawaited(_handleOpenFolderPath(path)),
+                      onExplorerPathMoved: _handleExplorerPathMoved,
+                      onExplorerBeforeDelete: _handleExplorerBeforeDelete,
                       debugger: _debuggerManager.activeDebugger,
                       codeEditorController: _codeController,
                       editorKey: _editorKey,

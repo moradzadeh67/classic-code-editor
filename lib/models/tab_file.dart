@@ -17,9 +17,21 @@ class TabFile {
     required this.fileName,
     required this.content,
     this.languageOverride = 'Auto',
-  }) : originalContent = content;
+    String? originalContent,
+  }) : originalContent = originalContent ?? content;
 
   bool get isModified => content != originalContent;
 
   String get displayName => isModified ? '$fileName *' : fileName;
+
+  /// The same tab after its file was renamed or moved to [path].
+  ///
+  /// Unsaved edits stay unsaved: [originalContent] is carried over.
+  TabFile movedTo(String path) => TabFile(
+    filePath: path,
+    fileName: path.split('/').last,
+    content: content,
+    languageOverride: languageOverride,
+    originalContent: originalContent,
+  );
 }
