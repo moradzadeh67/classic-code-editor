@@ -147,6 +147,9 @@ file with its status letter and its own `Stage` button, and a commit box whose f
 - **4 Classic Themes:** VC++ 6.0 (gray), Borland Delphi (beige), Visual Basic 6.0,
   Turbo Pascal 7.0 (DOS navy desktop with gray 3D dialogs)
 - **3D Raised/Sunken Borders:** Authentic Windows 95/98 look — no rounded corners
+- **Toolbar:** New, Open, Save, Analyze | Cut, Copy, Paste | Undo, Redo | Run (green),
+  Stop (red) | Debug (cockroach icon) | theme selector. Buttons are always raised and
+  sink only while pressed
 - **Theme Persistence:** Your theme choice is saved across restarts
 - **Retro Panels:** Console, Terminal, Diagnostics, Debugger, Variables, Breakpoints
 
@@ -170,6 +173,11 @@ file with its status letter and its own `Stage` button, and a commit box whose f
   in the tree; a folder you closed with *File > Close Folder* is not re-opened
 - **Refresh button** plus an automatic re-read after a save; the folder is
   remembered across restarts
+- **Right-click menu:** New File, New Folder, Cut, Copy, Paste, Duplicate, Rename,
+  Move to Trash, Copy Path, Copy Relative Path, Reveal in Finder, Refresh
+- **Move to Trash:** deletes go to the macOS Trash (via `/usr/bin/trash`) and close
+  the file's tabs, asking about unsaved edits first; renamed or moved files keep
+  their open tabs
 - **Safe opening:** files over 2 MB or containing a NUL byte in their first 4 KB
   are refused with one line in the Console
 
@@ -281,6 +289,9 @@ file with its status letter and its own `Stage` button, and a commit box whose f
 - `Cmd+L` — Go to line
 - `Cmd+/` — Toggle line comment
 - `Cmd+Shift+D` — Duplicate line
+- `Ctrl+D` — Duplicate line (all languages)
+- `J` + `K` pressed together — Go to end of line and add `;` (Dart, C, C++ only)
+- `Cmd+X` / `Cmd+C` / `Cmd+V` — Cut / Copy / Paste
 - `Cmd+` / `Cmd-` / `Cmd0` — Editor font size (increase / decrease / reset)
 - `↑` / `↓` — Navigate autocomplete
 - `Enter` / `Tab` — Accept autocomplete
