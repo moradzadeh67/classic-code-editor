@@ -313,7 +313,7 @@ class _RetroAboutDialogWidgetState extends State<_RetroAboutDialogWidget> {
       'Edit',
       [
         ('Cmd + Z', 'Undo'),
-        ('Cmd + Y', 'Redo (also Cmd + Shift + Z)'),
+        ('Cmd + Y', 'Redo'),
         ('Cmd + X', 'Cut'),
         ('Cmd + C', 'Copy'),
         ('Cmd + V', 'Paste'),

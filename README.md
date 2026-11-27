@@ -294,7 +294,8 @@ file with its status letter and its own `Stage` button, and a commit box whose f
 - `Cmd+X` / `Cmd+C` / `Cmd+V` — Cut / Copy / Paste
 - `Cmd+` / `Cmd-` / `Cmd0` — Editor font size (increase / decrease / reset)
 - `↑` / `↓` — Navigate autocomplete
-- `Enter` / `Tab` — Accept autocomplete
+- `Enter` — Accept autocomplete (`Tab` / `Shift+Tab` move the highlight)
+- `Tab` / `Shift+Tab` — Indent / outdent line or selection
 - `Esc` — Dismiss autocomplete
 - `Ctrl+Shift+Space` — Trigger Completion (manual autocomplete). `Ctrl+Space` also works, but macOS may use it to switch keyboard input sources.
 
