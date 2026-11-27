@@ -299,6 +299,15 @@ file with its status letter and its own `Stage` button, and a commit box whose f
 - `Esc` — Dismiss autocomplete
 - `Ctrl+Shift+Space` — Trigger Completion (manual autocomplete). `Ctrl+Space` also works, but macOS may use it to switch keyboard input sources.
 
+> **Test coverage:** Automated tests cover the toolbar Cut / Copy / Paste / Undo / Redo buttons and their
+> raised / sunken press state, the explorer right-click menu (menu items, Rename, Move to Trash, New File),
+> `Ctrl+D`, `J` + `K` (Dart, C, C++ only; not when typed one after the other; not in Python), `Tab` /
+> `Shift+Tab` indent and popup navigation, `Enter` / `Esc` / `↑` / `↓` in autocomplete, the font zoom key
+> mapping, and `Cmd+Enter` to commit in Source Control. The key bindings handled by the IDE shell (`Cmd+S`,
+> `Cmd+N`, `Cmd+O`, `Cmd+Shift+O`, `Cmd+W`, `F5`, `Cmd+Shift+S`, `Cmd+Y`, `Cmd+L`, `Cmd+/`, `Cmd+Shift+D`,
+> `Ctrl+Space`) and the Flutter default `Cmd+Z` / `Cmd+X` / `Cmd+C` / `Cmd+V` keys work but are not covered
+> by automated tests (their toolbar and menu paths are). `Cmd+Shift+Z` is not bound by the app.
+
 > `Cmd+Q` is left to macOS: like every Mac app it terminates the app. Modified buffers are protected
 > when closing a *tab*; quitting with unsaved tabs is the user's call.
 
